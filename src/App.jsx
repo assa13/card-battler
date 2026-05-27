@@ -13,6 +13,12 @@ const RARITIES = {
   LEGENDARY: { name: 'Легендарная', border: 'border-amber-400', header: 'bg-[#8a6b3b]', text: 'text-amber-400', badgeBg: 'bg-amber-500' }
 };
 
+const RARITY_ORDER = ['COMMON', 'RARE', 'EPIC', 'LEGENDARY'];
+const getNextRarity = (rarity) => {
+  const idx = RARITY_ORDER.indexOf(rarity);
+  return (idx >= 0 && idx < RARITY_ORDER.length - 1) ? RARITY_ORDER[idx + 1] : null;
+};
+
 const INITIAL_PLAYERS_DATA = [
   { id: 'p1', name: 'Воин', hp: 50, maxHp: 50, str: 15, agi: 5, int: 2, icon: '🛡️', bg: 'bg-blue-900', currentCard: null, hasActed: false },
   { id: 'p2', name: 'Разбойник', hp: 35, maxHp: 35, str: 6, agi: 18, int: 4, icon: '🗡️', bg: 'bg-green-900', currentCard: null, hasActed: false },
@@ -92,6 +98,51 @@ const ENEMY_INSULTS = [
 ];
 
 const shuffleArray = (array) => [...array].sort(() => Math.random() - 0.5);
+
+// Проверяет колоду на пары одинаковых карт одного ранга и сливает их, повышая редкость
+const checkAndMerge = (deck) => {
+  const allMerges = [];
+  let currentDeck = [...deck];
+  let foundMerge = true;
+
+  while (foundMerge) {
+    foundMerge = false;
+    const groups = {};
+    currentDeck.forEach((card, idx) => {
+      const key = `${card.name}__${card.rarity}`;
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(idx);
+    });
+
+    const toRemove = new Set();
+    const toAdd = [];
+
+    for (const [, indices] of Object.entries(groups)) {
+      const available = indices.filter(i => !toRemove.has(i));
+      if (available.length >= 2) {
+        const nextRarity = getNextRarity(currentDeck[available[0]].rarity);
+        if (nextRarity) {
+          toRemove.add(available[0]);
+          toRemove.add(available[1]);
+          const result = { ...currentDeck[available[0]], rarity: nextRarity, id: `merged_${Date.now()}_${Math.random()}` };
+          toAdd.push(result);
+          allMerges.push({ card1: currentDeck[available[0]], card2: currentDeck[available[1]], result });
+          foundMerge = true;
+        }
+      }
+    }
+
+    if (foundMerge) {
+      currentDeck = currentDeck.filter((_, idx) => !toRemove.has(idx));
+      toAdd.forEach(card => {
+        const pos = Math.floor(Math.random() * (currentDeck.length + 1));
+        currentDeck.splice(pos, 0, card);
+      });
+    }
+  }
+
+  return { newDeck: currentDeck, merges: allMerges };
+};
 
 const getTargetText = (type, priority) => {
   if (type === 'splash') return 'всем врагам.';
@@ -248,23 +299,23 @@ const spawnEnemies = (type, stage) => {
   const s = stage || 1;
   if (type === 'boss') {
     return [
-      { id: `boss_${Date.now()}`, name: 'Лорд Демонов', hp: 300 + s * 50, maxHp: 300 + s * 50, icon: '🐲', isDead: false, xpReward: 200 }
+      { id: `boss_${Date.now()}`, name: 'Лорд Демонов', hp: 300 + s * 50, maxHp: 300 + s * 50, icon: '🐲', isDead: false, xpReward: 400 }
     ];
   } else if (type === 'combat_hard') {
     return [
-      { id: `h1_${Date.now()}`, name: 'Орк-Чемпион', hp: 120 + s * 30, maxHp: 120 + s * 30, icon: '👹', isDead: false, xpReward: 80 },
-      { id: `h2_${Date.now()}`, name: 'Темный Маг', hp: 80 + s * 20, maxHp: 80 + s * 20, icon: '🧙‍♂️', isDead: false, xpReward: 60 },
-      { id: `h3_${Date.now()}`, name: 'Голем', hp: 70 + s * 20, maxHp: 70 + s * 20, icon: '🪨', isDead: false, xpReward: 50 }
+      { id: `h1_${Date.now()}`, name: 'Орк-Чемпион', hp: 120 + s * 30, maxHp: 120 + s * 30, icon: '👹', isDead: false, xpReward: 150 },
+      { id: `h2_${Date.now()}`, name: 'Темный Маг', hp: 80 + s * 20, maxHp: 80 + s * 20, icon: '🧙‍♂️', isDead: false, xpReward: 120 },
+      { id: `h3_${Date.now()}`, name: 'Голем', hp: 70 + s * 20, maxHp: 70 + s * 20, icon: '🪨', isDead: false, xpReward: 100 }
     ];
   } else if (type === 'combat_medium') {
     return [
-      { id: `m1_${Date.now()}`, name: 'Бандит', hp: 60 + s * 15, maxHp: 60 + s * 15, icon: '🥷', isDead: false, xpReward: 40 },
-      { id: `m2_${Date.now()}`, name: 'Арбалетчик', hp: 40 + s * 15, maxHp: 40 + s * 15, icon: '🏹', isDead: false, xpReward: 35 }
+      { id: `m1_${Date.now()}`, name: 'Бандит', hp: 60 + s * 15, maxHp: 60 + s * 15, icon: '🥷', isDead: false, xpReward: 90 },
+      { id: `m2_${Date.now()}`, name: 'Арбалетчик', hp: 40 + s * 15, maxHp: 40 + s * 15, icon: '🏹', isDead: false, xpReward: 70 }
     ];
   } else {
     const enemies = [
-      { id: `e1_${Date.now()}`, name: 'Гоблин', hp: 45 + s * 15, maxHp: 45 + s * 15, icon: '👺', isDead: false, xpReward: 25 },
-      { id: `e2_${Date.now()}`, name: 'Волк', hp: 35 + s * 10, maxHp: 35 + s * 10, icon: '🐺', isDead: false, xpReward: 20 }
+      { id: `e1_${Date.now()}`, name: 'Гоблин', hp: 45 + s * 15, maxHp: 45 + s * 15, icon: '👺', isDead: false, xpReward: 60 },
+      { id: `e2_${Date.now()}`, name: 'Волк', hp: 35 + s * 10, maxHp: 35 + s * 10, icon: '🐺', isDead: false, xpReward: 45 }
     ];
     return shuffleArray(enemies).slice(0, 1 + Math.floor(Math.random() * 2));
   }
@@ -621,6 +672,8 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
 // --- 3. ЗВУКИ ---
 
 const _audioCache = {};
+let _sfxVolume = 1.0; // глобальный множитель громкости SFX
+
 function playSound(path, volume = 1.0) {
   try {
     const cached = _audioCache[path];
@@ -628,7 +681,7 @@ function playSound(path, volume = 1.0) {
     const audio = (cached && !cached.paused) ? new Audio(path) : (cached || new Audio(path));
     if (!cached) _audioCache[path] = audio;
     audio.currentTime = 0;
-    audio.volume = Math.min(1, Math.max(0, volume));
+    audio.volume = Math.min(1, Math.max(0, volume * _sfxVolume));
     audio.play().catch(() => {});
   } catch (_) {}
 }
@@ -644,6 +697,99 @@ function getCombatHitSound(vfxType) {
   return '/assets/sfx/combat/hit_light.wav';
 }
 
+// --- АНИМАЦИЯ СЛИЯНИЯ КАРТ ---
+
+const MergeAnimation = ({ mergeQueue, players, maxMana, onComplete }) => {
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const [phase, setPhase] = useState('show'); // show | merge | result
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
+
+  useEffect(() => {
+    setPhase('show');
+    const t1 = setTimeout(() => setPhase('merge'), 1000);
+    const t2 = setTimeout(() => setPhase('result'), 1600);
+    const t3 = setTimeout(() => {
+      if (currentIdx < mergeQueue.length - 1) {
+        setCurrentIdx(i => i + 1);
+      } else {
+        onCompleteRef.current();
+      }
+    }, 3000);
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
+  }, [currentIdx, mergeQueue.length]);
+
+  const current = mergeQueue[currentIdx];
+  if (!current) return null;
+
+  const owner = players.find(p => p.id === current.result.ownerId);
+  const glowColors = { COMMON: '#64748b', RARE: '#0ea5e9', EPIC: '#9333ea', LEGENDARY: '#f59e0b' };
+  const glow = glowColors[current.result.rarity] || '#ffffff';
+
+  return (
+    <div className="absolute inset-0 z-[2600] bg-black/92 flex flex-col items-center justify-center backdrop-blur-xl animate-in fade-in duration-300">
+      <div className="text-center mb-8">
+        <h2 className="text-5xl font-black text-amber-400 uppercase tracking-widest drop-shadow-2xl">⚗️ СЛИЯНИЕ!</h2>
+        {mergeQueue.length > 1 && (
+          <p className="text-slate-500 text-xs uppercase tracking-widest mt-2">{currentIdx + 1} из {mergeQueue.length}</p>
+        )}
+      </div>
+
+      <div className="relative flex items-center justify-center" style={{ minHeight: 300 }}>
+        {/* Две карты до слияния */}
+        {phase !== 'result' && (
+          <div className="flex items-center gap-10">
+            <div style={{
+              width: 176, height: 256,
+              transform: phase === 'merge' ? 'translateX(110px) scale(0.1) rotate(12deg)' : 'translateX(0) scale(1)',
+              opacity: phase === 'merge' ? 0 : 1,
+              transition: 'all 500ms cubic-bezier(0.4, 0, 0.6, 1)',
+            }}>
+              <AbilityCard card={current.card1} owner={owner} mana={maxMana} maxMana={maxMana} isDisabled={true} comboState={{ isCandidate: false, willGiveBonus: false }} />
+            </div>
+
+            <div style={{
+              fontSize: 30, fontWeight: 900,
+              color: phase === 'merge' ? '#f59e0b' : 'white',
+              transform: phase === 'merge' ? 'scale(2.5)' : 'scale(1)',
+              transition: 'all 400ms',
+              textShadow: phase === 'merge' ? '0 0 30px #f59e0b' : 'none',
+            }}>✕</div>
+
+            <div style={{
+              width: 176, height: 256,
+              transform: phase === 'merge' ? 'translateX(-110px) scale(0.1) rotate(-12deg)' : 'translateX(0) scale(1)',
+              opacity: phase === 'merge' ? 0 : 1,
+              transition: 'all 500ms cubic-bezier(0.4, 0, 0.6, 1)',
+            }}>
+              <AbilityCard card={current.card2} owner={owner} mana={maxMana} maxMana={maxMana} isDisabled={true} comboState={{ isCandidate: false, willGiveBonus: false }} />
+            </div>
+          </div>
+        )}
+
+        {/* Результат слияния */}
+        {phase === 'result' && (
+          <div className="flex flex-col items-center gap-5 animate-in zoom-in-75 fade-in duration-300">
+            <div style={{ width: 200, height: 280, position: 'relative' }}>
+              <div style={{
+                position: 'absolute', inset: -14, borderRadius: 26,
+                boxShadow: `0 0 30px ${glow}, 0 0 70px ${glow}, 0 0 120px ${glow}55`,
+                pointerEvents: 'none',
+              }} />
+              <TiltWrapper className="w-full h-full">
+                <AbilityCard card={current.result} owner={owner} mana={maxMana} maxMana={maxMana} isDisabled={false} comboState={{ isCandidate: false, willGiveBonus: false }} />
+              </TiltWrapper>
+            </div>
+            <div style={{ color: glow, fontWeight: 900, fontSize: 18, textTransform: 'uppercase', letterSpacing: '0.2em', textShadow: `0 0 20px ${glow}` }}>
+              ▲ {RARITIES[current.result.rarity]?.name}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // --- 3. ГЛАВНОЕ ПРИЛОЖЕНИЕ ---
 
 export default function App() {
@@ -658,7 +804,7 @@ export default function App() {
   const [discardPile, setDiscardPile] = useState([]);
   const [xp, setXp] = useState(0);
   const [playerLevel, setPlayerLevel] = useState(1); 
-  const [xpToNext, setXpToNext] = useState(100);
+  const [xpToNext, setXpToNext] = useState(60);
   const [rewardOptions, setRewardOptions] = useState([]);
   
   const [currentEvent, setCurrentEvent] = useState(null);
@@ -679,6 +825,7 @@ export default function App() {
 
   const [flyingXps, setFlyingXps] = useState([]);
   const [showLevelUp, setShowLevelUp] = useState(false);
+  const [mergeQueue, setMergeQueue] = useState([]);
   const [showReserve, setShowReserve] = useState(false);
   const [flyingCards, setFlyingCards] = useState([]);
   const [damagePopups, setDamagePopups] = useState([]);
@@ -694,6 +841,9 @@ export default function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState(false);
   const [musicOn, setMusicOn] = useState(false);
+  const [sfxVolume, setSfxVolume] = useState(1.0);
+
+  useEffect(() => { _sfxVolume = sfxVolume; }, [sfxVolume]);
 
   const appRef = useRef(null);
   const slotRefs = useRef({});
@@ -704,6 +854,8 @@ export default function App() {
   const xpBarRef = useRef(null);
   const mapScrollRef = useRef(null);
   const audioRef = useRef(null);
+  const showLevelUpRef = useRef(false);
+  const pendingTransitionRef = useRef(null);
 
   const [isAnimating, setIsAnimating] = useState(false);
   const [animatingPlayerId, setAnimatingPlayerId] = useState(null);
@@ -824,10 +976,11 @@ export default function App() {
 
   const resetGame = (fullReset = false) => {
     setPlayers(INITIAL_PLAYERS_DATA.map(p => ({...p})));
-    setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setShowLevelUp(false); 
+    setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setShowLevelUp(false); setMergeQueue([]);
     setCurrentEvent(null);
     setBloodParticles([]);
     setFlashingTargets([]);
+    pendingTransitionRef.current = null;
     
     // Сбрасываем говорящего врага
     if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
@@ -837,7 +990,7 @@ export default function App() {
     setGameMap(newMap); setCurrentMapNodeId(newMap[0].id); setCompletedNodes([newMap[0].id]); setCurrentStage(0);
 
     if (fullReset) {
-      setXp(0); setXpToNext(100); setPlayerLevel(1); setMaxMana(5); setDrawPile(shuffleArray([...INITIAL_DECK])); setDiscardPile([]);
+      setXp(0); setXpToNext(60); setPlayerLevel(1); setMaxMana(5); setDrawPile(shuffleArray([...INITIAL_DECK])); setDiscardPile([]);
     } else {
       let handCards = [];
       players.forEach(p => { if (p.currentCard && !p.currentCard.id.startsWith('b')) handCards.push(p.currentCard); });
@@ -883,7 +1036,7 @@ export default function App() {
       const total = prev + amount;
       if (total >= xpToNext) {
         setRewardOptions(shuffleArray([...REWARD_POOL]).slice(0, 3));
-        setShowLevelUp(true); setPlayerLevel(l => l + 1); setMaxMana(m => m + 1); setXpToNext(curr => curr + 80);
+        setShowLevelUp(true); setPlayerLevel(l => l + 1); setMaxMana(m => m + 1); setXpToNext(curr => curr + 50);
         return total - xpToNext;
       }
       return total;
@@ -892,8 +1045,43 @@ export default function App() {
 
   const selectReward = (card) => {
     playSound('/assets/sfx/game/level_up.wav');
-    setDiscardPile(prev => [...prev, { ...card, id: `rew_${Date.now()}_${Math.random()}` }]);
+    const newCard = { ...card, id: `rew_${Date.now()}_${Math.random()}` };
+    const fullDeck = [...drawPile, ...discardPile, newCard];
+    const { newDeck, merges } = checkAndMerge(fullDeck);
+
+    if (merges.length > 0) {
+      setDrawPile(shuffleArray(newDeck));
+      setDiscardPile([]);
+      setMergeQueue(merges);
+    } else {
+      setDrawPile(prev => {
+        const pile = [...prev];
+        const randomIndex = Math.floor(Math.random() * (pile.length + 1));
+        pile.splice(randomIndex, 0, newCard);
+        return pile;
+      });
+    }
+
     setShowLevelUp(false);
+    // Если нет слияний — сразу выполняем отложенный переход
+    if (merges.length === 0) {
+      const pending = pendingTransitionRef.current;
+      if (pending) {
+        pendingTransitionRef.current = null;
+        if (pending === 'victory') { playSound('/assets/sfx/game/victory.wav'); setTurnState('victory'); }
+        else setTurnState(pending);
+      }
+    }
+  };
+
+  const handleMergeComplete = () => {
+    setMergeQueue([]);
+    const pending = pendingTransitionRef.current;
+    if (pending) {
+      pendingTransitionRef.current = null;
+      if (pending === 'victory') { playSound('/assets/sfx/game/victory.wav'); setTurnState('victory'); }
+      else setTurnState(pending);
+    }
   };
 
   useEffect(() => {
@@ -1021,7 +1209,14 @@ export default function App() {
         setIsAnimating(false);
         if (allDead) {
           setCompletedNodes(prev => [...prev, currentMapNodeId]);
-          setTimeout(() => { if (currentStage === 5) { playSound('/assets/sfx/game/victory.wav'); setTurnState('victory'); } else { setTurnState('map'); } }, 1500);
+          setTimeout(() => {
+            if (showLevelUpRef.current) {
+              // level-up dialog is open — defer transition until player picks a card
+              pendingTransitionRef.current = currentStage === 5 ? 'victory' : 'map';
+            } else {
+              if (currentStage === 5) { playSound('/assets/sfx/game/victory.wav'); setTurnState('victory'); } else { setTurnState('map'); }
+            }
+          }, 1500);
         }
       };
 
@@ -1040,6 +1235,7 @@ export default function App() {
 
   const playersRef = useRef(players);
   useEffect(() => { playersRef.current = players; }, [players]);
+  useEffect(() => { showLevelUpRef.current = showLevelUp; }, [showLevelUp]);
 
   useEffect(() => {
     if (turnState !== 'enemy' || showLevelUp) return;
@@ -1205,8 +1401,18 @@ export default function App() {
       {/* Lofi radio stream — SomaFM Groove Salad */}
       <audio ref={audioRef} src="https://ice6.somafm.com/groovesalad-128-mp3" preload="none" />
 
-      {/* Кнопка музыки */}
-      <button onClick={toggleMusic} className="absolute top-4 right-16 z-[9000] bg-slate-900/80 border border-slate-700 text-slate-400 hover:text-white hover:border-[#1E88E5] p-2 rounded-xl backdrop-blur-sm transition-all shadow-lg flex items-center justify-center group" title={musicOn ? "Выключить lofi-музыку" : "Включить lofi-музыку"}>
+      {/* SFX громкость + кнопка музыки */}
+      <div className="absolute top-4 right-[136px] z-[9000] flex items-center gap-1.5 bg-slate-900/80 border border-slate-700 rounded-xl px-2.5 py-2 backdrop-blur-sm shadow-lg" title="Громкость SFX">
+        <span className="text-slate-400 text-sm select-none">{sfxVolume === 0 ? '🔇' : sfxVolume < 0.5 ? '🔉' : '🔊'}</span>
+        <input
+          type="range" min="0" max="1" step="0.05"
+          value={sfxVolume}
+          onChange={e => setSfxVolume(parseFloat(e.target.value))}
+          className="w-16 h-1 accent-[#1E88E5] cursor-pointer"
+        />
+      </div>
+
+      <button onClick={toggleMusic} className="absolute top-4 right-[88px] z-[9000] bg-slate-900/80 border border-slate-700 text-slate-400 hover:text-white hover:border-[#1E88E5] p-2 rounded-xl backdrop-blur-sm transition-all shadow-lg flex items-center justify-center group" title={musicOn ? "Выключить lofi-музыку" : "Включить lofi-музыку"}>
         {musicOn ? (
           <svg className="w-6 h-6 group-hover:scale-110 transition-all" fill="currentColor" viewBox="0 0 24 24"><path d="M9 3v10.55A4 4 0 1 0 11 17V7h4V3z"/></svg>
         ) : (
@@ -1494,6 +1700,15 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {mergeQueue.length > 0 && (
+        <MergeAnimation
+          mergeQueue={mergeQueue}
+          players={players}
+          maxMana={maxMana}
+          onComplete={handleMergeComplete}
+        />
       )}
 
       {showReserve && (
