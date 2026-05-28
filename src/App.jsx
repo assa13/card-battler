@@ -152,6 +152,17 @@ const getTargetText = (type, priority) => {
   return 'атакующим.';
 };
 
+// Подпись и иконка текущей ноды (сектора) для плашки в арене
+const NODE_INFO = {
+  base: { label: 'База', icon: '🏰' },
+  boss: { label: 'Босс', icon: '🐲' },
+  combat_hard: { label: 'Сложный враг', icon: '☠️' },
+  combat_medium: { label: 'Средний враг', icon: '⚔️' },
+  combat_easy: { label: 'Лёгкий враг', icon: '🗡️' },
+  event: { label: 'Событие', icon: '✨' },
+};
+const getNodeInfo = (type) => NODE_INFO[type] || { label: 'Сектор', icon: '⚔️' };
+
 // --- ФУНКЦИИ ГЕНЕРАЦИИ КАРТЫ ---
 
 const MAP_Y_POSITIONS = {
@@ -533,8 +544,12 @@ const CombatVfx = ({ vfx }) => {
   return null;
 };
 
-const ShaderBackground = () => {
+const ShaderBackground = ({ intensity = 0 }) => {
   const canvasRef = useRef(null);
+  const targetIntensityRef = useRef(0);
+  const intensityRef = useRef(0);
+
+  useEffect(() => { targetIntensityRef.current = Math.min(1, Math.max(0, intensity)); }, [intensity]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -550,6 +565,7 @@ const ShaderBackground = () => {
       precision mediump float;
       uniform vec2 iResolution;
       uniform float iTime;
+      uniform float iIntensity;
       #define OCTAVES 8.0
 
       float rand2(vec2 co){ return fract(cos(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453); }
@@ -577,15 +593,18 @@ const ShaderBackground = () => {
       }
 
       float complexFBM(vec2 p) {
-          float slow = iTime / 3.0; float fast = iTime / 0.7;
+          float speed = mix(0.45, 2.4, iIntensity);
+          float t = iTime * speed;
+          float slow = t / 3.0; float fast = t / 0.7;
           vec2 offset1 = vec2(slow, slow * 0.5); vec2 offset2 = vec2(sin(fast)* 0.5, cos(fast)* 0.5); 
           return fractalNoise( p + offset1 + 1.2 * fractalNoise( p + 1.5 * fractalNoise( p + 5.0 * fractalNoise(p - offset2) ) ) );
       }
 
       void main() {
           vec2 uv = gl_FragCoord.xy / iResolution.xy;
-          vec3 darkBg = vec3(0.02, 0.03, 0.07);
-          vec3 smokeColor = vec3(0.25, 0.10, 0.45);
+          // Спокойный синий фон -> раскалённый оранжево-красный по мере прохождения
+          vec3 darkBg = mix(vec3(0.02, 0.03, 0.08), vec3(0.11, 0.02, 0.01), iIntensity);
+          vec3 smokeColor = mix(vec3(0.08, 0.20, 0.50), vec3(0.92, 0.38, 0.05), iIntensity);
           vec3 rez = mix(darkBg, smokeColor, complexFBM(uv * 3.5) * 1.2);
           gl_FragColor = vec4(rez, 1.0);
       }
@@ -614,6 +633,7 @@ const ShaderBackground = () => {
 
     const iTimeLocation = gl.getUniformLocation(program, 'iTime');
     const iResolutionLocation = gl.getUniformLocation(program, 'iResolution');
+    const iIntensityLocation = gl.getUniformLocation(program, 'iIntensity');
 
     const resize = () => {
       canvas.width = window.innerWidth;
@@ -624,7 +644,9 @@ const ShaderBackground = () => {
 
     let animationFrameId; const startTime = Date.now();
     const render = () => {
+      intensityRef.current += (targetIntensityRef.current - intensityRef.current) * 0.02;
       gl.uniform1f(iTimeLocation, (Date.now() - startTime) / 1000);
+      gl.uniform1f(iIntensityLocation, intensityRef.current);
       gl.uniform2f(iResolutionLocation, canvas.width, canvas.height);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
       animationFrameId = requestAnimationFrame(render);
@@ -1380,6 +1402,10 @@ export default function App() {
 
   const totalDeckSize = drawPile.length + discardPile.length + players.filter(p => p.currentCard && !p.currentCard.id.startsWith('b')).length;
 
+  const currentNode = gameMap.find(n => n.id === currentMapNodeId);
+  const currentNodeInfo = getNodeInfo(currentNode?.type);
+  const bgIntensity = Math.min(1, Math.max(0, currentStage / 5));
+
   const mapLinks = useMemo(() => {
     const links = [];
     gameMap.forEach(n => n.colors = []);
@@ -1435,7 +1461,7 @@ export default function App() {
     <div 
       className={`${isFullscreen ? 'fixed inset-0 z-[9999]' : 'h-screen relative'} w-full bg-transparent text-slate-200 flex flex-col items-center font-sans select-none transition-all duration-300 overflow-hidden`} 
     >
-      <ShaderBackground />
+      <ShaderBackground intensity={bgIntensity} />
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { height: 12px; width: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); border-radius: 10px; margin: 10px; }
@@ -1507,7 +1533,7 @@ export default function App() {
         <div className="flex-1 flex flex-col justify-start w-full relative">
           <div className="bg-slate-950/60 py-10 px-16 rounded-[40px] border border-slate-800/60 shadow-[0_0_30px_rgba(0,0,0,0.5)] flex justify-between items-center relative min-h-[355px] overflow-visible backdrop-blur-md">
             <div className="absolute top-2 left-1/2 -translate-x-1/2 flex flex-col items-center">
-               <div className="bg-slate-700 text-white px-6 py-1 rounded-full font-black text-sm shadow-[0_0_20px_rgba(0,0,0,0.5)] border-2 border-slate-500 uppercase italic tracking-tighter">{currentStage === 0 ? 'БАЗА' : `STAGE ${String(currentStage)}`}</div>
+               <div className="bg-slate-700 text-white px-6 py-1 rounded-full font-black text-sm shadow-[0_0_20px_rgba(0,0,0,0.5)] border-2 border-slate-500 uppercase italic tracking-tighter flex items-center gap-2"><span className="not-italic">{currentNodeInfo.icon}</span>{currentNodeInfo.label}</div>
                <div className="w-[120px] h-[2px] bg-gradient-to-r from-transparent via-slate-500/50 to-transparent mt-2"></div>
             </div>
             <div className="flex flex-col gap-14 w-1/3 relative z-20">
