@@ -852,6 +852,7 @@ export default function App() {
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [mergeQueue, setMergeQueue] = useState([]);
   const [showReserve, setShowReserve] = useState(false);
+  const [showAllCards, setShowAllCards] = useState(false);
   const [cardRewardCards, setCardRewardCards] = useState([]);
   const pendingCardRewardRef = useRef(null);
   const [flyingCards, setFlyingCards] = useState([]);
@@ -1097,7 +1098,9 @@ export default function App() {
 
   const resetGame = (fullReset = false, advanceSector = false) => {
     if (fullReset) setSector(1);
-    else if (advanceSector) { setSector(s => s + 1); musicFadeToRandom(); }
+    else if (advanceSector) setSector(s => s + 1);
+    // Любое начало забега заново (победа или смерть) переключает музыку в новое место
+    musicFadeToRandom();
     setPlayers(INITIAL_PLAYERS_DATA.map(p => ({...p})));
     setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setShowLevelUp(false); setMergeQueue([]);
     setCurrentEvent(null);
@@ -1475,8 +1478,8 @@ export default function App() {
 
   const currentNode = gameMap.find(n => n.id === currentMapNodeId);
   const currentNodeInfo = getNodeInfo(currentNode?.type);
-  // Фон отражает текущий сектор и прогресс внутри него: спокойный синий -> раскалённый оранжевый
-  const bgIntensity = Math.min(1, Math.max(0, ((sector - 1) + currentStage / 5) / 4));
+  // Фон отражает ТОЛЬКО текущий сектор (не меняется от врага к врагу): синий -> оранжевый
+  const bgIntensity = Math.min(1, Math.max(0, (sector - 1) / 4));
 
   const mapLinks = useMemo(() => {
     const links = [];
@@ -1535,11 +1538,11 @@ export default function App() {
     >
       <ShaderBackground intensity={bgIntensity} />
 
-      {/* Декоративные уголки сцены боя (не пересекают верхний прогрессбар) */}
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] left-0 w-[130px] h-[130px] z-[140] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] right-0 w-[130px] h-[130px] z-[140] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleX(-1)' }} />
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[130px] h-[130px] z-[140] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleY(-1)' }} />
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[130px] h-[130px] z-[140] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scale(-1, -1)' }} />
+      {/* Декоративные уголки сцены боя: слой над фоном, но под HUD; не пересекают верхний прогрессбар */}
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] right-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleX(-1)' }} />
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleY(-1)' }} />
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scale(-1, -1)' }} />
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { height: 12px; width: 8px; }
@@ -1699,11 +1702,12 @@ export default function App() {
                    <span className="text-5xl font-black text-white z-10 drop-shadow-[0_4px_8px_rgba(0,0,0,0.8)]">{String(mana)}</span>
                 </div>
               </div>
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center gap-1.5">
                 <div ref={deckRef} onClick={() => turnState !== 'map' && setShowReserve(true)} className={`w-20 h-28 bg-slate-800 rounded-xl border-2 border-[#1E88E5]/40 flex flex-col items-center justify-center font-black shadow-[0_0_15px_rgba(30,136,229,0.3)] transition-all ${turnState !== 'map' ? 'hover:scale-105 hover:border-[#1E88E5] cursor-help' : 'opacity-50 grayscale'} ${turnState === 'dealing' ? 'border-[#1E88E5] animate-pulse' : ''}`}>
                    <span className="text-slate-300 drop-shadow-md text-3xl">{String(drawPile.length)}<span className="text-[#1E88E5] text-lg">/{String(totalDeckSize)}</span></span>
                    <span className="text-[9px] uppercase font-black tracking-widest text-[#1E88E5] mt-2">Резерв</span>
                 </div>
+                <button onClick={() => setShowAllCards(true)} className="text-[8px] uppercase font-black tracking-widest text-slate-300 bg-slate-800/80 border border-slate-600 rounded-md px-2 py-1 hover:border-[#1E88E5] hover:text-white transition-all">Все карты</button>
               </div>
             </div>
 
@@ -1905,31 +1909,37 @@ export default function App() {
         </div>
       )}
 
-      {showReserve && (
+      {(showReserve || showAllCards) && (() => {
+        const closeDeckView = () => { setShowReserve(false); setShowAllCards(false); };
+        const handCards = players.filter(p => p.currentCard && !p.currentCard.id.startsWith('b')).map(p => p.currentCard);
+        const allCards = [...drawPile, ...discardPile, ...handCards];
+        const list = showAllCards ? allCards : drawPile;
+        return (
         <div className="absolute inset-0 z-[1100] bg-black/45 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in duration-300 p-10">
           <div className="relative w-full max-w-5xl bg-slate-900/80 border border-slate-700 rounded-[32px] flex flex-col max-h-[80vh] overflow-hidden shadow-2xl">
             <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
                <div>
-                 <h2 className="text-3xl font-black text-white uppercase tracking-tighter italic text-center">Ваша колода</h2>
-                 <p className="text-xs text-slate-500 uppercase tracking-widest mt-1 text-center">Абсолютное число карт: {String(totalDeckSize)} (в резерве: {String(drawPile.length)})</p>
+                 <h2 className="text-3xl font-black text-white uppercase tracking-tighter italic text-center">{showAllCards ? 'Все карты' : 'Ваша колода'}</h2>
+                 <p className="text-xs text-slate-500 uppercase tracking-widest mt-1 text-center">{showAllCards ? `Всего карт: ${String(totalDeckSize)}` : `Абсолютное число карт: ${String(totalDeckSize)} (в резерве: ${String(drawPile.length)})`}</p>
                </div>
-               <button onClick={() => setShowReserve(false)} className="w-12 h-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-white hover:bg-red-900 hover:border-red-500 transition-all group">
+               <button onClick={closeDeckView} className="w-12 h-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-white hover:bg-red-900 hover:border-red-500 transition-all group">
                  <span className="text-2xl group-hover:scale-125 transition-transform">✕</span>
                </button>
             </div>
             <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
                <div className="grid grid-cols-5 gap-6">
-                 {drawPile.map((card, idx) => (
-                   <TiltWrapper key={`res-${idx}`} className="h-[280px]">
+                 {list.map((card, idx) => (
+                   <TiltWrapper key={`deckview-${idx}`} className="h-[280px]">
                       <AbilityCard card={card} owner={players.find(p=>p.id===card.ownerId)} mana={maxMana} isDisabled={false} showOwnerLabel={true} comboState={{isCandidate: false, willGiveBonus: false}} />
                    </TiltWrapper>
                  ))}
                </div>
             </div>
           </div>
-          <div className="absolute inset-0 -z-10" onClick={() => setShowReserve(false)}></div>
+          <div className="absolute inset-0 -z-10" onClick={closeDeckView}></div>
         </div>
-      )}
+        );
+      })()}
       </div>
     </div>
   );
