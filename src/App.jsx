@@ -847,6 +847,66 @@ const MergeAnimation = ({ mergeQueue, players, maxMana, onComplete }) => {
   );
 };
 
+// --- Нарративные вставки между секторами ---
+const SECTOR_NARRATIVES = [
+  'Путник спускался во всё более мрачные катакомбы, где даже эхо боялось своего голоса.',
+  'Воздух стал гуще, пропитанный пеплом и тысячелетней пылью забытых сражений.',
+  'За спиной отряда обрушился последний мост в мир живых. Назад дороги больше нет.',
+  'Стены нового сектора шептали имена тех, кто рискнул пройти здесь до вас.',
+  'Холод подземелья сменился жаром: где-то впереди билось огненное сердце бездны.',
+  'Отряд переступил порог, и тьма сомкнулась за ними, словно пасть голодного зверя.',
+  'Кости павших устилали путь вперёд — немое предупреждение всем, кто идёт следом.',
+  'Чем глубже спускался отряд, тем тише становился мир и громче — стук собственного сердца.',
+  'Древние руны вспыхнули на сводах, признавая в пришедших достойных противников.',
+  'Здесь время текло иначе. Каждый шаг отдалял от дома на целую вечность.',
+  'Сквозь трещины в реальности сочился чужой свет — впереди ждал новый круг испытаний.',
+  'Запах гари и металла усилился. Сектор глубже — и враги в нём свирепее прежних.',
+];
+
+const SectorSplashScreen = ({ text, sector, onContinue }) => {
+  const [showPrompt, setShowPrompt] = useState(false);
+  const onContinueRef = useRef(onContinue);
+  useEffect(() => { onContinueRef.current = onContinue; }, [onContinue]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setShowPrompt(true), 2000);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    if (!showPrompt) return;
+    const advance = () => onContinueRef.current();
+    window.addEventListener('keydown', advance);
+    window.addEventListener('pointerdown', advance);
+    return () => {
+      window.removeEventListener('keydown', advance);
+      window.removeEventListener('pointerdown', advance);
+    };
+  }, [showPrompt]);
+
+  return (
+    <div className="absolute inset-0 z-[2700] bg-[#0a0a0f] flex flex-col items-center justify-center overflow-hidden animate-in fade-in duration-700">
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 left-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" />
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 right-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" style={{ transform: 'scaleX(-1)' }} />
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" style={{ transform: 'scaleY(-1)' }} />
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" style={{ transform: 'scale(-1, -1)' }} />
+
+      <div className="max-w-2xl px-10 text-center relative z-10">
+        <p className="text-amber-500/70 text-sm font-black uppercase tracking-[0.5em] mb-8 animate-in fade-in slide-in-from-top-4 duration-1000">Сектор {String(sector)}</p>
+        <p className="text-slate-100 text-2xl md:text-3xl font-semibold leading-relaxed italic drop-shadow-[0_0_20px_rgba(0,0,0,0.9)] animate-in fade-in slide-in-from-bottom-4 duration-1000">
+          «{text}»
+        </p>
+      </div>
+
+      {showPrompt && (
+        <div className="absolute bottom-12 left-0 right-0 flex justify-center animate-in fade-in duration-700">
+          <p className="text-slate-300 text-sm uppercase tracking-[0.3em] font-black animate-pulse drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]">Нажмите любую клавишу чтобы продолжить</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // --- 3. ГЛАВНОЕ ПРИЛОЖЕНИЕ ---
 
 export default function App() {
@@ -880,6 +940,7 @@ export default function App() {
   const [completedNodes, setCompletedNodes] = useState([initialMapRef.current[0].id]);
   const [currentStage, setCurrentStage] = useState(0); 
   const [sector, setSector] = useState(1);
+  const [sectorSplash, setSectorSplash] = useState(null);
 
   const [flyingXps, setFlyingXps] = useState([]);
   const [showLevelUp, setShowLevelUp] = useState(false);
@@ -1140,6 +1201,7 @@ export default function App() {
     setBloodParticles([]);
     setFlashingTargets([]);
     setCardRewardCards([]);
+    setSectorSplash(null);
     pendingCardRewardRef.current = null;
     pendingTransitionRef.current = null;
     
@@ -1887,8 +1949,16 @@ export default function App() {
         <div className="absolute inset-0 z-[2000] bg-green-950/80 flex flex-col items-center justify-center backdrop-blur-xl animate-in fade-in duration-700 p-6">
            <h1 className="text-8xl font-black text-amber-400 drop-shadow-[0_0_40px_rgba(245,158,11,1)] mb-4 tracking-tighter uppercase italic text-center">СЕКТОР ЗАЧИЩЕН</h1>
            <p className="text-2xl text-green-300 font-bold uppercase tracking-[0.5em] mb-12 text-center">Босс повержен! Вы готовы к новому вызову.</p>
-           <button onClick={() => resetGame(false, true)} className="px-16 py-6 bg-white text-green-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">Следующий Сектор</button>
+           <button onClick={() => setSectorSplash({ text: SECTOR_NARRATIVES[Math.floor(Math.random() * SECTOR_NARRATIVES.length)], sector: sector + 1 })} className="px-16 py-6 bg-white text-green-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">Следующий Сектор</button>
         </div>
+      )}
+
+      {sectorSplash && (
+        <SectorSplashScreen
+          text={sectorSplash.text}
+          sector={sectorSplash.sector}
+          onContinue={() => { setSectorSplash(null); resetGame(false, true); }}
+        />
       )}
 
       {showLevelUp && (
