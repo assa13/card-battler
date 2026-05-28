@@ -74,7 +74,7 @@ const POWERUPS = [
   { id: 'mana', title: 'Осколок Эфира', desc: 'Максимальная мана увеличивается на +1.', icon: '🔵' },
   { id: 'stats', title: 'Эликсир Мощи', desc: 'Основная характеристика каждого бойца удваивается (x2).', icon: '💪' },
   { id: 'hp', title: 'Семя Жизни', desc: 'Максимальное здоровье всех героев увеличивается на +50%.', icon: '❤️' },
-  { id: 'cards', title: 'Древний Фолиант', desc: 'Получить 2 случайные эпические или легендарные карты в резерв.', icon: '📜' }
+  { id: 'cards', title: 'Древний Фолиант', desc: 'Получить 1 легендарную и 2 эпические карты в резерв.', icon: '📜' }
 ];
 
 // --- НОВЫЙ БЛОК: ФРАЗЫ ВРАГОВ ---
@@ -93,9 +93,9 @@ const ENEMY_INSULTS = [
 
 const shuffleArray = (array) => [...array].sort(() => Math.random() - 0.5);
 
-// Уровень карты — обеспечивает бесконечный рост урона при слиянии
+// Уровень карты — обеспечивает бесконечный рост урона при слиянии (x2 за каждое слияние)
 const getCardLevel = (card) => (card && card.level) || 1;
-const getLevelMultiplier = (card) => 1 + (getCardLevel(card) - 1) * 0.5;
+const getLevelMultiplier = (card) => Math.pow(2, getCardLevel(card) - 1);
 const getCardDamage = (owner, card, bonus = 1) => {
   if (!owner || !card) return 0;
   return Math.floor(owner[card.stat] * card.mult * getLevelMultiplier(card) * bonus);
@@ -651,12 +651,11 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
   return (
     <div className={`w-full h-full border ${rarity.border} rounded-2xl flex flex-col overflow-hidden transition-all duration-300 relative shadow-inner bg-[#45475a] ${isCandidate && !isDisabled ? 'ring-2 ring-yellow-400 shadow-[0_0_30px_rgba(250,204,21,0.6)]' : ''} ${!isDisabled ? 'group-hover:brightness-110' : ''}`}>
       <div className={`${rarity.header} py-1.5 px-3 border-b border-black/20 flex items-center justify-between shadow-md`}>
-        <span className={`font-bold text-[10px] ${rarity.text} uppercase tracking-wider truncate drop-shadow-md`}>{String(card.name)}</span>
+        <span className={`font-bold text-[10px] ${rarity.text} uppercase tracking-wider truncate drop-shadow-md`}>{String(card.name)}{level > 1 && <span className="text-amber-300"> ур.{String(level)}</span>}</span>
         <div className={`w-5 h-5 rounded-full flex items-center justify-center font-black text-[10px] border-2 border-white/20 shadow-lg text-white ${mana < card.cost ? 'bg-red-500' : 'bg-[#1E88E5]'}`}>{String(card.cost)}</div>
       </div>
       <div className="flex-1 flex flex-col items-center justify-center relative p-1 bg-[#373945] min-h-[50px]">
         {isCandidate && (<div className="absolute top-1 left-1 bg-yellow-400 text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">COMBO!</div>)}
-        <div className={`absolute top-1 right-1 text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg z-10 border ${level > 1 ? 'bg-amber-500 text-black border-amber-200' : 'bg-slate-900/80 text-amber-300 border-amber-500/40'}`}>LV {String(level)}</div>
         <span className="text-3xl drop-shadow-2xl group-hover:scale-110 transition-transform duration-500">{String(card.icon)}</span>
       </div>
       <div className="text-center leading-none bg-[#50546d] border-t border-slate-600/30 p-2 pt-5 pb-3 flex flex-col justify-center min-h-[60px] relative">
@@ -830,6 +829,8 @@ export default function App() {
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [mergeQueue, setMergeQueue] = useState([]);
   const [showReserve, setShowReserve] = useState(false);
+  const [cardRewardCards, setCardRewardCards] = useState([]);
+  const pendingCardRewardRef = useRef(null);
   const [flyingCards, setFlyingCards] = useState([]);
   const [damagePopups, setDamagePopups] = useState([]);
   const [vfxList, setVfxList] = useState([]);
@@ -965,30 +966,26 @@ export default function App() {
            return { ...p, maxHp: p.maxHp + bonus, hp: p.hp + bonus };
         }));
      } else if (powerupId === 'cards') {
-        const epicLegendaryCards = REWARD_POOL.filter(c => c.rarity === 'EPIC' || c.rarity === 'LEGENDARY');
+        const legendaries = REWARD_POOL.filter(c => c.rarity === 'LEGENDARY');
+        const epics = REWARD_POOL.filter(c => c.rarity === 'EPIC');
         const newCards = [];
-        for(let i=0; i<2; i++) {
-           const randCard = epicLegendaryCards[Math.floor(Math.random() * epicLegendaryCards.length)];
-           newCards.push({...randCard, id: `evt_${Date.now()}_${Math.random()}`});
+        if (legendaries.length) {
+           const leg = legendaries[Math.floor(Math.random() * legendaries.length)];
+           newCards.push({ ...leg, id: `evt_${Date.now()}_l_${Math.random()}` });
         }
-
-        const fullDeck = [...drawPile, ...discardPile, ...newCards];
-        const { newDeck, merges } = checkAndMerge(fullDeck);
+        for (let i = 0; i < 2; i++) {
+           if (epics.length) {
+              const ep = epics[Math.floor(Math.random() * epics.length)];
+              newCards.push({ ...ep, id: `evt_${Date.now()}_e${i}_${Math.random()}` });
+           }
+        }
 
         playSound('./assets/sfx/events/powerup_select.wav');
         setCompletedNodes(prev => [...prev, currentMapNodeId]);
         setTurnState('map');
         setCurrentEvent(null);
-
-        if (merges.length > 0) {
-           // показываем игроку слияние полученных карт
-           setDrawPile(shuffleArray(newDeck));
-           setDiscardPile([]);
-           pendingTransitionRef.current = null;
-           setMergeQueue(merges);
-        } else {
-           setDrawPile(prev => [...prev, ...newCards]);
-        }
+        // показываем экран получения карт (с пометками слияния)
+        showCardReward(newCards);
         return;
      }
 
@@ -1013,6 +1010,8 @@ export default function App() {
     setCurrentEvent(null);
     setBloodParticles([]);
     setFlashingTargets([]);
+    setCardRewardCards([]);
+    pendingCardRewardRef.current = null;
     pendingTransitionRef.current = null;
     
     // Сбрасываем говорящего врага
@@ -1074,6 +1073,37 @@ export default function App() {
       }
       return total;
     });
+  };
+
+  // Проверяет, приведёт ли добавление карты к слиянию (для меток "СЛИЯНИЕ")
+  const rewardWouldMerge = (card) => {
+    const { merges } = checkAndMerge([...drawPile, ...discardPile, { ...card, id: `chk_${Math.random()}` }]);
+    return merges.length > 0;
+  };
+
+  // Показывает окно получения карт с пометкой готовых к слиянию
+  const showCardReward = (newCards) => {
+    const fullDeck = [...drawPile, ...discardPile, ...newCards];
+    const { newDeck, merges } = checkAndMerge(fullDeck);
+    const surviving = new Set(newDeck.map(c => c.id));
+    const displayCards = newCards.map(c => ({ ...c, willMerge: !surviving.has(c.id) }));
+    pendingCardRewardRef.current = { newCards, newDeck, merges };
+    setCardRewardCards(displayCards);
+  };
+
+  const finishCardReward = () => {
+    const pending = pendingCardRewardRef.current;
+    pendingCardRewardRef.current = null;
+    setCardRewardCards([]);
+    if (!pending) return;
+    if (pending.merges.length > 0) {
+      playSound('./assets/sfx/game/level_up.wav');
+      setDrawPile(shuffleArray(pending.newDeck));
+      setDiscardPile([]);
+      setMergeQueue(pending.merges);
+    } else {
+      setDrawPile(prev => [...prev, ...pending.newCards]);
+    }
   };
 
   const selectReward = (card) => {
@@ -1723,13 +1753,19 @@ export default function App() {
           <div className="relative border-2 border-indigo-500/30 rounded-2xl p-10 pt-12 pb-10 bg-slate-900/60 shadow-[0_0_80px_rgba(99,102,241,0.15)] flex flex-col items-center">
             <div className="absolute -top-3 px-4 bg-[#1e1f2e] text-slate-400 text-sm tracking-[0.3em] uppercase whitespace-nowrap">ВЫБЕРИТЕ НОВУЮ КАРТУ:</div>
             <div className="flex gap-6 items-center">
-              {rewardOptions.map((card, idx) => (
-                <TiltWrapper key={`${card.id}-${idx}`} className="w-48 h-[200px]">
-                  <div onClick={() => selectReward(card)} className="w-full h-full cursor-pointer hover:-translate-y-2 transition-transform duration-300">
-                    <AbilityCard card={card} owner={players.find(p=>p.id===card.ownerId)} mana={maxMana} isDisabled={false} showOwnerLabel={true} comboState={{isCandidate: false, willGiveBonus: false}} />
-                  </div>
-                </TiltWrapper>
-              ))}
+              {rewardOptions.map((card, idx) => {
+                const willMerge = rewardWouldMerge(card);
+                return (
+                <div key={`${card.id}-${idx}`} className="relative">
+                  {willMerge && (<div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 bg-amber-500 text-black text-[10px] font-black px-3 py-1 rounded-full shadow-[0_0_20px_rgba(245,158,11,0.8)] uppercase tracking-widest animate-bounce whitespace-nowrap">⚗️ Слияние</div>)}
+                  <TiltWrapper className={`w-48 h-[200px] ${willMerge ? 'drop-shadow-[0_0_25px_rgba(245,158,11,0.5)]' : ''}`}>
+                    <div onClick={() => selectReward(card)} className="w-full h-full cursor-pointer hover:-translate-y-2 transition-transform duration-300">
+                      <AbilityCard card={card} owner={players.find(p=>p.id===card.ownerId)} mana={maxMana} isDisabled={false} showOwnerLabel={true} comboState={{isCandidate: false, willGiveBonus: false}} />
+                    </div>
+                  </TiltWrapper>
+                </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -1742,6 +1778,24 @@ export default function App() {
           maxMana={maxMana}
           onComplete={handleMergeComplete}
         />
+      )}
+
+      {cardRewardCards.length > 0 && (
+        <div className="absolute inset-0 z-[2400] bg-black/80 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in duration-300 p-10">
+          <h2 className="text-5xl font-black text-amber-500 uppercase italic tracking-widest mb-2 drop-shadow-2xl text-center">Получены карты</h2>
+          <p className="text-slate-400 text-xs uppercase tracking-[0.3em] mb-8 text-center">Новое пополнение резерва</p>
+          <div className="flex gap-6 items-end justify-center flex-wrap">
+            {cardRewardCards.map((card, idx) => (
+              <div key={`reward-${idx}`} className="relative">
+                {card.willMerge && (<div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 bg-amber-500 text-black text-[10px] font-black px-3 py-1 rounded-full shadow-[0_0_20px_rgba(245,158,11,0.8)] uppercase tracking-widest animate-bounce whitespace-nowrap">⚗️ Слияние</div>)}
+                <TiltWrapper className={`w-48 h-[260px] ${card.willMerge ? 'drop-shadow-[0_0_25px_rgba(245,158,11,0.5)]' : ''}`}>
+                  <AbilityCard card={card} owner={players.find(p=>p.id===card.ownerId)} mana={maxMana} maxMana={maxMana} isDisabled={false} showOwnerLabel={true} comboState={{isCandidate: false, willGiveBonus: false}} />
+                </TiltWrapper>
+              </div>
+            ))}
+          </div>
+          <button onClick={finishCardReward} className="mt-10 px-12 py-4 bg-white text-slate-900 rounded-full font-black text-lg hover:scale-105 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.3)] uppercase tracking-widest">Забрать</button>
+        </div>
       )}
 
       {showReserve && (
