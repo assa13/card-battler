@@ -659,7 +659,15 @@ const ShaderBackground = ({ intensity = 0 }) => {
   return <canvas ref={canvasRef} className="fixed inset-0 w-full h-full z-[-1] pointer-events-none" />;
 };
 
-const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = false, comboState }) => {
+const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = false, comboState, growDamage = false }) => {
+  const [grow, setGrow] = useState(false);
+  useEffect(() => {
+    if (!growDamage) return;
+    const t0 = setTimeout(() => setGrow(true), 60);
+    const t1 = setTimeout(() => setGrow(false), 1100);
+    return () => { clearTimeout(t0); clearTimeout(t1); };
+  }, [growDamage]);
+
   if (!card) return null;
   const rarity = RARITIES[card.rarity] || RARITIES.COMMON;
   const { isCandidate, willGiveBonus } = comboState;
@@ -685,7 +693,10 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
           <span className="text-[11px] font-black italic text-[#FFFFE0] uppercase tracking-wide drop-shadow-sm">{displayRarityName}</span>
         </div>
         <p className="text-[10px] text-slate-200 font-medium">
-          Наносит <span className={`${willGiveBonus ? 'text-yellow-400 text-sm' : 'text-amber-400'} font-bold transition-all`}>{String(dmg)}</span> урона.<br/>
+          Наносит <span
+            className={`font-bold transition-all duration-500 ${grow ? 'text-green-400' : (willGiveBonus ? 'text-yellow-400 text-sm' : 'text-amber-400')}`}
+            style={{ display: 'inline-block', transform: grow ? 'scale(1.9)' : 'scale(1)', textShadow: grow ? '0 0 14px rgba(34,197,94,0.95)' : 'none' }}
+          >{String(dmg)}</span> урона.<br/>
           <span className="text-[8px] text-slate-300 mt-1 block">Приоритет {String(getTargetText(card.type, card.priority))}</span>
         </p>
       </div>
@@ -726,22 +737,34 @@ function getCombatHitSound(vfxType) {
 const MergeAnimation = ({ mergeQueue, players, maxMana, onComplete }) => {
   const [currentIdx, setCurrentIdx] = useState(0);
   const [phase, setPhase] = useState('show'); // show | merge | result
+  const [showPrompt, setShowPrompt] = useState(false);
   const onCompleteRef = useRef(onComplete);
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
   useEffect(() => {
     setPhase('show');
+    setShowPrompt(false);
     const t1 = setTimeout(() => setPhase('merge'), 1000);
     const t2 = setTimeout(() => setPhase('result'), 1600);
-    const t3 = setTimeout(() => {
-      if (currentIdx < mergeQueue.length - 1) {
-        setCurrentIdx(i => i + 1);
-      } else {
-        onCompleteRef.current();
-      }
-    }, 3000);
+    // подсказку показываем через 2 секунды после появления результата
+    const t3 = setTimeout(() => setShowPrompt(true), 1600 + 2000);
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [currentIdx, mergeQueue.length]);
+  }, [currentIdx]);
+
+  // Продолжение по любой клавише/клику после появления подсказки
+  useEffect(() => {
+    if (!showPrompt) return;
+    const advance = () => {
+      if (currentIdx < mergeQueue.length - 1) setCurrentIdx(i => i + 1);
+      else onCompleteRef.current();
+    };
+    window.addEventListener('keydown', advance);
+    window.addEventListener('pointerdown', advance);
+    return () => {
+      window.removeEventListener('keydown', advance);
+      window.removeEventListener('pointerdown', advance);
+    };
+  }, [showPrompt, currentIdx, mergeQueue.length]);
 
   const current = mergeQueue[currentIdx];
   if (!current) return null;
@@ -795,14 +818,17 @@ const MergeAnimation = ({ mergeQueue, players, maxMana, onComplete }) => {
         {phase === 'result' && (
           <div className="flex flex-col items-center gap-5 animate-in zoom-in-75 fade-in duration-300">
             <div style={{ width: 200, height: 280, position: 'relative' }}>
+              {/* мягкое свечение под карточкой */}
               <div style={{
-                position: 'absolute', inset: -14, borderRadius: 26,
-                boxShadow: `0 0 30px ${glow}, 0 0 70px ${glow}, 0 0 120px ${glow}55`,
-                pointerEvents: 'none',
+                position: 'absolute', inset: 10, borderRadius: 18,
+                background: glow, filter: 'blur(38px)', opacity: 0.55,
+                zIndex: 0, pointerEvents: 'none',
               }} />
-              <TiltWrapper className="w-full h-full">
-                <AbilityCard card={current.result} owner={owner} mana={maxMana} maxMana={maxMana} isDisabled={false} comboState={{ isCandidate: false, willGiveBonus: false }} />
-              </TiltWrapper>
+              <div style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%' }}>
+                <TiltWrapper className="w-full h-full">
+                  <AbilityCard card={current.result} owner={owner} mana={maxMana} maxMana={maxMana} isDisabled={false} comboState={{ isCandidate: false, willGiveBonus: false }} growDamage={true} />
+                </TiltWrapper>
+              </div>
             </div>
             <div style={{ color: glow, fontWeight: 900, fontSize: 18, textTransform: 'uppercase', letterSpacing: '0.2em', textShadow: `0 0 20px ${glow}` }}>
               ▲ Уровень {getCardLevel(current.result)}
@@ -810,6 +836,13 @@ const MergeAnimation = ({ mergeQueue, players, maxMana, onComplete }) => {
           </div>
         )}
       </div>
+
+      {/* Подсказка продолжения (через 2с после результата) */}
+      {showPrompt && (
+        <div className="absolute bottom-10 left-0 right-0 flex justify-center animate-in fade-in duration-500">
+          <p className="text-slate-200 text-sm uppercase tracking-[0.3em] font-black animate-pulse drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]">Нажмите любую клавишу чтобы продолжить</p>
+        </div>
+      )}
     </div>
   );
 };
