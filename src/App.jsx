@@ -846,6 +846,7 @@ export default function App() {
   const [currentMapNodeId, setCurrentMapNodeId] = useState(initialMapRef.current[0].id);
   const [completedNodes, setCompletedNodes] = useState([initialMapRef.current[0].id]);
   const [currentStage, setCurrentStage] = useState(0); 
+  const [sector, setSector] = useState(1);
 
   const [flyingXps, setFlyingXps] = useState([]);
   const [showLevelUp, setShowLevelUp] = useState(false);
@@ -1026,7 +1027,9 @@ export default function App() {
     setHoveredTargetIds(targetIndices.map(idx => enemies[idx].id));
   };
 
-  const resetGame = (fullReset = false) => {
+  const resetGame = (fullReset = false, advanceSector = false) => {
+    if (fullReset) setSector(1);
+    else if (advanceSector) setSector(s => s + 1);
     setPlayers(INITIAL_PLAYERS_DATA.map(p => ({...p})));
     setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setShowLevelUp(false); setMergeQueue([]);
     setCurrentEvent(null);
@@ -1404,7 +1407,8 @@ export default function App() {
 
   const currentNode = gameMap.find(n => n.id === currentMapNodeId);
   const currentNodeInfo = getNodeInfo(currentNode?.type);
-  const bgIntensity = Math.min(1, Math.max(0, currentStage / 5));
+  // Фон отражает текущий сектор и прогресс внутри него: спокойный синий -> раскалённый оранжевый
+  const bgIntensity = Math.min(1, Math.max(0, ((sector - 1) + currentStage / 5) / 4));
 
   const mapLinks = useMemo(() => {
     const links = [];
@@ -1663,7 +1667,7 @@ export default function App() {
       {/* --- ИНТЕРФЕЙС КАРТЫ СЕКТОРА --- */}
       {turnState === 'map' && (
         <div className="absolute inset-0 z-[1200] bg-black/60 backdrop-blur-md flex flex-col items-center justify-center p-8 animate-in fade-in duration-500">
-          <h1 className="text-7xl font-black text-amber-500 uppercase italic tracking-widest mb-8 text-center drop-shadow-2xl">Карта Сектора</h1>
+          <h1 className="text-7xl font-black text-amber-500 uppercase italic tracking-widest mb-8 text-center drop-shadow-2xl">Карта сектора {String(sector)}</h1>
           <div className="relative w-full max-w-4xl h-[500px] bg-slate-900/90 rounded-[40px] border border-slate-700 shadow-2xl overflow-hidden">
             <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
               {mapLinks.map(link => {
@@ -1769,7 +1773,7 @@ export default function App() {
         <div className="absolute inset-0 z-[2000] bg-green-950/80 flex flex-col items-center justify-center backdrop-blur-xl animate-in fade-in duration-700 p-6">
            <h1 className="text-8xl font-black text-amber-400 drop-shadow-[0_0_40px_rgba(245,158,11,1)] mb-4 tracking-tighter uppercase italic text-center">СЕКТОР ЗАЧИЩЕН</h1>
            <p className="text-2xl text-green-300 font-bold uppercase tracking-[0.5em] mb-12 text-center">Босс повержен! Вы готовы к новому вызову.</p>
-           <button onClick={() => resetGame(false)} className="px-16 py-6 bg-white text-green-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">Следующий Сектор</button>
+           <button onClick={() => resetGame(false, true)} className="px-16 py-6 bg-white text-green-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">Следующий Сектор</button>
         </div>
       )}
 
