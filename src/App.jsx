@@ -1004,6 +1004,7 @@ export default function App() {
   const [mergeQueue, setMergeQueue] = useState([]);
   const [showReserve, setShowReserve] = useState(false);
   const [showAllCards, setShowAllCards] = useState(false);
+  const [burnConfirmId, setBurnConfirmId] = useState(null);
   const [cardRewardCards, setCardRewardCards] = useState([]);
   const pendingCardRewardRef = useRef(null);
   const [flyingCards, setFlyingCards] = useState([]);
@@ -1259,6 +1260,7 @@ export default function App() {
     setFlashingTargets([]);
     setCardRewardCards([]);
     setSectorSplash(null);
+    setBurnConfirmId(null);
     pendingCardRewardRef.current = null;
     pendingTransitionRef.current = null;
     
@@ -1352,6 +1354,21 @@ export default function App() {
     } else {
       setDrawPile(prev => [...prev, ...pending.newCards]);
     }
+  };
+
+  // Сжечь карту из колоды за -1 к максимальной мане (удаляет её из любой части ротации)
+  const burnCard = (card) => {
+    if (maxMana <= 1) return;
+    setBurnConfirmId(null);
+    setDrawPile(prev => prev.filter(c => c.id !== card.id));
+    setDiscardPile(prev => prev.filter(c => c.id !== card.id));
+    setPlayers(prev => prev.map(p => (p.currentCard && p.currentCard.id === card.id) ? { ...p, currentCard: null } : p));
+    setMaxMana(prev => {
+      const nm = Math.max(1, prev - 1);
+      setMana(m => Math.min(m, nm));
+      return nm;
+    });
+    playSound('./assets/sfx/game/enemy_turn.wav', 0.5);
   };
 
   const selectReward = (card) => {
@@ -2072,9 +2089,15 @@ export default function App() {
       )}
 
       {(showReserve || showAllCards) && (() => {
-        const closeDeckView = () => { setShowReserve(false); setShowAllCards(false); };
+        const closeDeckView = () => { setShowReserve(false); setShowAllCards(false); setBurnConfirmId(null); };
         const handCards = players.filter(p => p.currentCard && !p.currentCard.id.startsWith('b')).map(p => p.currentCard);
-        const allCards = [...drawPile, ...discardPile, ...handCards];
+        // Все карты вне зависимости от ротации (резерв + сброс + на руках), без дублей по id
+        const seen = new Set();
+        const allCards = [...drawPile, ...discardPile, ...handCards].filter(c => {
+          if (!c || seen.has(c.id)) return false;
+          seen.add(c.id);
+          return true;
+        });
         const list = showAllCards ? allCards : drawPile;
         return (
         <div className="absolute inset-0 z-[1100] bg-black/45 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in duration-300 p-10">
@@ -2082,7 +2105,7 @@ export default function App() {
             <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
                <div>
                  <h2 className="text-3xl font-black text-white uppercase tracking-tighter italic text-center">{showAllCards ? 'Все карты' : 'Ваша колода'}</h2>
-                 <p className="text-xs text-slate-500 uppercase tracking-widest mt-1 text-center">{showAllCards ? `Всего карт: ${String(totalDeckSize)}` : `Абсолютное число карт: ${String(totalDeckSize)} (в резерве: ${String(drawPile.length)})`}</p>
+                 <p className="text-xs text-slate-500 uppercase tracking-widest mt-1 text-center">{showAllCards ? `Всего карт: ${String(allCards.length)} · нажмите на карту, чтобы сжечь (−1 к макс. мане)` : `Абсолютное число карт: ${String(totalDeckSize)} (в резерве: ${String(drawPile.length)})`}</p>
                </div>
                <button onClick={closeDeckView} className="w-12 h-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-white hover:bg-red-900 hover:border-red-500 transition-all group">
                  <span className="text-2xl group-hover:scale-125 transition-transform">✕</span>
@@ -2090,11 +2113,36 @@ export default function App() {
             </div>
             <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
                <div className="grid grid-cols-5 gap-6">
-                 {list.map((card, idx) => (
-                   <TiltWrapper key={`deckview-${idx}`} className="h-[280px]">
-                      <AbilityCard card={card} owner={players.find(p=>p.id===card.ownerId)} mana={maxMana} isDisabled={false} showOwnerLabel={true} comboState={{isCandidate: false, willGiveBonus: false}} />
-                   </TiltWrapper>
-                 ))}
+                 {list.map((card, idx) => {
+                   const isConfirming = showAllCards && burnConfirmId === card.id;
+                   return (
+                   <div key={`deckview-${card.id}-${idx}`} className="relative h-[280px]">
+                     <div
+                       onClick={() => showAllCards && setBurnConfirmId(isConfirming ? null : card.id)}
+                       className={showAllCards ? 'h-full cursor-pointer' : 'h-full'}
+                     >
+                       <TiltWrapper className="h-full" isDisabled={true}>
+                          <AbilityCard card={card} owner={players.find(p=>p.id===card.ownerId)} mana={maxMana} isDisabled={false} showOwnerLabel={true} comboState={{isCandidate: false, willGiveBonus: false}} />
+                       </TiltWrapper>
+                     </div>
+                     {isConfirming && (
+                       <div className="absolute inset-0 z-20 rounded-2xl bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center gap-2 p-3 animate-in fade-in zoom-in-95 duration-200">
+                         <span className="text-5xl drop-shadow-[0_0_12px_rgba(239,68,68,0.8)]">🔥</span>
+                         <p className="text-center text-sm text-white font-black uppercase tracking-wide">Сжечь карту?</p>
+                         {maxMana <= 1 ? (
+                           <p className="text-center text-[10px] text-red-400 font-bold uppercase leading-tight">Нельзя:<br/>мана не может быть ниже 1</p>
+                         ) : (
+                           <>
+                             <p className="text-center text-[11px] text-amber-400 font-black uppercase">Цена: −1 к макс. мане</p>
+                             <button onClick={(e) => { e.stopPropagation(); burnCard(card); }} className="mt-1 px-5 py-2 bg-red-700 hover:bg-red-600 rounded-lg text-white font-black text-xs uppercase tracking-widest transition-all hover:scale-105 active:scale-95 shadow-[0_0_18px_rgba(239,68,68,0.5)]">Сжечь</button>
+                           </>
+                         )}
+                         <button onClick={(e) => { e.stopPropagation(); setBurnConfirmId(null); }} className="text-[10px] text-slate-400 uppercase tracking-widest hover:text-white transition-colors">Отмена</button>
+                       </div>
+                     )}
+                   </div>
+                   );
+                 })}
                </div>
             </div>
           </div>
