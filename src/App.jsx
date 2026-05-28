@@ -1452,7 +1452,7 @@ export default function App() {
       {bloodParticles.map(bp => <BloodParticle key={bp.id} {...bp} onComplete={(id) => setBloodParticles(p => p.filter(x => x.id !== id))} />)}
 
       {/* --- ИНТЕРФЕЙС БОЯ (ВСЕГДА РЕНДЕРИТСЯ НА ФОНЕ) --- */}
-      <div className="flex w-full max-w-5xl justify-center relative z-0 p-1 mt-[15px]">
+      <div className="flex w-full max-w-5xl justify-center relative z-0 p-1 py-4 my-auto">
         <div className="flex-1 flex flex-col justify-start w-full relative">
           <div className="bg-slate-950/60 py-6 px-16 rounded-[40px] border border-slate-800/60 shadow-[0_0_30px_rgba(0,0,0,0.5)] flex justify-between items-center relative min-h-[220px] overflow-visible backdrop-blur-md">
             <div className="absolute top-2 left-1/2 -translate-x-1/2 flex flex-col items-center">
