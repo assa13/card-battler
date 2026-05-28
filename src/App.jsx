@@ -307,27 +307,37 @@ const generateMap = () => {
   return layers.flat();
 };
 
-const spawnEnemies = (type, stage) => {
-  const s = stage || 1;
+const spawnEnemies = (type, stage, sector = 1) => {
+  // Сложность растёт и внутри сектора (stage), и от сектора к сектору.
+  // Каждый сектор продолжает «лестницу» этажей и добавляет общий множитель HP.
+  const s = (stage || 1) + (sector - 1) * 6;
+  const mult = 1 + (sector - 1) * 0.4;
+  let counter = 0;
+  const mk = (prefix, name, baseHp, perStage, icon, xp) => {
+    const hp = Math.round((baseHp + s * perStage) * mult);
+    return {
+      id: `${prefix}_${Date.now()}_${counter++}`,
+      name, hp, maxHp: hp, icon, isDead: false,
+      xpReward: Math.round(xp * mult),
+    };
+  };
   if (type === 'boss') {
-    return [
-      { id: `boss_${Date.now()}`, name: 'Лорд Демонов', hp: 300 + s * 50, maxHp: 300 + s * 50, icon: '🐲', isDead: false, xpReward: 400 }
-    ];
+    return [ mk('boss', 'Лорд Демонов', 300, 50, '🐲', 400) ];
   } else if (type === 'combat_hard') {
     return [
-      { id: `h1_${Date.now()}`, name: 'Орк-Чемпион', hp: 120 + s * 30, maxHp: 120 + s * 30, icon: '👹', isDead: false, xpReward: 150 },
-      { id: `h2_${Date.now()}`, name: 'Темный Маг', hp: 80 + s * 20, maxHp: 80 + s * 20, icon: '🧙‍♂️', isDead: false, xpReward: 120 },
-      { id: `h3_${Date.now()}`, name: 'Голем', hp: 70 + s * 20, maxHp: 70 + s * 20, icon: '🪨', isDead: false, xpReward: 100 }
+      mk('h1', 'Орк-Чемпион', 120, 30, '👹', 150),
+      mk('h2', 'Темный Маг', 80, 20, '🧙‍♂️', 120),
+      mk('h3', 'Голем', 70, 20, '🪨', 100),
     ];
   } else if (type === 'combat_medium') {
     return [
-      { id: `m1_${Date.now()}`, name: 'Бандит', hp: 60 + s * 15, maxHp: 60 + s * 15, icon: '🥷', isDead: false, xpReward: 90 },
-      { id: `m2_${Date.now()}`, name: 'Арбалетчик', hp: 40 + s * 15, maxHp: 40 + s * 15, icon: '🏹', isDead: false, xpReward: 70 }
+      mk('m1', 'Бандит', 60, 15, '🥷', 90),
+      mk('m2', 'Арбалетчик', 40, 15, '🏹', 70),
     ];
   } else {
     const enemies = [
-      { id: `e1_${Date.now()}`, name: 'Гоблин', hp: 45 + s * 15, maxHp: 45 + s * 15, icon: '👺', isDead: false, xpReward: 60 },
-      { id: `e2_${Date.now()}`, name: 'Волк', hp: 35 + s * 10, maxHp: 35 + s * 10, icon: '🐺', isDead: false, xpReward: 45 }
+      mk('e1', 'Гоблин', 45, 15, '👺', 60),
+      mk('e2', 'Волк', 35, 10, '🐺', 45),
     ];
     return shuffleArray(enemies).slice(0, 1 + Math.floor(Math.random() * 2));
   }
@@ -592,21 +602,68 @@ const ShaderBackground = ({ intensity = 0 }) => {
           return rez;
       }
 
+      vec3 hsv2rgb(vec3 c) {
+          vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+          vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+          return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+      }
+
+      mat2 rot(float a) { float s = sin(a); float c = cos(a); return mat2(c, -s, s, c); }
+
       float complexFBM(vec2 p) {
-          float speed = mix(0.45, 2.4, iIntensity);
+          // Скорость растёт с уровнем, ближе к концу — резкий скачок динамики
+          float speed = mix(0.45, 2.6, clamp(iIntensity, 0.0, 2.0)) + max(0.0, iIntensity - 2.0) * 1.6;
           float t = iTime * speed;
-          float slow = t / 3.0; float fast = t / 0.7;
-          vec2 offset1 = vec2(slow, slow * 0.5); vec2 offset2 = vec2(sin(fast)* 0.5, cos(fast)* 0.5); 
-          return fractalNoise( p + offset1 + 1.2 * fractalNoise( p + 1.5 * fractalNoise( p + 5.0 * fractalNoise(p - offset2) ) ) );
+
+          // Вращательно-радиальное движение (никакого простого дрейфа слева-направо)
+          vec2 c = p - 1.75;
+          float ang = t * (0.04 + 0.20 * iIntensity);
+          c = rot(ang) * c;
+          float r = length(c);
+          // Радиальная пульсация формы — на высоких уровнях рисунок «дышит» и закручивается
+          c += vec2(sin(t * 1.1 + r * (3.0 + iIntensity * 4.0)),
+                    cos(t * 0.9 - r * (3.0 + iIntensity * 4.0))) * (0.15 + 0.45 * iIntensity);
+          p = c + 1.75;
+
+          float slow = t / 3.0;
+          vec2 offset1 = vec2(sin(slow * 0.7), cos(slow * 0.9)) * (0.3 + 0.7 * iIntensity);
+          vec2 offset2 = vec2(sin(t * 1.3), cos(t * 1.1)) * 0.5;
+          float warp = 1.2 + iIntensity * 1.4;
+          return fractalNoise( p + offset1 + warp * fractalNoise( p + 1.5 * fractalNoise( p + 5.0 * fractalNoise(p - offset2) ) ) );
       }
 
       void main() {
           vec2 uv = gl_FragCoord.xy / iResolution.xy;
-          // Спокойный синий фон -> раскалённый оранжево-красный по мере прохождения
-          vec3 darkBg = mix(vec3(0.02, 0.03, 0.08), vec3(0.11, 0.02, 0.01), iIntensity);
-          vec3 smokeColor = mix(vec3(0.08, 0.20, 0.50), vec3(0.92, 0.38, 0.05), iIntensity);
-          vec3 rez = mix(darkBg, smokeColor, complexFBM(uv * 3.5) * 1.2);
-          gl_FragColor = vec4(rez, 1.0);
+          vec2 sp = uv * (3.5 + iIntensity * 0.7);
+          float n = complexFBM(sp);
+
+          // --- Режим 0..1: спокойный синий -> раскалённый оранжево-красный ---
+          float k01 = clamp(iIntensity, 0.0, 1.0);
+          vec3 darkBg = mix(vec3(0.02, 0.03, 0.08), vec3(0.11, 0.02, 0.01), k01);
+          vec3 smokeColor = mix(vec3(0.08, 0.20, 0.50), vec3(0.92, 0.38, 0.05), k01);
+          vec3 col = mix(darkBg, smokeColor, clamp(n * 1.2, 0.0, 1.0));
+
+          // --- Режим 1..2: опаловый перелив (радужная переливающаяся плёнка) ---
+          if (iIntensity > 1.0) {
+              float k = clamp(iIntensity - 1.0, 0.0, 1.0);
+              float hue = fract(n * 1.8 + uv.x * 0.35 + uv.y * 0.35 + iTime * 0.05);
+              vec3 opal = hsv2rgb(vec3(hue, 0.55, 0.45 + 0.55 * n));
+              col = mix(col, opal, k);
+          }
+
+          // --- Режим 2..4: дикий психоделический режим с пульсацией яркости ---
+          if (iIntensity > 2.0) {
+              float k = clamp((iIntensity - 2.0) * 0.8, 0.0, 1.0);
+              float hue = fract(n * 3.0 + iTime * 0.18 + length(uv - 0.5) * 1.6);
+              float val = 0.35 + 0.65 * pow(clamp(n, 0.0, 1.0), 1.4);
+              vec3 wild = hsv2rgb(vec3(hue, 0.95, val));
+              wild *= 0.8 + 0.45 * sin(iTime * 3.0 + n * 12.0);
+              col = mix(col, wild, k);
+          }
+
+          // Общая яркость нарастает с уровнем
+          col *= 1.0 + iIntensity * 0.18;
+          gl_FragColor = vec4(col, 1.0);
       }
     `;
 
@@ -1117,7 +1174,7 @@ export default function App() {
        setCurrentEvent({ narrative: randomNarrative, options: randomPowerups });
        setTurnState('event');
     } else {
-       const spawnedEnemies = spawnEnemies(node.type, node.stage);
+       const spawnedEnemies = spawnEnemies(node.type, node.stage, sector);
        setEnemies(spawnedEnemies);
        setTurnState('dealing');
        
@@ -1574,7 +1631,9 @@ export default function App() {
   const currentNode = gameMap.find(n => n.id === currentMapNodeId);
   const currentNodeInfo = getNodeInfo(currentNode?.type);
   // Фон отражает ТОЛЬКО текущий сектор (не меняется от врага к врагу): синий -> оранжевый
-  const bgIntensity = Math.min(1, Math.max(0, (sector - 1) / 4));
+  // 0 — спокойный синий, ~1 — раскалённый оранжевый, ~2 — опаловый перелив,
+  // 2..4 — всё более дикие психоделические режимы с искажением формы.
+  const bgIntensity = Math.min(4, Math.max(0, (sector - 1) * 0.5));
 
   const mapLinks = useMemo(() => {
     const links = [];
