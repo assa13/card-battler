@@ -672,7 +672,7 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
 // --- 3. ЗВУКИ ---
 
 const _audioCache = {};
-let _sfxVolume = 1.0; // глобальный множитель громкости SFX
+let _sfxVolume = 0.35; // глобальный множитель громкости SFX
 
 function playSound(path, volume = 1.0) {
   try {
@@ -689,12 +689,12 @@ function playSound(path, volume = 1.0) {
 /** Возвращает путь к звуку удара по типу vfxType карты */
 function getCombatHitSound(vfxType) {
   if (['fireball', 'ice_spike', 'lightning', 'dark_void', 'magic_spark'].includes(vfxType))
-    return '/assets/sfx/combat/hit_magic.wav';
+    return './assets/sfx/combat/hit_magic.wav';
   if (['smash'].includes(vfxType))
-    return '/assets/sfx/combat/hit_heavy.wav';
+    return './assets/sfx/combat/hit_heavy.wav';
   if (['poison'].includes(vfxType))
-    return '/assets/sfx/combat/hit_poison.wav';
-  return '/assets/sfx/combat/hit_light.wav';
+    return './assets/sfx/combat/hit_poison.wav';
+  return './assets/sfx/combat/hit_light.wav';
 }
 
 // --- АНИМАЦИЯ СЛИЯНИЯ КАРТ ---
@@ -841,7 +841,7 @@ export default function App() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState(false);
   const [musicOn, setMusicOn] = useState(false);
-  const [sfxVolume, setSfxVolume] = useState(1.0);
+  const [sfxVolume, setSfxVolume] = useState(0.35);
 
   useEffect(() => { _sfxVolume = sfxVolume; }, [sfxVolume]);
 
@@ -879,7 +879,19 @@ export default function App() {
   const setEnemyRef = (id, el) => { if (el) enemyRefs.current[id] = el; };
   const setAvatarRef = (id, el) => { if (el) avatarRefs.current[id] = el; };
 
-  const toggleFullscreen = () => { setIsFullscreen(!isFullscreen); };
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+    }
+  };
+
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
 
   const toggleMusic = () => {
     if (!audioRef.current) return;
@@ -904,12 +916,12 @@ export default function App() {
 
   const handleNodeClick = (node) => {
     if (!isNodeClickable(node)) return;
-    playSound('/assets/sfx/map/node_click.wav');
+    playSound('./assets/sfx/map/node_click.wav');
     setCurrentMapNodeId(node.id);
     setCurrentStage(node.stage);
 
     if (node.type === 'event') {
-      playSound('/assets/sfx/events/event_start.wav');
+      playSound('./assets/sfx/events/event_start.wav');
        const randomNarrative = EVENT_NARRATIVES[Math.floor(Math.random() * EVENT_NARRATIVES.length)];
        const randomPowerups = shuffleArray([...POWERUPS]).slice(0, 3);
        setCurrentEvent({ narrative: randomNarrative, options: randomPowerups });
@@ -959,7 +971,7 @@ export default function App() {
         setDrawPile(prev => [...prev, ...newCards]);
      }
 
-     playSound('/assets/sfx/events/powerup_select.wav');
+     playSound('./assets/sfx/events/powerup_select.wav');
      setCompletedNodes(prev => [...prev, currentMapNodeId]);
      setTurnState('map');
      setCurrentEvent(null);
@@ -968,7 +980,7 @@ export default function App() {
   const handleCardHover = (playerIndex) => {
     const player = players[playerIndex];
     if (turnState !== 'player' || player.hp <= 0 || !player.currentCard || player.hasActed || isAnimating || showLevelUp || turnState === 'victory_wait') return;
-    playSound('/assets/sfx/ui/hover.wav', 0.4);
+    playSound('./assets/sfx/ui/hover.wav', 0.4);
     setHoveredPlayerId(player.id);
     const targetIndices = getTargets(player.currentCard, playerIndex, enemies);
     setHoveredTargetIds(targetIndices.map(idx => enemies[idx].id));
@@ -1030,7 +1042,7 @@ export default function App() {
   };
 
   const handleXpGained = (id, amount) => {
-    playSound('/assets/sfx/game/xp_gain.wav', 0.5);
+    playSound('./assets/sfx/game/xp_gain.wav', 0.5);
     setFlyingXps(prev => prev.filter(x => x.id !== id));
     setXp(prev => {
       const total = prev + amount;
@@ -1044,7 +1056,7 @@ export default function App() {
   };
 
   const selectReward = (card) => {
-    playSound('/assets/sfx/game/level_up.wav');
+    playSound('./assets/sfx/game/level_up.wav');
     const newCard = { ...card, id: `rew_${Date.now()}_${Math.random()}` };
     const fullDeck = [...drawPile, ...discardPile, newCard];
     const { newDeck, merges } = checkAndMerge(fullDeck);
@@ -1068,7 +1080,7 @@ export default function App() {
       const pending = pendingTransitionRef.current;
       if (pending) {
         pendingTransitionRef.current = null;
-        if (pending === 'victory') { playSound('/assets/sfx/game/victory.wav'); setTurnState('victory'); }
+        if (pending === 'victory') { playSound('./assets/sfx/game/victory.wav'); setTurnState('victory'); }
         else setTurnState(pending);
       }
     }
@@ -1079,7 +1091,7 @@ export default function App() {
     const pending = pendingTransitionRef.current;
     if (pending) {
       pendingTransitionRef.current = null;
-      if (pending === 'victory') { playSound('/assets/sfx/game/victory.wav'); setTurnState('victory'); }
+      if (pending === 'victory') { playSound('./assets/sfx/game/victory.wav'); setTurnState('victory'); }
       else setTurnState(pending);
     }
   };
@@ -1121,12 +1133,12 @@ export default function App() {
       const slotRect = slotRefs.current[p.id]?.getBoundingClientRect();
       if (deckRect && slotRect) {
         const flyId = `deal_${p.id}_${Date.now()}`;
-        setTimeout(() => { playSound('/assets/sfx/ui/card_deal.wav', 0.5); setFlyingCards(prev => [...prev, { id: flyId, startX: deckRect.left + deckRect.width/2, startY: deckRect.top + deckRect.height/2, endX: slotRect.left + slotRect.width/2, endY: slotRect.top + slotRect.height * 0.75 }]); }, delay);
+        setTimeout(() => { playSound('./assets/sfx/ui/card_deal.wav', 0.5); setFlyingCards(prev => [...prev, { id: flyId, startX: deckRect.left + deckRect.width/2, startY: deckRect.top + deckRect.height/2, endX: slotRect.left + slotRect.width/2, endY: slotRect.top + slotRect.height * 0.75 }]); }, delay);
         setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setPlayers(prev => prev.map(hero => hero.id === p.id ? { ...hero, currentCard: cardToDeal, justDealt: true } : hero)); }, delay + 850); 
       }
       delay += 300; 
     });
-    setTimeout(() => { playSound('/assets/sfx/game/mana_restore.wav', 0.5); setDrawPile(tempDraw); setDiscardPile(currentDiscard); setPlayers(prev => prev.map(p => ({ ...p, hasActed: false, justDealt: false }))); setMana(maxMana); setTurnState('player'); }, delay + 1000); 
+    setTimeout(() => { playSound('./assets/sfx/game/mana_restore.wav', 0.5); setDrawPile(tempDraw); setDiscardPile(currentDiscard); setPlayers(prev => prev.map(p => ({ ...p, hasActed: false, justDealt: false }))); setMana(maxMana); setTurnState('player'); }, delay + 1000); 
   }, [turnState, showLevelUp, maxMana]);
 
   const playCard = (playerIndex, card) => {
@@ -1135,7 +1147,7 @@ export default function App() {
     const targetIndices = getTargets(card, playerIndex, enemies);
     if (targetIndices.length === 0) return;
 
-    playSound('/assets/sfx/ui/click.wav', 0.6);
+    playSound('./assets/sfx/ui/click.wav', 0.6);
     setIsAnimating(true); setMana(m => m - card.cost); setAnimatingPlayerId(player.id); setAnimatingTargetIds(targetIndices.map(idx => enemies[idx].id));
 
     const isContinuing = lastPlayedCost !== null && card.cost === lastPlayedCost + 1;
@@ -1189,7 +1201,7 @@ export default function App() {
               newBlood.push({ id: Math.random(), x: eRect.left + eRect.width/2, y: eRect.top + eRect.height/2 });
            }
         }
-        if (target.hp <= 0 && !target.isDead) { target.hp = 0; target.isDead = true; xpToSpawn.push({ id: target.id, amount: target.xpReward }); playSound('/assets/sfx/combat/death.wav', 0.7); }
+        if (target.hp <= 0 && !target.isDead) { target.hp = 0; target.isDead = true; xpToSpawn.push({ id: target.id, amount: target.xpReward }); playSound('./assets/sfx/combat/death.wav', 0.7); }
       });
       setBloodParticles(prev => [...prev, ...newBlood]);
 
@@ -1214,7 +1226,7 @@ export default function App() {
               // level-up dialog is open — defer transition until player picks a card
               pendingTransitionRef.current = currentStage === 5 ? 'victory' : 'map';
             } else {
-              if (currentStage === 5) { playSound('/assets/sfx/game/victory.wav'); setTurnState('victory'); } else { setTurnState('map'); }
+              if (currentStage === 5) { playSound('./assets/sfx/game/victory.wav'); setTurnState('victory'); } else { setTurnState('map'); }
             }
           }, 1500);
         }
@@ -1225,7 +1237,7 @@ export default function App() {
         setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, currentCard: null, hasActed: true } : p));
         if (slotRect && discardRect) {
           const flyId = `disc_${Date.now()}`;
-          playSound('/assets/sfx/ui/card_discard.wav', 0.4);
+          playSound('./assets/sfx/ui/card_discard.wav', 0.4);
           setFlyingCards(prev => [...prev, { id: flyId, startX: slotRect.left + slotRect.width/2, startY: slotRect.top + slotRect.height * 0.75, endX: discardRect.left + discardRect.width/2, endY: discardRect.top + discardRect.height/2, isDiscard: true }]);
           setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setDiscardPile(prev => [...prev, card]); finish(); }, 850);
         } else { setDiscardPile(prev => [...prev, card]); finish(); }
@@ -1259,7 +1271,7 @@ export default function App() {
 
          setTimeout(() => {
             setVfxList([]);
-            playSound('/assets/sfx/combat/enemy_attack.wav');
+            playSound('./assets/sfx/combat/enemy_attack.wav');
             triggerImpact(dmg);
             
             setFlashingTargets(prev => [...prev, target.id]);
@@ -1295,7 +1307,7 @@ export default function App() {
     
     setTimeout(() => { 
         if (playersRef.current.every(p => p.hp <= 0)) {
-            playSound('/assets/sfx/game/gameover.wav');
+            playSound('./assets/sfx/game/gameover.wav');
             setTurnState('gameover');
         } else {
             setTurnState(ts => ts === 'enemy' ? 'dealing' : ts);
@@ -1422,9 +1434,9 @@ export default function App() {
 
       <button onClick={toggleFullscreen} className="absolute top-4 right-4 z-[9000] bg-slate-900/80 border border-slate-700 text-slate-400 hover:text-white hover:border-[#1E88E5] p-2 rounded-xl backdrop-blur-sm transition-all shadow-lg flex items-center justify-center group" title={isFullscreen ? "Выйти из полноэкранного режима" : "Развернуть игру на всё окно"}>
         {isFullscreen ? (
-          <svg className="w-6 h-6 group-hover:scale-110 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3" /></svg>
+          <svg className="w-5 h-5 group-hover:scale-110 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></svg>
         ) : (
-          <svg className="w-6 h-6 group-hover:scale-110 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l-5 5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+          <svg className="w-5 h-5 group-hover:scale-110 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
         )}
       </button>
 
@@ -1559,7 +1571,7 @@ export default function App() {
             </div>
 
             <div className="flex flex-col justify-end gap-6 items-center mb-[19px] w-32">
-              <button onClick={() => { playSound('/assets/sfx/game/enemy_turn.wav', 0.6); setTurnState('enemy'); }} disabled={turnState !== 'player' || isAnimating || showLevelUp || turnState === 'map' || turnState === 'victory_wait'} className="w-full py-4 bg-[#D32F2F] hover:bg-red-700 disabled:opacity-50 disabled:bg-red-900 disabled:cursor-not-allowed rounded-2xl font-black uppercase tracking-widest text-[9px] transition-all shadow-[0_0_20px_rgba(211,47,47,0.4)] border border-red-500 hover:scale-105 active:scale-95 text-white">{turnState === 'dealing' ? 'ЖДИТЕ' : turnState === 'player' ? 'ЗАВЕРШИТЬ' : 'ВРАГ...'}</button>
+              <button onClick={() => { playSound('./assets/sfx/game/enemy_turn.wav', 0.6); setTurnState('enemy'); }} disabled={turnState !== 'player' || isAnimating || showLevelUp || turnState === 'map' || turnState === 'victory_wait'} className="w-full py-4 bg-[#D32F2F] hover:bg-red-700 disabled:opacity-50 disabled:bg-red-900 disabled:cursor-not-allowed rounded-2xl font-black uppercase tracking-widest text-[9px] transition-all shadow-[0_0_20px_rgba(211,47,47,0.4)] border border-red-500 hover:scale-105 active:scale-95 text-white">{turnState === 'dealing' ? 'ЖДИТЕ' : turnState === 'player' ? 'ЗАВЕРШИТЬ' : 'ВРАГ...'}</button>
               <div className="flex flex-col items-center">
                 <div ref={discardRef} className="w-20 h-28 bg-slate-900/60 rounded-xl border-2 border-slate-700 border-dashed flex items-center justify-center font-black text-3xl opacity-60 transition-all hover:opacity-100 shadow-inner overflow-hidden">
                    <span className="text-[#D32F2F] drop-shadow-md">{String(discardPile.length)}</span>
