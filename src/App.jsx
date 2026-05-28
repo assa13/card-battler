@@ -869,8 +869,15 @@ export default function App() {
   const [fullscreenError, setFullscreenError] = useState(false);
   const [musicOn, setMusicOn] = useState(false);
   const [sfxVolume, setSfxVolume] = useState(0.35);
+  const [musicVolume, setMusicVolume] = useState(0.35);
+  const musicVolumeRef = useRef(0.35);
+  const musicFadeRef = useRef(null);
 
   useEffect(() => { _sfxVolume = sfxVolume; }, [sfxVolume]);
+  useEffect(() => {
+    musicVolumeRef.current = musicVolume;
+    if (audioRef.current && musicOn) audioRef.current.volume = musicVolume;
+  }, [musicVolume, musicOn]);
 
   const appRef = useRef(null);
   const slotRefs = useRef({});
@@ -920,14 +927,51 @@ export default function App() {
     return () => document.removeEventListener('fullscreenchange', onFsChange);
   }, []);
 
+  // Плавно меняет громкость аудио от from до to за durationMs
+  const fadeAudio = (audio, from, to, durationMs, onDone) => {
+    if (musicFadeRef.current) clearInterval(musicFadeRef.current);
+    const steps = 40;
+    const stepTime = durationMs / steps;
+    let step = 0;
+    audio.volume = Math.max(0, Math.min(1, from));
+    musicFadeRef.current = setInterval(() => {
+      step++;
+      const v = from + (to - from) * (step / steps);
+      audio.volume = Math.max(0, Math.min(1, v));
+      if (step >= steps) {
+        clearInterval(musicFadeRef.current);
+        musicFadeRef.current = null;
+        if (onDone) onDone();
+      }
+    }, stepTime);
+  };
+
+  // Перематывает музыку в случайное место с фейдом вниз-вверх
+  const musicFadeToRandom = () => {
+    const audio = audioRef.current;
+    if (!audio || !musicOn) return;
+    const target = musicVolumeRef.current;
+    fadeAudio(audio, audio.volume, 0, 800, () => {
+      if (audio.duration && isFinite(audio.duration)) {
+        audio.currentTime = Math.random() * audio.duration;
+      }
+      audio.play().catch(() => {});
+      fadeAudio(audio, 0, target, 1200, null);
+    });
+  };
+
   const toggleMusic = () => {
-    if (!audioRef.current) return;
+    const audio = audioRef.current;
+    if (!audio) return;
     if (musicOn) {
-      audioRef.current.pause();
+      fadeAudio(audio, audio.volume, 0, 600, () => { audio.pause(); });
       setMusicOn(false);
     } else {
-      audioRef.current.volume = 0.28;
-      audioRef.current.play().catch(() => {});
+      if (audio.duration && isFinite(audio.duration)) {
+        audio.currentTime = Math.random() * audio.duration;
+      }
+      audio.play().catch(() => {});
+      fadeAudio(audio, 0, musicVolumeRef.current, 1000, null);
       setMusicOn(true);
     }
   };
@@ -1029,7 +1073,7 @@ export default function App() {
 
   const resetGame = (fullReset = false, advanceSector = false) => {
     if (fullReset) setSector(1);
-    else if (advanceSector) setSector(s => s + 1);
+    else if (advanceSector) { setSector(s => s + 1); musicFadeToRandom(); }
     setPlayers(INITIAL_PLAYERS_DATA.map(p => ({...p})));
     setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setShowLevelUp(false); setMergeQueue([]);
     setCurrentEvent(null);
@@ -1491,29 +1535,31 @@ export default function App() {
         </div>
       )}
 
-      {/* Lofi radio stream — SomaFM Groove Salad */}
-      <audio ref={audioRef} src="https://ice6.somafm.com/groovesalad-128-mp3" preload="none" />
+      <audio ref={audioRef} src="./file.mp3" preload="auto" loop />
 
-      {/* SFX громкость + кнопка музыки */}
-      <div className="absolute top-4 right-[136px] z-[9000] flex items-center gap-1.5 bg-slate-900/80 border border-slate-700 rounded-xl px-2.5 py-2 backdrop-blur-sm shadow-lg" title="Громкость SFX">
+      {/* Музыка + SFX + полноэкран */}
+      <div className="absolute top-4 right-[52px] z-[9000] flex items-center gap-3 bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg">
+        {/* Кнопка вкл/выкл музыки */}
+        <button onClick={toggleMusic} className="text-slate-400 hover:text-white transition-colors flex items-center" title={musicOn ? "Выключить музыку" : "Включить музыку"}>
+          {musicOn ? (
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M9 3v10.55A4 4 0 1 0 11 17V7h4V3z"/></svg>
+          ) : (
+            <svg className="w-5 h-5 opacity-40" fill="currentColor" viewBox="0 0 24 24"><path d="M9 3v10.55A4 4 0 1 0 11 17V7h4V3z"/><line x1="2" y1="2" x2="22" y2="22" stroke="currentColor" strokeWidth="2"/></svg>
+          )}
+        </button>
+        {/* Громкость музыки */}
+        <input type="range" min="0" max="1" step="0.05" value={musicVolume}
+          onChange={e => setMusicVolume(parseFloat(e.target.value))}
+          className="w-14 h-1 accent-purple-400 cursor-pointer" title="Громкость музыки" />
+        <div className="w-px h-4 bg-slate-600" />
+        {/* Громкость SFX */}
         <span className="text-slate-400 text-sm select-none">{sfxVolume === 0 ? '🔇' : sfxVolume < 0.5 ? '🔉' : '🔊'}</span>
-        <input
-          type="range" min="0" max="1" step="0.05"
-          value={sfxVolume}
+        <input type="range" min="0" max="1" step="0.05" value={sfxVolume}
           onChange={e => setSfxVolume(parseFloat(e.target.value))}
-          className="w-16 h-1 accent-[#1E88E5] cursor-pointer"
-        />
+          className="w-14 h-1 accent-[#1E88E5] cursor-pointer" title="Громкость SFX" />
       </div>
 
-      <button onClick={toggleMusic} className="absolute top-4 right-[88px] z-[9000] bg-slate-900/80 border border-slate-700 text-slate-400 hover:text-white hover:border-[#1E88E5] p-2 rounded-xl backdrop-blur-sm transition-all shadow-lg flex items-center justify-center group" title={musicOn ? "Выключить lofi-музыку" : "Включить lofi-музыку"}>
-        {musicOn ? (
-          <svg className="w-6 h-6 group-hover:scale-110 transition-all" fill="currentColor" viewBox="0 0 24 24"><path d="M9 3v10.55A4 4 0 1 0 11 17V7h4V3z"/></svg>
-        ) : (
-          <svg className="w-6 h-6 group-hover:scale-110 transition-all opacity-50" fill="currentColor" viewBox="0 0 24 24"><path d="M9 3v10.55A4 4 0 1 0 11 17V7h4V3z"/><line x1="2" y1="2" x2="22" y2="22" stroke="currentColor" strokeWidth="2"/></svg>
-        )}
-      </button>
-
-      <button onClick={toggleFullscreen} className="absolute top-4 right-4 z-[9000] bg-slate-900/80 border border-slate-700 text-slate-400 hover:text-white hover:border-[#1E88E5] p-2 rounded-xl backdrop-blur-sm transition-all shadow-lg flex items-center justify-center group" title={isFullscreen ? "Выйти из полноэкранного режима" : "Развернуть игру на всё окно"}>
+      <button onClick={toggleFullscreen} className="absolute top-4 right-4 z-[9100] bg-slate-900/80 border border-slate-700 text-slate-400 hover:text-white hover:border-[#1E88E5] p-2 rounded-xl backdrop-blur-sm transition-all shadow-lg flex items-center justify-center group" title={isFullscreen ? "Выйти из полноэкранного режима" : "Развернуть игру на всё окно"}>
         {isFullscreen ? (
           <svg className="w-5 h-5 group-hover:scale-110 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></svg>
         ) : (
