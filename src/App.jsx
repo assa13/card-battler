@@ -867,17 +867,41 @@ export default function App() {
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState(false);
-  const [musicOn, setMusicOn] = useState(false);
+  const [musicOn, setMusicOn] = useState(true);
   const [sfxVolume, setSfxVolume] = useState(0.35);
   const [musicVolume, setMusicVolume] = useState(0.35);
   const musicVolumeRef = useRef(0.35);
   const musicFadeRef = useRef(null);
+  const musicOnRef = useRef(true);
 
   useEffect(() => { _sfxVolume = sfxVolume; }, [sfxVolume]);
   useEffect(() => {
     musicVolumeRef.current = musicVolume;
     if (audioRef.current && musicOn) audioRef.current.volume = musicVolume;
   }, [musicVolume, musicOn]);
+  useEffect(() => { musicOnRef.current = musicOn; }, [musicOn]);
+
+  // Автозапуск музыки при первом действии пользователя (автоплей со звуком заблокирован браузерами)
+  useEffect(() => {
+    const tryStart = () => {
+      const audio = audioRef.current;
+      if (audio && musicOnRef.current && audio.paused) {
+        if (audio.duration && isFinite(audio.duration)) audio.currentTime = Math.random() * audio.duration;
+        audio.volume = 0;
+        audio.play().then(() => {
+          fadeAudio(audio, 0, musicVolumeRef.current, 1000, null);
+        }).catch(() => {});
+      }
+      window.removeEventListener('pointerdown', tryStart);
+      window.removeEventListener('keydown', tryStart);
+    };
+    window.addEventListener('pointerdown', tryStart);
+    window.addEventListener('keydown', tryStart);
+    return () => {
+      window.removeEventListener('pointerdown', tryStart);
+      window.removeEventListener('keydown', tryStart);
+    };
+  }, []);
 
   const appRef = useRef(null);
   const slotRefs = useRef({});
@@ -1510,6 +1534,13 @@ export default function App() {
       className={`${isFullscreen ? 'fixed inset-0 z-[9999]' : 'h-screen relative'} w-full bg-transparent text-slate-200 flex flex-col items-center font-sans select-none transition-all duration-300 overflow-hidden`} 
     >
       <ShaderBackground intensity={bgIntensity} />
+
+      {/* Декоративные уголки сцены боя (не пересекают верхний прогрессбар) */}
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] left-0 w-[130px] h-[130px] z-[140] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] right-0 w-[130px] h-[130px] z-[140] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleX(-1)' }} />
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[130px] h-[130px] z-[140] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleY(-1)' }} />
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[130px] h-[130px] z-[140] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scale(-1, -1)' }} />
+
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { height: 12px; width: 8px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); border-radius: 10px; margin: 10px; }
