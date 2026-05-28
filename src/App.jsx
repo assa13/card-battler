@@ -1454,12 +1454,12 @@ export default function App() {
       {/* --- ИНТЕРФЕЙС БОЯ (ВСЕГДА РЕНДЕРИТСЯ НА ФОНЕ) --- */}
       <div className="flex w-full max-w-5xl justify-center relative z-0 p-1 py-4 my-auto">
         <div className="flex-1 flex flex-col justify-start w-full relative">
-          <div className="bg-slate-950/60 py-6 px-16 rounded-[40px] border border-slate-800/60 shadow-[0_0_30px_rgba(0,0,0,0.5)] flex justify-between items-center relative min-h-[220px] overflow-visible backdrop-blur-md">
+          <div className="bg-slate-950/60 py-8 px-16 rounded-[40px] border border-slate-800/60 shadow-[0_0_30px_rgba(0,0,0,0.5)] flex justify-between items-center relative min-h-[275px] overflow-visible backdrop-blur-md">
             <div className="absolute top-2 left-1/2 -translate-x-1/2 flex flex-col items-center">
                <div className="bg-slate-700 text-white px-6 py-1 rounded-full font-black text-sm shadow-[0_0_20px_rgba(0,0,0,0.5)] border-2 border-slate-500 uppercase italic tracking-tighter">{currentStage === 0 ? 'БАЗА' : `STAGE ${String(currentStage)}`}</div>
                <div className="w-[120px] h-[2px] bg-gradient-to-r from-transparent via-slate-500/50 to-transparent mt-2"></div>
             </div>
-            <div className="flex flex-col gap-8 w-1/3 relative z-20">
+            <div className="flex flex-col gap-10 w-1/3 relative z-20">
               {players.map((player) => {
                 const isHovered = hoveredPlayerId === player.id; const isAttacking = animatingPlayerId === player.id; const isBeingAttacked = animatingTargetIds.includes(player.id);
                 
@@ -1484,8 +1484,8 @@ export default function App() {
                 );
               })}
             </div>
-            <div className="absolute left-1/2 top-10 bottom-10 w-px bg-gradient-to-b from-transparent via-slate-700 to-transparent opacity-50"></div>
-            <div className="flex flex-col gap-8 w-1/3 relative z-10">
+            <div className="absolute left-1/2 top-12 bottom-12 w-px bg-gradient-to-b from-transparent via-slate-700 to-transparent opacity-50"></div>
+            <div className="flex flex-col gap-10 w-1/3 relative z-10">
               {enemies.map((enemy) => {
                 const isHoveredTarget = hoveredTargetIds.includes(enemy.id); 
                 const isBeingAttacked = animatingTargetIds.includes(enemy.id); 
