@@ -13,12 +13,6 @@ const RARITIES = {
   LEGENDARY: { name: 'Легендарная', border: 'border-amber-400', header: 'bg-[#8a6b3b]', text: 'text-amber-400', badgeBg: 'bg-amber-500' }
 };
 
-const RARITY_ORDER = ['COMMON', 'RARE', 'EPIC', 'LEGENDARY'];
-const getNextRarity = (rarity) => {
-  const idx = RARITY_ORDER.indexOf(rarity);
-  return (idx >= 0 && idx < RARITY_ORDER.length - 1) ? RARITY_ORDER[idx + 1] : null;
-};
-
 const INITIAL_PLAYERS_DATA = [
   { id: 'p1', name: 'Воин', hp: 50, maxHp: 50, str: 15, agi: 5, int: 2, icon: '🛡️', bg: 'bg-blue-900', currentCard: null, hasActed: false },
   { id: 'p2', name: 'Разбойник', hp: 35, maxHp: 35, str: 6, agi: 18, int: 4, icon: '🗡️', bg: 'bg-green-900', currentCard: null, hasActed: false },
@@ -99,7 +93,16 @@ const ENEMY_INSULTS = [
 
 const shuffleArray = (array) => [...array].sort(() => Math.random() - 0.5);
 
-// Проверяет колоду на пары одинаковых карт одного ранга и сливает их, повышая редкость
+// Уровень карты — обеспечивает бесконечный рост урона при слиянии
+const getCardLevel = (card) => (card && card.level) || 1;
+const getLevelMultiplier = (card) => 1 + (getCardLevel(card) - 1) * 0.5;
+const getCardDamage = (owner, card, bonus = 1) => {
+  if (!owner || !card) return 0;
+  return Math.floor(owner[card.stat] * card.mult * getLevelMultiplier(card) * bonus);
+};
+
+// Сливает пары одинаковых карт (имя + редкость + уровень), повышая уровень. Рарность не меняется,
+// поэтому слияние возможно всегда и при любых условиях — урон карты растёт бесконечно.
 const checkAndMerge = (deck) => {
   const allMerges = [];
   let currentDeck = [...deck];
@@ -109,7 +112,7 @@ const checkAndMerge = (deck) => {
     foundMerge = false;
     const groups = {};
     currentDeck.forEach((card, idx) => {
-      const key = `${card.name}__${card.rarity}`;
+      const key = `${card.name}__${card.rarity}__${getCardLevel(card)}`;
       if (!groups[key]) groups[key] = [];
       groups[key].push(idx);
     });
@@ -120,15 +123,13 @@ const checkAndMerge = (deck) => {
     for (const [, indices] of Object.entries(groups)) {
       const available = indices.filter(i => !toRemove.has(i));
       if (available.length >= 2) {
-        const nextRarity = getNextRarity(currentDeck[available[0]].rarity);
-        if (nextRarity) {
-          toRemove.add(available[0]);
-          toRemove.add(available[1]);
-          const result = { ...currentDeck[available[0]], rarity: nextRarity, id: `merged_${Date.now()}_${Math.random()}` };
-          toAdd.push(result);
-          allMerges.push({ card1: currentDeck[available[0]], card2: currentDeck[available[1]], result });
-          foundMerge = true;
-        }
+        const base = currentDeck[available[0]];
+        toRemove.add(available[0]);
+        toRemove.add(available[1]);
+        const result = { ...base, level: getCardLevel(base) + 1, id: `merged_${Date.now()}_${Math.random()}` };
+        toAdd.push(result);
+        allMerges.push({ card1: currentDeck[available[0]], card2: currentDeck[available[1]], result });
+        foundMerge = true;
       }
     }
 
@@ -640,8 +641,9 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
   if (!card) return null;
   const rarity = RARITIES[card.rarity] || RARITIES.COMMON;
   const { isCandidate, willGiveBonus } = comboState;
+  const level = getCardLevel(card);
   
-  let dmg = owner ? Math.floor(owner[card.stat] * card.mult) : 0;
+  let dmg = owner ? getCardDamage(owner, card) : 0;
   if (willGiveBonus) dmg = Math.floor(dmg * 1.5);
 
   const displayRarityName = showOwnerLabel && owner ? `${rarity.name} - ${owner.name}` : rarity.name;
@@ -654,6 +656,7 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
       </div>
       <div className="flex-1 flex flex-col items-center justify-center relative p-1 bg-[#373945] min-h-[50px]">
         {isCandidate && (<div className="absolute top-1 left-1 bg-yellow-400 text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">COMBO!</div>)}
+        <div className={`absolute top-1 right-1 text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg z-10 border ${level > 1 ? 'bg-amber-500 text-black border-amber-200' : 'bg-slate-900/80 text-amber-300 border-amber-500/40'}`}>LV {String(level)}</div>
         <span className="text-3xl drop-shadow-2xl group-hover:scale-110 transition-transform duration-500">{String(card.icon)}</span>
       </div>
       <div className="text-center leading-none bg-[#50546d] border-t border-slate-600/30 p-2 pt-5 pb-3 flex flex-col justify-center min-h-[60px] relative">
@@ -781,7 +784,7 @@ const MergeAnimation = ({ mergeQueue, players, maxMana, onComplete }) => {
               </TiltWrapper>
             </div>
             <div style={{ color: glow, fontWeight: 900, fontSize: 18, textTransform: 'uppercase', letterSpacing: '0.2em', textShadow: `0 0 20px ${glow}` }}>
-              ▲ {RARITIES[current.result.rarity]?.name}
+              ▲ Уровень {getCardLevel(current.result)}
             </div>
           </div>
         )}
@@ -968,7 +971,25 @@ export default function App() {
            const randCard = epicLegendaryCards[Math.floor(Math.random() * epicLegendaryCards.length)];
            newCards.push({...randCard, id: `evt_${Date.now()}_${Math.random()}`});
         }
-        setDrawPile(prev => [...prev, ...newCards]);
+
+        const fullDeck = [...drawPile, ...discardPile, ...newCards];
+        const { newDeck, merges } = checkAndMerge(fullDeck);
+
+        playSound('./assets/sfx/events/powerup_select.wav');
+        setCompletedNodes(prev => [...prev, currentMapNodeId]);
+        setTurnState('map');
+        setCurrentEvent(null);
+
+        if (merges.length > 0) {
+           // показываем игроку слияние полученных карт
+           setDrawPile(shuffleArray(newDeck));
+           setDiscardPile([]);
+           pendingTransitionRef.current = null;
+           setMergeQueue(merges);
+        } else {
+           setDrawPile(prev => [...prev, ...newCards]);
+        }
+        return;
      }
 
      playSound('./assets/sfx/events/powerup_select.wav');
@@ -1181,7 +1202,7 @@ export default function App() {
 
     setTimeout(() => {
       setVfxList([]); 
-      const damage = Math.floor(player[card.stat] * card.mult * multiplier);
+      const damage = getCardDamage(player, card, multiplier);
       const newEnemies = enemies.map(e => ({...e})); let xpToSpawn = []; 
       
       playSound(getCombatHitSound(card.vfxType || 'slash'));
