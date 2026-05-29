@@ -696,14 +696,16 @@ const ItemTooltip = ({ item, x, y }) => {
 };
 
 const ItemSlot = ({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLeave, size = 'md', draggable: isDraggable, onDragStart, onDragOver, onDragLeave, onDrop, isDragOver, equip = false }) => {
-  const sizeClass = size === 'sm' ? 'w-[53px] h-[53px]' : 'w-[52px] h-[52px]';
+  const sizeClass = size === 'sm' ? 'w-[58px] h-[58px]' : 'w-[52px] h-[52px]';
   const rarity = item ? (RARITIES[item.rarity] || RARITIES.COMMON) : null;
   const emptyClass = equip
     ? 'border-slate-700/40 border-dashed bg-slate-900/25 hover:border-slate-500/50'
     : 'border-slate-700 border-dashed bg-slate-900/50 hover:border-slate-500';
-  const filledClass = equip
-    ? `${rarity.border} bg-slate-900/40 hover:brightness-110`
-    : `${rarity.border} bg-slate-900 hover:brightness-125`;
+  const filledClass = rarity
+    ? (equip
+      ? `${rarity.border} bg-slate-900/40 hover:brightness-110`
+      : `${rarity.border} bg-slate-900 hover:brightness-125`)
+    : '';
   return (
     <div
       draggable={isDraggable && !!item}
@@ -2484,6 +2486,7 @@ export default function App() {
                       </div>
                     </div>
                   </TiltWrapper>
+                  {!isDead && (
                   <div className="-mt-4 relative z-0 bg-slate-800 rounded-b-2xl px-3 pt-5 pb-[18px] shadow-2xl shadow-black/80">
                     <ItemSlot
                       item={eqItem}
@@ -2499,6 +2502,7 @@ export default function App() {
                       emptyLabel="⬇"
                     />
                   </div>
+                  )}
                   </div>
                 );
               })}
