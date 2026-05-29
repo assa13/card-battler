@@ -695,9 +695,15 @@ const ItemTooltip = ({ item, x, y }) => {
   );
 };
 
-const ItemSlot = ({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLeave, size = 'md', draggable: isDraggable, onDragStart, onDragOver, onDragLeave, onDrop, isDragOver }) => {
+const ItemSlot = ({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLeave, size = 'md', draggable: isDraggable, onDragStart, onDragOver, onDragLeave, onDrop, isDragOver, equip = false }) => {
   const sizeClass = size === 'sm' ? 'w-[53px] h-[53px]' : 'w-[52px] h-[52px]';
   const rarity = item ? (RARITIES[item.rarity] || RARITIES.COMMON) : null;
+  const emptyClass = equip
+    ? 'border-slate-700/40 border-dashed bg-slate-900/25 hover:border-slate-500/50'
+    : 'border-slate-700 border-dashed bg-slate-900/50 hover:border-slate-500';
+  const filledClass = equip
+    ? `${rarity.border} bg-slate-900/40 hover:brightness-110`
+    : `${rarity.border} bg-slate-900 hover:brightness-125`;
   return (
     <div
       draggable={isDraggable && !!item}
@@ -709,9 +715,10 @@ const ItemSlot = ({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLe
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
       className={`${sizeClass} rounded-lg border-2 flex items-center justify-center transition-all relative overflow-hidden select-none
-        ${item ? `${rarity.border} bg-slate-900 hover:brightness-125 cursor-grab active:cursor-grabbing` : 'border-slate-700 border-dashed bg-slate-900/50 hover:border-slate-500 cursor-default'}
+        ${item ? `${filledClass} cursor-grab active:cursor-grabbing` : `${emptyClass} cursor-default`}
         ${isDragOver ? 'ring-2 ring-amber-400 scale-110 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.6)]' : ''}
-        ${selected ? 'ring-2 ring-amber-400 scale-105 shadow-[0_0_15px_rgba(251,191,36,0.5)]' : ''}`}>
+        ${selected ? 'ring-2 ring-amber-400 scale-105 shadow-[0_0_15px_rgba(251,191,36,0.5)]' : ''}
+        ${equip ? 'mt-2' : ''}`}>
       {item ? (
         <img src={getItemIconUrl(item.icon)} alt={item.name} className="w-full h-full object-cover pointer-events-none" draggable={false} />
       ) : (
@@ -2437,7 +2444,7 @@ export default function App() {
           </div>
 
           <div className="flex justify-between items-end w-full gap-4 relative z-10 mt-[5px]">
-            <div className="flex flex-col justify-end gap-4 items-center mb-[19px] w-32 relative -translate-y-[40px]">
+            <div className="flex flex-col justify-end gap-4 items-center mb-[19px] w-32 relative -translate-y-[60px]">
               <div className="flex flex-col items-center w-full">
                 <div className="text-[#1E88E5] font-black uppercase tracking-widest text-[8px] mb-1">Энергия</div>
                 <div className="w-24 h-24 rounded-full bg-slate-900 border-[6px] border-[#1E88E5] shadow-[0_0_25px_rgba(30,136,229,0.5)] flex items-center justify-center relative overflow-hidden">
@@ -2481,6 +2488,7 @@ export default function App() {
                     <ItemSlot
                       item={eqItem}
                       size="sm"
+                      equip
                       isDragOver={dragOverPlayerId === p.id}
                       onDragOver={handleEquipDragOver(p.id)}
                       onDragLeave={handleEquipDragLeave}
@@ -2496,7 +2504,7 @@ export default function App() {
               })}
             </div>
 
-            <div className="flex flex-col justify-end gap-6 items-center mb-[19px] w-32 -translate-y-[40px]">
+            <div className="flex flex-col justify-end gap-6 items-center mb-[19px] w-32 -translate-y-[60px]">
               <button onClick={() => { playSound('./assets/sfx/game/enemy_turn.wav', 0.6); setTurnState('enemy'); }} disabled={turnState !== 'player' || isAnimating || showLevelUp || turnState === 'map' || turnState === 'victory_wait'} className="w-full py-4 bg-[#D32F2F] hover:bg-red-700 disabled:opacity-50 disabled:bg-red-900 disabled:cursor-not-allowed rounded-2xl font-black uppercase tracking-widest text-[9px] transition-all shadow-[0_0_20px_rgba(211,47,47,0.4)] border border-red-500 hover:scale-105 active:scale-95 text-white">{turnState === 'dealing' ? 'ЖДИТЕ' : turnState === 'player' ? 'ЗАВЕРШИТЬ' : 'ВРАГ...'}</button>
               <div className="flex flex-col items-center">
                 <div ref={discardRef} className="w-20 h-28 bg-slate-900/60 rounded-xl border-2 border-slate-700 border-dashed flex items-center justify-center font-black text-3xl opacity-60 transition-all hover:opacity-100 shadow-inner overflow-hidden">
@@ -2508,7 +2516,7 @@ export default function App() {
           </div>
 
           {/* Инвентарь — горизонтальная полоса под карточками */}
-          <div ref={inventoryRef} className="flex items-center justify-center gap-1.5 rounded-2xl px-10 py-3 w-fit mx-auto" style={{ marginTop: '48px', background: 'linear-gradient(to right, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 50%, rgba(15,23,42,0) 100%)' }}>
+          <div ref={inventoryRef} className="flex items-center justify-center gap-1.5 rounded-2xl px-[65px] py-3 w-fit mx-auto" style={{ marginTop: '48px', background: 'linear-gradient(to right, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 50%, rgba(15,23,42,0) 100%)' }}>
             <span className="text-[8px] uppercase font-black tracking-widest text-amber-500 mr-2 whitespace-nowrap">
               Инвентарь {inventory.filter(Boolean).length}/{INVENTORY_SIZE}
             </span>
