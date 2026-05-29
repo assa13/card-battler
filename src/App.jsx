@@ -766,6 +766,32 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
 const _audioCache = {};
 let _sfxVolume = 0.35; // глобальный множитель громкости SFX
 
+// Все ассеты, которые нужно прогреть до старта игры
+const PRELOAD_ASSETS = [
+  './assets/sfx/combat/death.wav',
+  './assets/sfx/combat/enemy_attack.wav',
+  './assets/sfx/combat/hit_heavy.wav',
+  './assets/sfx/combat/hit_light.wav',
+  './assets/sfx/combat/hit_magic.wav',
+  './assets/sfx/combat/hit_poison.wav',
+  './assets/sfx/events/event_start.wav',
+  './assets/sfx/events/powerup_select.wav',
+  './assets/sfx/game/enemy_turn.wav',
+  './assets/sfx/game/gameover.wav',
+  './assets/sfx/game/level_up.wav',
+  './assets/sfx/game/mana_restore.wav',
+  './assets/sfx/game/victory.wav',
+  './assets/sfx/game/xp_gain.wav',
+  './assets/sfx/map/move.wav',
+  './assets/sfx/map/node_click.wav',
+  './assets/sfx/ui/card_deal.wav',
+  './assets/sfx/ui/card_discard.wav',
+  './assets/sfx/ui/click.wav',
+  './assets/sfx/ui/hover.wav',
+  './corner.png',
+  './file.mp3',
+];
+
 function playSound(path, volume = 1.0) {
   try {
     const cached = _audioCache[path];
@@ -964,6 +990,87 @@ const SectorSplashScreen = ({ text, sector, onContinue }) => {
   );
 };
 
+// --- Экран загрузки (прогрев звуков и ассетов) ---
+const Preloader = ({ assets, onDone }) => {
+  const [loaded, setLoaded] = useState(0);
+  const [done, setDone] = useState(false);
+  const total = assets.length;
+
+  useEffect(() => {
+    let cancelled = false;
+    let count = 0;
+    const bump = () => {
+      if (cancelled) return;
+      count++;
+      setLoaded(count);
+      if (count >= total) setDone(true);
+    };
+
+    assets.forEach((src) => {
+      const isAudio = /\.(wav|mp3|ogg)$/i.test(src);
+      if (isAudio) {
+        const a = new Audio();
+        a.preload = 'auto';
+        const fin = () => bump();
+        a.addEventListener('canplaythrough', fin, { once: true });
+        a.addEventListener('error', fin, { once: true });
+        a.src = src;
+        a.load();
+        _audioCache[src] = a; // тёплый кэш для мгновенного воспроизведения
+      } else {
+        const img = new Image();
+        img.onload = bump;
+        img.onerror = bump;
+        img.src = src;
+      }
+    });
+
+    // Запасной таймаут на случай, если какие-то события не сработают
+    const timeout = setTimeout(() => { if (!cancelled) setDone(true); }, 15000);
+    return () => { cancelled = true; clearTimeout(timeout); };
+  }, []);
+
+  const pct = Math.min(100, Math.round((loaded / total) * 100));
+
+  return (
+    <div className="fixed inset-0 z-[3000] bg-[#0a0a0f] flex flex-col items-center justify-center overflow-hidden">
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 left-0 w-[300px] h-[300px] opacity-60" />
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 right-0 w-[300px] h-[300px] opacity-60" style={{ transform: 'scaleX(-1)' }} />
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[300px] h-[300px] opacity-60" style={{ transform: 'scaleY(-1)' }} />
+      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[300px] h-[300px] opacity-60" style={{ transform: 'scale(-1, -1)' }} />
+
+      <h1 className="text-6xl md:text-7xl font-black text-amber-500 uppercase italic tracking-widest mb-3 text-center drop-shadow-[0_0_30px_rgba(245,158,11,0.6)]">Card Battler</h1>
+      <p className="text-slate-500 text-xs uppercase tracking-[0.5em] mb-12">Подготовка к спуску</p>
+
+      <div className="w-[min(80vw,420px)]">
+        <div className="h-3 w-full bg-slate-800/80 rounded-full overflow-hidden border border-slate-700 shadow-inner">
+          <div
+            className="h-full bg-gradient-to-r from-[#1E88E5] via-amber-400 to-[#D32F2F] transition-all duration-300 ease-out"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <div className="flex justify-between mt-3 text-[11px] uppercase tracking-widest font-black">
+          <span className="text-slate-500">{done ? 'Готово' : 'Загрузка ассетов…'}</span>
+          <span className="text-slate-300">{pct}%</span>
+        </div>
+      </div>
+
+      <div className="mt-12 h-16 flex items-center justify-center">
+        {done ? (
+          <button
+            onClick={onDone}
+            className="px-14 py-5 bg-white text-slate-900 rounded-full font-black text-xl uppercase tracking-tighter hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.45)] animate-in fade-in zoom-in-90 duration-500"
+          >
+            Войти
+          </button>
+        ) : (
+          <div className="w-10 h-10 border-4 border-slate-700 border-t-amber-500 rounded-full animate-spin" />
+        )}
+      </div>
+    </div>
+  );
+};
+
 // --- 3. ГЛАВНОЕ ПРИЛОЖЕНИЕ ---
 
 export default function App() {
@@ -1005,6 +1112,7 @@ export default function App() {
   const [showReserve, setShowReserve] = useState(false);
   const [showAllCards, setShowAllCards] = useState(false);
   const [burnConfirmId, setBurnConfirmId] = useState(null);
+  const [appReady, setAppReady] = useState(false);
   const [cardRewardCards, setCardRewardCards] = useState([]);
   const pendingCardRewardRef = useRef(null);
   const [flyingCards, setFlyingCards] = useState([]);
@@ -1704,9 +1812,10 @@ export default function App() {
   }, [gameMap]);
 
   return (
-    <div 
-      className={`${isFullscreen ? 'fixed inset-0 z-[9999]' : 'h-screen relative'} w-full bg-transparent text-slate-200 flex flex-col items-center font-sans select-none transition-all duration-300 overflow-hidden`} 
+    <div
+      className={`${isFullscreen ? 'fixed inset-0 z-[9999]' : 'h-screen relative'} w-full bg-transparent text-slate-200 flex flex-col items-center font-sans select-none transition-all duration-300 overflow-hidden`}
     >
+      {!appReady && <Preloader assets={PRELOAD_ASSETS} onDone={() => setAppReady(true)} />}
       <ShaderBackground intensity={bgIntensity} />
 
       {/* Декоративные уголки сцены боя: слой над фоном, но под HUD; не пересекают верхний прогрессбар */}
