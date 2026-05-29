@@ -696,7 +696,7 @@ const ItemTooltip = ({ item, x, y }) => {
 };
 
 const ItemSlot = ({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLeave, size = 'md', draggable: isDraggable, onDragStart, onDragOver, onDragLeave, onDrop, isDragOver, equip = false }) => {
-  const sizeClass = size === 'sm' ? 'w-[58px] h-[58px]' : 'w-[52px] h-[52px]';
+  const sizeClass = size === 'sm' ? 'w-[64px] h-[64px]' : 'w-[52px] h-[52px]';
   const rarity = item ? (RARITIES[item.rarity] || RARITIES.COMMON) : null;
   const emptyClass = equip
     ? 'border-slate-700/40 border-dashed bg-slate-900/25 hover:border-slate-500/50'
@@ -720,7 +720,7 @@ const ItemSlot = ({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLe
         ${item ? `${filledClass} cursor-grab active:cursor-grabbing` : `${emptyClass} cursor-default`}
         ${isDragOver ? 'ring-2 ring-amber-400 scale-110 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.6)]' : ''}
         ${selected ? 'ring-2 ring-amber-400 scale-105 shadow-[0_0_15px_rgba(251,191,36,0.5)]' : ''}
-        ${equip ? 'mt-2' : ''}`}>
+        ${equip ? 'mt-[18px]' : ''}`}>
       {item ? (
         <img src={getItemIconUrl(item.icon)} alt={item.name} className="w-full h-full object-cover pointer-events-none" draggable={false} />
       ) : (
@@ -2487,7 +2487,6 @@ export default function App() {
                     </div>
                   </TiltWrapper>
                   {!isDead && (
-                  <div className="-mt-4 relative z-0 bg-slate-800 rounded-b-2xl px-3 pt-5 pb-[18px] shadow-2xl shadow-black/80">
                     <ItemSlot
                       item={eqItem}
                       size="sm"
@@ -2501,7 +2500,6 @@ export default function App() {
                       onMouseLeave={hideItemTip}
                       emptyLabel="⬇"
                     />
-                  </div>
                   )}
                   </div>
                 );
