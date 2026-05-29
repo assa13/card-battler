@@ -2437,7 +2437,7 @@ export default function App() {
           </div>
 
           <div className="flex justify-between items-end w-full gap-4 relative z-10 mt-[5px]">
-            <div className="flex flex-col justify-end gap-4 items-center mb-[19px] w-32 relative -translate-y-[20px]">
+            <div className="flex flex-col justify-end gap-4 items-center mb-[19px] w-32 relative -translate-y-[40px]">
               <div className="flex flex-col items-center w-full">
                 <div className="text-[#1E88E5] font-black uppercase tracking-widest text-[8px] mb-1">Энергия</div>
                 <div className="w-24 h-24 rounded-full bg-slate-900 border-[6px] border-[#1E88E5] shadow-[0_0_25px_rgba(30,136,229,0.5)] flex items-center justify-center relative overflow-hidden">
@@ -2463,8 +2463,8 @@ export default function App() {
                   ? <span className={`text-xs font-bold ${color}`}>{String(effective)}<span className="text-[8px] text-green-400 ml-0.5">+{effective - base}</span></span>
                   : <span className={`text-xs font-bold ${color}`}>{String(base)}</span>;
                 return (
-                  <div key={p.id} className="flex flex-col items-center gap-1">
-                  <TiltWrapper isDisabled={isDisabled} globalShake={shake} className="w-52 h-[290px]">
+                  <div key={p.id} className="flex flex-col items-center">
+                  <TiltWrapper isDisabled={isDisabled} globalShake={shake} className="w-52 h-[290px] relative z-10">
                     <div ref={(el) => setSlotRef(p.id, el)} onClick={() => !isDisabled && card && playCard(i, card)} onMouseEnter={() => handleCardHover(i)} onMouseLeave={() => { setHoveredPlayerId(null); setHoveredTargetIds([]); }} className={`w-full h-full bg-slate-800 border-2 rounded-2xl flex flex-col overflow-hidden relative group ${isDead ? 'border-slate-700 opacity-40 grayscale scale-95' : 'border-slate-600 shadow-2xl shadow-black/80'} ${!isDisabled ? 'cursor-pointer hover:border-[#1E88E5]' : ''}`}>
                       <div className={`${p.bg} py-1.5 px-3 border-b border-white/10 flex justify-between items-center`}><span className="text-sm">{String(p.icon)}</span><span className="font-black uppercase tracking-tighter text-[10px] text-white">{String(p.name)}</span><span className="text-[8px] font-mono text-red-400">{String(p.hp)}/{String(eff.maxHp)} HP</span></div>
                       <div className="p-1.5 bg-slate-900/50 flex flex-col gap-1.5"><div className="h-1.5 bg-slate-950 rounded-full overflow-hidden shadow-inner"><div className="h-full bg-[#D32F2F] transition-all duration-500" style={{ width: `${(p.hp/eff.maxHp)*100}%` }}></div></div><div className="flex justify-between border-t border-white/5 pt-1 px-1"><div className="flex flex-col items-center w-1/3"><span className="text-[7px] text-slate-500 font-bold uppercase">Сил</span>{renderStat(p.str, eff.str, 'text-red-400')}</div><div className="flex flex-col items-center border-l border-r border-slate-800 px-2"><span className="text-[7px] text-slate-500 font-bold uppercase">Лов</span>{renderStat(p.agi, eff.agi, 'text-green-400')}</div><div className="flex flex-col items-center w-1/3"><span className="text-[7px] text-slate-500 font-bold uppercase">Инт</span>{renderStat(p.int, eff.int, 'text-blue-400')}</div></div></div>
@@ -2477,8 +2477,7 @@ export default function App() {
                       </div>
                     </div>
                   </TiltWrapper>
-                  <div className="flex flex-col items-center gap-0.5">
-                    <span className="text-[7px] uppercase text-slate-500 font-bold tracking-widest">Экипировка</span>
+                  <div className="-mt-4 relative z-0 bg-slate-800 border-2 border-t-0 border-slate-600 rounded-b-2xl px-3 pt-5 pb-2 shadow-2xl shadow-black/80">
                     <ItemSlot
                       item={eqItem}
                       size="sm"
@@ -2497,7 +2496,7 @@ export default function App() {
               })}
             </div>
 
-            <div className="flex flex-col justify-end gap-6 items-center mb-[19px] w-32 -translate-y-[20px]">
+            <div className="flex flex-col justify-end gap-6 items-center mb-[19px] w-32 -translate-y-[40px]">
               <button onClick={() => { playSound('./assets/sfx/game/enemy_turn.wav', 0.6); setTurnState('enemy'); }} disabled={turnState !== 'player' || isAnimating || showLevelUp || turnState === 'map' || turnState === 'victory_wait'} className="w-full py-4 bg-[#D32F2F] hover:bg-red-700 disabled:opacity-50 disabled:bg-red-900 disabled:cursor-not-allowed rounded-2xl font-black uppercase tracking-widest text-[9px] transition-all shadow-[0_0_20px_rgba(211,47,47,0.4)] border border-red-500 hover:scale-105 active:scale-95 text-white">{turnState === 'dealing' ? 'ЖДИТЕ' : turnState === 'player' ? 'ЗАВЕРШИТЬ' : 'ВРАГ...'}</button>
               <div className="flex flex-col items-center">
                 <div ref={discardRef} className="w-20 h-28 bg-slate-900/60 rounded-xl border-2 border-slate-700 border-dashed flex items-center justify-center font-black text-3xl opacity-60 transition-all hover:opacity-100 shadow-inner overflow-hidden">
@@ -2509,7 +2508,7 @@ export default function App() {
           </div>
 
           {/* Инвентарь — горизонтальная полоса под карточками */}
-          <div ref={inventoryRef} className="flex items-center justify-center gap-1.5 rounded-2xl px-10 py-2.5 w-fit mx-auto" style={{ marginTop: '33px', background: 'radial-gradient(ellipse at center, rgba(15,23,42,0.6) 0%, rgba(15,23,42,0.35) 45%, rgba(15,23,42,0) 80%)' }}>
+          <div ref={inventoryRef} className="flex items-center justify-center gap-1.5 rounded-2xl px-10 py-3 w-fit mx-auto" style={{ marginTop: '33px', background: 'linear-gradient(to bottom, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 50%, rgba(15,23,42,0) 100%)' }}>
             <span className="text-[8px] uppercase font-black tracking-widest text-amber-500 mr-2 whitespace-nowrap">
               Инвентарь {inventory.filter(Boolean).length}/{INVENTORY_SIZE}
             </span>
