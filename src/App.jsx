@@ -611,8 +611,8 @@ const ShaderBackground = ({ intensity = 0 }) => {
       mat2 rot(float a) { float s = sin(a); float c = cos(a); return mat2(c, -s, s, c); }
 
       float complexFBM(vec2 p) {
-          // Скорость растёт с уровнем, ближе к концу — резкий скачок динамики
-          float speed = mix(0.45, 2.6, clamp(iIntensity, 0.0, 2.0)) + max(0.0, iIntensity - 2.0) * 1.6;
+          // Скорость растёт с уровнем, ближе к концу — резкий скачок динамики (общая динамика снижена вдвое)
+          float speed = (mix(0.45, 2.6, clamp(iIntensity, 0.0, 2.0)) + max(0.0, iIntensity - 2.0) * 1.6) * 0.5;
           float t = iTime * speed;
 
           // Вращательно-радиальное движение (никакого простого дрейфа слева-направо)
@@ -646,7 +646,7 @@ const ShaderBackground = ({ intensity = 0 }) => {
           // --- Режим 1..2: опаловый перелив (радужная переливающаяся плёнка) ---
           if (iIntensity > 1.0) {
               float k = clamp(iIntensity - 1.0, 0.0, 1.0);
-              float hue = fract(n * 1.8 + uv.x * 0.35 + uv.y * 0.35 + iTime * 0.05);
+              float hue = fract(n * 1.8 + uv.x * 0.35 + uv.y * 0.35 + iTime * 0.025);
               vec3 opal = hsv2rgb(vec3(hue, 0.55, 0.45 + 0.55 * n));
               col = mix(col, opal, k);
           }
@@ -654,10 +654,10 @@ const ShaderBackground = ({ intensity = 0 }) => {
           // --- Режим 2..4: дикий психоделический режим с пульсацией яркости ---
           if (iIntensity > 2.0) {
               float k = clamp((iIntensity - 2.0) * 0.8, 0.0, 1.0);
-              float hue = fract(n * 3.0 + iTime * 0.18 + length(uv - 0.5) * 1.6);
+              float hue = fract(n * 3.0 + iTime * 0.09 + length(uv - 0.5) * 1.6);
               float val = 0.35 + 0.65 * pow(clamp(n, 0.0, 1.0), 1.4);
               vec3 wild = hsv2rgb(vec3(hue, 0.95, val));
-              wild *= 0.8 + 0.45 * sin(iTime * 3.0 + n * 12.0);
+              wild *= 0.8 + 0.45 * sin(iTime * 1.5 + n * 12.0);
               col = mix(col, wild, k);
           }
 
@@ -1113,6 +1113,7 @@ export default function App() {
   const [showAllCards, setShowAllCards] = useState(false);
   const [burnConfirmId, setBurnConfirmId] = useState(null);
   const [appReady, setAppReady] = useState(false);
+  const [ownedCards, setOwnedCards] = useState([]);
   const [cardRewardCards, setCardRewardCards] = useState([]);
   const pendingCardRewardRef = useRef(null);
   const [flyingCards, setFlyingCards] = useState([]);
@@ -1433,19 +1434,43 @@ export default function App() {
     });
   };
 
+  // Реальные карты, которые сейчас на руках (без базовых "b*")
+  const getRealHandCards = () => players.filter(p => p.currentCard && !p.currentCard.id.startsWith('b')).map(p => p.currentCard);
+
+  // Применяет результат слияния, корректно учитывая карты на руках:
+  // слитые карты убираются с рук, оставшиеся на руках не дублируются в колоде.
+  const commitMergedDeck = (newDeck, merges) => {
+    const survivingIds = new Set(newDeck.map(c => c.id));
+    const realHand = getRealHandCards();
+    setPlayers(prev => prev.map(p => (p.currentCard && !p.currentCard.id.startsWith('b') && !survivingIds.has(p.currentCard.id)) ? { ...p, currentCard: null } : p));
+    const stillInHand = new Set(realHand.filter(c => survivingIds.has(c.id)).map(c => c.id));
+    setDrawPile(shuffleArray(newDeck.filter(c => !stillInHand.has(c.id))));
+    setDiscardPile([]);
+    setMergeQueue(merges);
+  };
+
+  // Сливает любые имеющиеся пары во всей колоде (резерв + сброс + руки). Возвращает true, если было слияние.
+  const settleMerges = () => {
+    const full = [...drawPile, ...discardPile, ...getRealHandCards()];
+    const { newDeck, merges } = checkAndMerge(full);
+    if (merges.length === 0) return false;
+    commitMergedDeck(newDeck, merges);
+    return true;
+  };
+
   // Проверяет, приведёт ли добавление карты к слиянию (для меток "СЛИЯНИЕ")
   const rewardWouldMerge = (card) => {
-    const { merges } = checkAndMerge([...drawPile, ...discardPile, { ...card, id: `chk_${Math.random()}` }]);
+    const { merges } = checkAndMerge([...drawPile, ...discardPile, ...getRealHandCards(), { ...card, id: `chk_${Math.random()}` }]);
     return merges.length > 0;
   };
 
   // Показывает окно получения карт с пометкой готовых к слиянию
   const showCardReward = (newCards) => {
-    const fullDeck = [...drawPile, ...discardPile, ...newCards];
+    const fullDeck = [...drawPile, ...discardPile, ...getRealHandCards(), ...newCards];
     const { newDeck, merges } = checkAndMerge(fullDeck);
     const surviving = new Set(newDeck.map(c => c.id));
     const displayCards = newCards.map(c => ({ ...c, willMerge: !surviving.has(c.id) }));
-    pendingCardRewardRef.current = { newCards, newDeck, merges };
+    pendingCardRewardRef.current = { newCards };
     setCardRewardCards(displayCards);
   };
 
@@ -1454,11 +1479,11 @@ export default function App() {
     pendingCardRewardRef.current = null;
     setCardRewardCards([]);
     if (!pending) return;
-    if (pending.merges.length > 0) {
+    const full = [...drawPile, ...discardPile, ...getRealHandCards(), ...pending.newCards];
+    const { newDeck, merges } = checkAndMerge(full);
+    if (merges.length > 0) {
       playSound('./assets/sfx/game/level_up.wav');
-      setDrawPile(shuffleArray(pending.newDeck));
-      setDiscardPile([]);
-      setMergeQueue(pending.merges);
+      commitMergedDeck(newDeck, merges);
     } else {
       setDrawPile(prev => [...prev, ...pending.newCards]);
     }
@@ -1482,13 +1507,11 @@ export default function App() {
   const selectReward = (card) => {
     playSound('./assets/sfx/game/level_up.wav');
     const newCard = { ...card, id: `rew_${Date.now()}_${Math.random()}` };
-    const fullDeck = [...drawPile, ...discardPile, newCard];
+    const fullDeck = [...drawPile, ...discardPile, ...getRealHandCards(), newCard];
     const { newDeck, merges } = checkAndMerge(fullDeck);
 
     if (merges.length > 0) {
-      setDrawPile(shuffleArray(newDeck));
-      setDiscardPile([]);
-      setMergeQueue(merges);
+      commitMergedDeck(newDeck, merges);
     } else {
       setDrawPile(prev => {
         const pile = [...prev];
@@ -1672,6 +1695,26 @@ export default function App() {
   const playersRef = useRef(players);
   useEffect(() => { playersRef.current = players; }, [players]);
   useEffect(() => { showLevelUpRef.current = showLevelUp; }, [showLevelUp]);
+
+  // Слияние происходит всегда: как только в колоде (резерв+сброс+руки) есть пара —
+  // сливаем, но только в стабильном состоянии (не во время анимаций/раздачи/диалогов).
+  useEffect(() => {
+    if (mergeQueue.length > 0 || showLevelUp || cardRewardCards.length > 0 || isAnimating) return;
+    if (turnState !== 'player' && turnState !== 'map') return;
+    settleMerges();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawPile, discardPile, players, turnState, mergeQueue, showLevelUp, cardRewardCards, isAnimating]);
+
+  // Полная база карт для окна "Все карты" — обновляется только в стабильном состоянии,
+  // поэтому количество не «прыгает» из-за анимаций переноса карт.
+  useEffect(() => {
+    if (flyingCards.length > 0 || isAnimating || turnState === 'dealing') return;
+    const hand = players.filter(p => p.currentCard && !p.currentCard.id.startsWith('b')).map(p => p.currentCard);
+    const seen = new Set();
+    const all = [...drawPile, ...discardPile, ...hand].filter(c => c && !seen.has(c.id) && seen.add(c.id));
+    setOwnedCards(all);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drawPile, discardPile, players, flyingCards, isAnimating, turnState]);
 
   useEffect(() => {
     if (turnState !== 'enemy' || showLevelUp) return;
@@ -2199,14 +2242,8 @@ export default function App() {
 
       {(showReserve || showAllCards) && (() => {
         const closeDeckView = () => { setShowReserve(false); setShowAllCards(false); setBurnConfirmId(null); };
-        const handCards = players.filter(p => p.currentCard && !p.currentCard.id.startsWith('b')).map(p => p.currentCard);
-        // Все карты вне зависимости от ротации (резерв + сброс + на руках), без дублей по id
-        const seen = new Set();
-        const allCards = [...drawPile, ...discardPile, ...handCards].filter(c => {
-          if (!c || seen.has(c.id)) return false;
-          seen.add(c.id);
-          return true;
-        });
+        // Полная база карт (статичная, не зависит от текущей ротации/анимаций)
+        const allCards = ownedCards;
         const list = showAllCards ? allCards : drawPile;
         return (
         <div className="absolute inset-0 z-[1100] bg-black/45 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in duration-300 p-10">
