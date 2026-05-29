@@ -34,8 +34,8 @@ const CLASS_WEIGHTS = {
 };
 
 const INVENTORY_SIZE = 9;
-const LOOT_DROP_CHANCE = 0.32;
-const ITEM_RARITY_WEIGHTS = { COMMON: 55, RARE: 28, EPIC: 13, LEGENDARY: 4 };
+const LOOT_DROP_CHANCE = 0.65;
+const ITEM_RARITY_WEIGHTS = { COMMON: 68, RARE: 21, EPIC: 9, LEGENDARY: 2 };
 const ITEM_STAT_RANGES = {
   COMMON: { min: 1, max: 3 },
   RARE: { min: 2, max: 5 },
@@ -689,7 +689,7 @@ const ItemTooltip = ({ item, x, y }) => {
 };
 
 const ItemSlot = ({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLeave, size = 'md', draggable: isDraggable, onDragStart, onDragOver, onDragLeave, onDrop, isDragOver }) => {
-  const sizeClass = size === 'sm' ? 'w-12 h-12' : 'w-[52px] h-[52px]';
+  const sizeClass = size === 'sm' ? 'w-[53px] h-[53px]' : 'w-[52px] h-[52px]';
   const rarity = item ? (RARITIES[item.rarity] || RARITIES.COMMON) : null;
   return (
     <div
@@ -1204,13 +1204,11 @@ const SectorSplashScreen = ({ text, sector, onContinue }) => {
 };
 
 // --- Экран загрузки (прогрев звуков и ассетов) ---
-const Preloader = ({ assets, onMusicReady, onEnter }) => {
+const Preloader = ({ assets, onEnter }) => {
   const [sfxLoaded, setSfxLoaded] = useState(0);
-  const [musicProgress, setMusicProgress] = useState(0); // 0..1
-  const totalUnits = assets.length + 1;
-  const loadedUnits = sfxLoaded + musicProgress;
-  const pct = Math.min(100, Math.round((loadedUnits / totalUnits) * 100));
-  const ready = sfxLoaded >= assets.length && musicProgress >= 1;
+  const totalUnits = assets.length;
+  const pct = Math.min(100, Math.round((sfxLoaded / totalUnits) * 100));
+  const ready = sfxLoaded >= assets.length;
 
   useEffect(() => {
     let cancelled = false;
@@ -1240,37 +1238,8 @@ const Preloader = ({ assets, onMusicReady, onEnter }) => {
       }
     });
 
-    (async () => {
-      try {
-        const res = await fetch(MUSIC_URL);
-        if (!res.ok) throw new Error('music fetch failed');
-        const total = Number(res.headers.get('content-length')) || 0;
-        const reader = res.body.getReader();
-        const chunks = [];
-        let received = 0;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (cancelled) return;
-          if (done) break;
-          chunks.push(value);
-          received += value.length;
-          if (total > 0) setMusicProgress(Math.min(0.99, received / total));
-        }
-        if (cancelled) return;
-        const blob = new Blob(chunks, { type: 'audio/mpeg' });
-        const url = URL.createObjectURL(blob);
-        onMusicReady(url);
-        setMusicProgress(1);
-      } catch {
-        if (!cancelled) {
-          onMusicReady(MUSIC_URL);
-          setMusicProgress(1);
-        }
-      }
-    })();
-
     return () => { cancelled = true; };
-  }, [assets, onMusicReady]);
+  }, [assets]);
 
   return (
     <div className="fixed inset-0 z-[3000] bg-[#0a0a0f] flex flex-col items-center justify-center overflow-hidden">
@@ -1384,6 +1353,8 @@ export default function App() {
 
   const musicBlobUrlRef = useRef(null);
   const musicStartedRef = useRef(false);
+  const enteredRef = useRef(false);
+  const [mediaBytes, setMediaBytes] = useState({ loaded: 0, total: 0, done: false });
 
   useEffect(() => { _sfxVolume = sfxVolume; }, [sfxVolume]);
   useEffect(() => {
@@ -1392,14 +1363,10 @@ export default function App() {
   }, [musicVolume, musicOn]);
   useEffect(() => { musicOnRef.current = musicOn; }, [musicOn]);
 
-  const handleMusicPreloaded = useCallback((url) => {
-    musicBlobUrlRef.current = url;
-  }, []);
-
   const startBackgroundMusic = useCallback(() => {
     if (musicStartedRef.current) return;
     const audio = audioRef.current;
-    if (!audio || !musicOnRef.current) return;
+    if (!audio || !musicOnRef.current || !musicBlobUrlRef.current) return;
     musicStartedRef.current = true;
     const play = () => {
       if (audio.duration && isFinite(audio.duration)) audio.currentTime = Math.random() * audio.duration;
@@ -1410,16 +1377,66 @@ export default function App() {
     else audio.addEventListener('canplay', play, { once: true });
   }, []);
 
-  const handleEnterGame = useCallback(() => {
+  const applyMusicSource = useCallback(() => {
     const audio = audioRef.current;
     if (audio && musicBlobUrlRef.current) {
       audio.src = musicBlobUrlRef.current;
       audio.loop = true;
       audio.load();
     }
-    startBackgroundMusic();
+  }, []);
+
+  const handleEnterGame = useCallback(() => {
+    enteredRef.current = true;
+    if (musicBlobUrlRef.current) {
+      applyMusicSource();
+      startBackgroundMusic();
+    }
     setAppReady(true);
-  }, [startBackgroundMusic]);
+  }, [applyMusicSource, startBackgroundMusic]);
+
+  // Фоновая загрузка музыки: качаем только первую половину файла (обрезка трека вдвое)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(MUSIC_URL);
+        if (!res.ok) throw new Error('music fetch failed');
+        const total = Number(res.headers.get('content-length')) || 0;
+        const halfTotal = total > 0 ? Math.floor(total / 2) : 0;
+        const target = halfTotal || total;
+        const reader = res.body.getReader();
+        const chunks = [];
+        let received = 0;
+        setMediaBytes({ loaded: 0, total: target, done: false });
+        while (true) {
+          const { done, value } = await reader.read();
+          if (cancelled) return;
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          setMediaBytes({ loaded: Math.min(received, target || received), total: target || received, done: false });
+          if (halfTotal && received >= halfTotal) {
+            try { await reader.cancel(); } catch { /* ignore */ }
+            break;
+          }
+        }
+        if (cancelled) return;
+        const blob = new Blob(chunks, { type: 'audio/mpeg' });
+        musicBlobUrlRef.current = URL.createObjectURL(blob);
+        setMediaBytes(prev => ({ loaded: prev.total || received, total: prev.total || received, done: true }));
+      } catch {
+        if (cancelled) return;
+        musicBlobUrlRef.current = MUSIC_URL;
+        setMediaBytes({ loaded: 1, total: 1, done: true });
+      }
+      if (!cancelled && enteredRef.current) {
+        applyMusicSource();
+        startBackgroundMusic();
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [applyMusicSource, startBackgroundMusic]);
 
   const appRef = useRef(null);
   const slotRefs = useRef({});
@@ -2220,9 +2237,25 @@ export default function App() {
       {!appReady && (
         <Preloader
           assets={PRELOAD_ASSETS}
-          onMusicReady={handleMusicPreloaded}
           onEnter={handleEnterGame}
         />
+      )}
+
+      {appReady && !mediaBytes.done && (
+        <div className="fixed bottom-4 left-4 z-[9500] bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg flex items-center gap-2.5 animate-in fade-in duration-300">
+          <div className="w-4 h-4 border-2 border-slate-700 border-t-amber-500 rounded-full animate-spin shrink-0" />
+          <div className="flex flex-col gap-1 min-w-[120px]">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[8px] uppercase font-black tracking-widest text-amber-500">Загрузка медиа</span>
+              <span className="text-[8px] font-mono text-slate-400">
+                {(mediaBytes.loaded / 1048576).toFixed(1)} / {(Math.max(mediaBytes.total, mediaBytes.loaded) / 1048576).toFixed(1)} МБ
+              </span>
+            </div>
+            <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
+              <div className="h-full bg-amber-500 transition-all duration-200" style={{ width: `${mediaBytes.total ? Math.min(100, Math.round((mediaBytes.loaded / mediaBytes.total) * 100)) : 0}%` }} />
+            </div>
+          </div>
+        </div>
       )}
       <ShaderBackground intensity={bgIntensity} />
 
@@ -2456,7 +2489,7 @@ export default function App() {
           </div>
 
           {/* Инвентарь — горизонтальная полоса под карточками */}
-          <div ref={inventoryRef} className="flex items-center justify-center gap-1.5 mt-3 bg-slate-900/85 border border-slate-700/70 rounded-2xl px-4 py-2 w-fit mx-auto">
+          <div ref={inventoryRef} className="flex items-center justify-center gap-1.5 bg-slate-900/40 border border-slate-700/70 rounded-2xl px-4 py-2 w-fit mx-auto" style={{ marginTop: '23px' }}>
             <span className="text-[8px] uppercase font-black tracking-widest text-amber-500 mr-2 whitespace-nowrap">
               Инвентарь {inventory.filter(Boolean).length}/{INVENTORY_SIZE}
             </span>
@@ -2537,58 +2570,6 @@ export default function App() {
               <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">🐲</span> Босс</span>
             </div>
             <p className="text-slate-300 font-black text-sm tracking-widest uppercase text-right drop-shadow-md">Выберите следующий этап пути</p>
-          </div>
-
-          <div className="flex flex-col items-center gap-3 mt-5 w-full max-w-4xl px-4">
-            {/* Инвентарь на карте */}
-            <div className="flex items-center justify-center gap-1.5 bg-slate-900/90 border border-amber-600/40 rounded-2xl px-4 py-2">
-              <span className="text-[8px] uppercase font-black tracking-widest text-amber-500 mr-2 whitespace-nowrap">
-                Инвентарь {inventory.filter(Boolean).length}/{INVENTORY_SIZE}
-              </span>
-              {inventory.map((item, idx) => (
-                <ItemSlot
-                  key={idx}
-                  item={item}
-                  selected={dragSrcIdx === idx}
-                  draggable={true}
-                  onDragStart={handleInvDragStart(idx)}
-                  onMouseEnter={(e) => showItemTip(item, e)}
-                  onMouseLeave={hideItemTip}
-                />
-              ))}
-            </div>
-            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
-              {dragSrcIdx !== null ? '⬇ Перетащите предмет в слот героя' : 'Перетащите предмет на героя чтобы экипировать'}
-            </p>
-            {/* Слоты экипировки героев */}
-            <div className="flex justify-center gap-6">
-              {players.map(p => {
-                const eqItem = equipped[p.id];
-                const eff = getEffectivePlayer(p, eqItem);
-                return (
-                  <div key={`map-eq-${p.id}`} className="flex flex-col items-center gap-1.5 bg-slate-900/90 border border-slate-600 rounded-xl px-5 py-3 shadow-lg">
-                    <div className="flex items-center gap-2">
-                      <span className="text-2xl">{String(p.icon)}</span>
-                      <span className="text-[10px] font-black uppercase text-white tracking-tight">{String(p.name)}</span>
-                    </div>
-                    <div className="text-[8px] text-slate-400 font-mono">Сил {eff.str} · Лов {eff.agi} · Инт {eff.int}</div>
-                    <ItemSlot
-                      item={eqItem}
-                      size="sm"
-                      isDragOver={dragOverPlayerId === p.id}
-                      onDragOver={handleEquipDragOver(p.id)}
-                      onDragLeave={handleEquipDragLeave}
-                      onDrop={handleEquipDrop(p.id)}
-                      onClick={() => handleUnequip(p.id)}
-                      onMouseEnter={(e) => showItemTip(eqItem, e)}
-                      onMouseLeave={hideItemTip}
-                      emptyLabel="⬇"
-                    />
-                    <span className="text-[7px] uppercase text-amber-500 tracking-widest font-bold">Экипировка</span>
-                  </div>
-                );
-              })}
-            </div>
           </div>
         </div>
       )}
