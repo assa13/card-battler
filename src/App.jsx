@@ -1044,13 +1044,14 @@ const SectorSplashScreen = ({ text, sector, onContinue }) => {
   );
 };
 
-// --- Экран загрузки: SFX прогреваются полностью, музыка буферизуется потоково ---
-const Preloader = ({ assets, musicAudio, onEnter }) => {
+// --- Экран загрузки (прогрев звуков и ассетов) ---
+const Preloader = ({ assets, onMusicReady, onEnter }) => {
   const [sfxLoaded, setSfxLoaded] = useState(0);
-  const [musicBuffered, setMusicBuffered] = useState(0); // 0..1, только для индикатора
-  const [musicReady, setMusicReady] = useState(false);
-  const pct = assets.length ? Math.min(100, Math.round((sfxLoaded / assets.length) * 100)) : 100;
-  const sfxReady = sfxLoaded >= assets.length;
+  const [musicProgress, setMusicProgress] = useState(0); // 0..1
+  const totalUnits = assets.length + 1;
+  const loadedUnits = sfxLoaded + musicProgress;
+  const pct = Math.min(100, Math.round((loadedUnits / totalUnits) * 100));
+  const ready = sfxLoaded >= assets.length && musicProgress >= 1;
 
   useEffect(() => {
     let cancelled = false;
@@ -1080,32 +1081,37 @@ const Preloader = ({ assets, musicAudio, onEnter }) => {
       }
     });
 
-    return () => { cancelled = true; };
-  }, [assets]);
-
-  // Музыка: потоковая буферизация через основной <audio>, не блокирует вход
-  useEffect(() => {
-    const audio = musicAudio?.current;
-    if (!audio) return;
-
-    const updateBuffer = () => {
-      if (audio.buffered.length > 0 && audio.duration && isFinite(audio.duration)) {
-        setMusicBuffered(Math.min(1, audio.buffered.end(audio.buffered.length - 1) / audio.duration));
+    (async () => {
+      try {
+        const res = await fetch(MUSIC_URL);
+        if (!res.ok) throw new Error('music fetch failed');
+        const total = Number(res.headers.get('content-length')) || 0;
+        const reader = res.body.getReader();
+        const chunks = [];
+        let received = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (cancelled) return;
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          if (total > 0) setMusicProgress(Math.min(0.99, received / total));
+        }
+        if (cancelled) return;
+        const blob = new Blob(chunks, { type: 'audio/mpeg' });
+        const url = URL.createObjectURL(blob);
+        onMusicReady(url);
+        setMusicProgress(1);
+      } catch {
+        if (!cancelled) {
+          onMusicReady(MUSIC_URL);
+          setMusicProgress(1);
+        }
       }
-    };
-    const onReady = () => { setMusicReady(true); updateBuffer(); };
+    })();
 
-    audio.addEventListener('progress', updateBuffer);
-    audio.addEventListener('canplay', onReady, { once: true });
-    audio.addEventListener('canplaythrough', onReady, { once: true });
-    audio.addEventListener('error', onReady, { once: true });
-    if (audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) onReady();
-    updateBuffer();
-
-    return () => {
-      audio.removeEventListener('progress', updateBuffer);
-    };
-  }, [musicAudio]);
+    return () => { cancelled = true; };
+  }, [assets, onMusicReady]);
 
   return (
     <div className="fixed inset-0 z-[3000] bg-[#0a0a0f] flex flex-col items-center justify-center overflow-hidden">
@@ -1125,22 +1131,13 @@ const Preloader = ({ assets, musicAudio, onEnter }) => {
           />
         </div>
         <div className="flex justify-between mt-3 text-[11px] uppercase tracking-widest font-black">
-          <span className="text-slate-500">{sfxReady ? 'Звуки готовы' : 'Загрузка звуков…'}</span>
+          <span className="text-slate-500">{ready ? 'Готово' : 'Загрузка ассетов…'}</span>
           <span className="text-slate-300">{pct}%</span>
-        </div>
-        <div className="mt-4">
-          <div className="flex justify-between text-[9px] uppercase tracking-widest font-bold text-slate-600 mb-1">
-            <span>Музыка {musicReady ? '(поток)' : '(буфер…)'}</span>
-            <span>{Math.round(musicBuffered * 100)}%</span>
-          </div>
-          <div className="h-1 w-full bg-slate-800/60 rounded-full overflow-hidden">
-            <div className="h-full bg-[#1E88E5]/70 transition-all duration-300" style={{ width: `${Math.round(musicBuffered * 100)}%` }} />
-          </div>
         </div>
       </div>
 
       <div className="mt-12 h-16 flex items-center justify-center">
-        {sfxReady ? (
+        {ready && pct >= 100 ? (
           <button
             onClick={onEnter}
             className="px-14 py-5 bg-white text-slate-900 rounded-full font-black text-xl uppercase tracking-tighter hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.45)] animate-in fade-in zoom-in-90 duration-500"
@@ -1220,6 +1217,7 @@ export default function App() {
   const musicFadeRef = useRef(null);
   const musicOnRef = useRef(true);
 
+  const musicBlobUrlRef = useRef(null);
   const musicStartedRef = useRef(false);
 
   useEffect(() => { _sfxVolume = sfxVolume; }, [sfxVolume]);
@@ -1228,6 +1226,10 @@ export default function App() {
     if (audioRef.current && musicOn) audioRef.current.volume = musicVolume;
   }, [musicVolume, musicOn]);
   useEffect(() => { musicOnRef.current = musicOn; }, [musicOn]);
+
+  const handleMusicPreloaded = useCallback((url) => {
+    musicBlobUrlRef.current = url;
+  }, []);
 
   const startBackgroundMusic = useCallback(() => {
     if (musicStartedRef.current) return;
@@ -1239,11 +1241,17 @@ export default function App() {
       audio.volume = musicVolumeRef.current;
       audio.play().catch(() => {});
     };
-    if (audio.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) play();
+    if (audio.readyState >= 2) play();
     else audio.addEventListener('canplay', play, { once: true });
   }, []);
 
   const handleEnterGame = useCallback(() => {
+    const audio = audioRef.current;
+    if (audio && musicBlobUrlRef.current) {
+      audio.src = musicBlobUrlRef.current;
+      audio.loop = true;
+      audio.load();
+    }
     startBackgroundMusic();
     setAppReady(true);
   }, [startBackgroundMusic]);
@@ -1944,12 +1952,10 @@ export default function App() {
     <div
       className={`${isFullscreen ? 'fixed inset-0 z-[9999]' : 'h-screen relative'} w-full bg-transparent text-slate-200 flex flex-col items-center font-sans select-none transition-all duration-300 overflow-hidden`}
     >
-      <audio ref={audioRef} src={MUSIC_URL} loop preload="auto" />
-
       {!appReady && (
         <Preloader
           assets={PRELOAD_ASSETS}
-          musicAudio={audioRef}
+          onMusicReady={handleMusicPreloaded}
           onEnter={handleEnterGame}
         />
       )}
@@ -1985,6 +1991,8 @@ export default function App() {
           Полноэкранный режим заблокирован в текущей среде.
         </div>
       )}
+
+      <audio ref={audioRef} loop preload="auto" />
 
       {/* Музыка + SFX + полноэкран */}
       <div className="absolute top-4 right-[52px] z-[9000] flex items-center gap-3 bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg">
