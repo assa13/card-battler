@@ -38,11 +38,26 @@ const LOOT_DROP_CHANCE = 0.65;
 const ITEM_RARITY_WEIGHTS = { COMMON: 68, RARE: 21, EPIC: 9, LEGENDARY: 2 };
 const ITEM_BURN_XP = { COMMON: 4, RARE: 8, EPIC: 16, LEGENDARY: 30 };
 const getItemBurnXp = (item) => (item && ITEM_BURN_XP[item.rarity]) || 0;
+// Главный стат предмета — чёткая градация по рарности, ощутимые значения
 const ITEM_STAT_RANGES = {
-  COMMON: { min: 1, max: 3 },
-  RARE: { min: 2, max: 5 },
-  EPIC: { min: 4, max: 8 },
-  LEGENDARY: { min: 7, max: 14 },
+  COMMON: { min: 4, max: 7 },
+  RARE: { min: 9, max: 14 },
+  EPIC: { min: 17, max: 25 },
+  LEGENDARY: { min: 30, max: 45 },
+};
+// Вторичный стат: шанс появления и доля от главного
+const ITEM_SECONDARY = {
+  COMMON: { chance: 0, ratio: 0 },
+  RARE: { chance: 0.4, ratio: 0.35 },
+  EPIC: { chance: 0.7, ratio: 0.45 },
+  LEGENDARY: { chance: 1.0, ratio: 0.55 },
+};
+// Префикс названия отражает редкость
+const ITEM_RARITY_PREFIX = {
+  COMMON: '',
+  RARE: 'Редкий',
+  EPIC: 'Эпический',
+  LEGENDARY: 'Легендарный',
 };
 
 const ITEM_TEMPLATES = [
@@ -91,14 +106,17 @@ const generateRandomItem = () => {
   const range = ITEM_STAT_RANGES[rarity];
   const mainVal = Math.floor(Math.random() * (range.max - range.min + 1)) + range.min;
   const stats = { [template.focus]: mainVal };
-  if (Math.random() < (rarity === 'COMMON' ? 0.1 : rarity === 'RARE' ? 0.25 : 0.45)) {
+  const sec = ITEM_SECONDARY[rarity];
+  if (sec.chance > 0 && Math.random() < sec.chance) {
     const secondary = ['str', 'dex', 'int'].filter(s => s !== template.focus);
     const pick = secondary[Math.floor(Math.random() * secondary.length)];
-    stats[pick] = Math.floor(Math.random() * Math.max(1, range.min)) + 1;
+    stats[pick] = Math.max(1, Math.round(mainVal * sec.ratio));
   }
+  const prefix = ITEM_RARITY_PREFIX[rarity];
+  const name = prefix ? `${prefix} ${template.name.toLowerCase()}` : template.name;
   return {
     uid: `item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    name: template.name,
+    name,
     icon: template.icon,
     rarity,
     stats,
@@ -680,9 +698,16 @@ const FlyingItem = ({ id, item, startX, startY, endX, endY, onComplete }) => {
 const ItemTooltip = ({ item, x, y }) => {
   if (!item) return null;
   const rarity = RARITIES[item.rarity] || RARITIES.COMMON;
+  const TT_H = 130; // ориентировочная высота тултипа
+  const left = Math.min(x + 14, window.innerWidth - 220);
+  // Если внизу не помещается — показываем над курсором
+  const fitsBelow = y - 10 + TT_H <= window.innerHeight - 8;
+  const top = fitsBelow
+    ? Math.max(8, y - 10)
+    : Math.max(8, y - TT_H - 10);
   return (
     <div className="fixed z-[5000] pointer-events-none w-52 bg-slate-950/95 border border-slate-600 rounded-xl p-3 shadow-2xl backdrop-blur-md"
-      style={{ left: Math.min(x + 14, window.innerWidth - 220), top: Math.max(8, y - 10) }}>
+      style={{ left, top }}>
       <div className="flex items-center gap-2 mb-2">
         <img src={getItemIconUrl(item.icon)} alt="" className="w-10 h-10 rounded-lg border border-slate-600 object-cover" />
         <div>
@@ -1670,10 +1695,11 @@ export default function App() {
       setInventory(Array(INVENTORY_SIZE).fill(null));
       setEquipped({ p1: null, p2: null, p3: null });
     } else {
-      // Смерть / новый сектор: статы, уровень, мана, колода и предметы сохраняются
+      // Смерть / новый сектор: статы, уровень, мана, колода и предметы сохраняются,
+      // бойцы воскресают с полным HP
       setPlayers(prev => prev.map(p => syncPlayerMaxHp({
         ...p,
-        hp: Math.min(p.hp, getMaxHpFromStats(p, equipped[p.id])),
+        hp: getMaxHpFromStats(p, equipped[p.id]),
         currentCard: null,
         hasActed: false,
         justDealt: false,
