@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Карточный Авто-баттлер</title>
+  
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body { margin: 0; padding: 0; background-color: #1e1f2e; }
+    .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); border-radius: 10px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(51, 65, 85, 0.8); border-radius: 10px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(71, 85, 105, 1); }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    // --- 1. КОНСТАНТЫ И НАСТРОЙКИ ---
+    const MAX_MANA = 5;
+
+    const RARITIES = {
+      COMMON: { name: 'Обычная', border: 'border-slate-500', header: 'bg-[#4a3b69]', text: 'text-slate-300' }, 
+      RARE: { name: 'Редкая', border: 'border-blue-500', header: 'bg-[#3b5384]', text: 'text-blue-300' },     
+      EPIC: { name: 'Эпическая', border: 'border-purple-600', header: 'bg-[#7a3b3b]', text: 'text-purple-300' }, 
+      LEGENDARY: { name: 'Легендарная', border: 'border-amber-400', header: 'bg-[#8a6b3b]', text: 'text-amber-400' }
+    };
+
+    const INITIAL_PLAYERS_DATA = [
+      { id: 'p1', name: 'Воин', hp: 50, maxHp: 50, str: 15, agi: 5, int: 2, icon: '🛡️', bg: 'bg-blue-900', currentCard: null, hasActed: false },
+      { id: 'p2', name: 'Разбойник', hp: 35, maxHp: 35, str: 6, agi: 18, int: 4, icon: '🗡️', bg: 'bg-green-900', currentCard: null, hasActed: false },
+      { id: 'p3', name: 'Маг', hp: 25, maxHp: 25, str: 2, agi: 6, int: 20, icon: '🔮', bg: 'bg-purple-900', currentCard: null, hasActed: false },
+    ];
+
+    const HERO_ABILITIES = {
+      p1: { 
+        basic: { id: 'b1', name: 'Удар мечом', cost: 0, stat: 'str', mult: 2.0, icon: '⚔️', type: 'single', priority: 'direct', rarity: 'COMMON' },
+        skills: [
+          { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, stat: 'str', mult: 5.0, icon: '🔨', type: 'single', priority: 'highestHp', rarity: 'EPIC' },
+          { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, stat: 'str', mult: 2.0, icon: '🌪️', type: 'splash', rarity: 'COMMON' }
+        ]
+      },
+      p2: { 
+        basic: { id: 'b2', name: 'Кинжал', cost: 0, stat: 'agi', mult: 1.0, icon: '🗡️', type: 'single', priority: 'lowestHp', rarity: 'COMMON' },
+        skills: [
+          { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, stat: 'agi', mult: 8.0, icon: '🧪', type: 'single', priority: 'lowestHp', rarity: 'COMMON' },
+          { id: 's2_2', ownerId: 'p2', name: 'Танец стали', cost: 3, stat: 'agi', mult: 1.5, icon: '⚔️', type: 'splash', rarity: 'RARE' }
+        ]
+      },
+      p3: { 
+        basic: { id: 'b3', name: 'Искра', cost: 0, stat: 'int', mult: 1.0, icon: '✨', type: 'single', priority: 'direct', rarity: 'COMMON' },
+        skills: [
+          { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, stat: 'int', mult: 1.5, icon: '☄️', type: 'splash', rarity: 'RARE' },
+          { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, stat: 'int', mult: 2.0, icon: '❄️', type: 'single', priority: 'highestHp', rarity: 'RARE' }
+        ]
+      }
+    };
+
+    const INITIAL_DECK = [
+      ...HERO_ABILITIES.p1.skills,
+      ...HERO_ABILITIES.p2.skills,
+      ...HERO_ABILITIES.p3.skills,
+    ];
+
+    const REWARD_POOL = [
+      { id: 'r1', ownerId: 'p1', name: 'Землетрясение', cost: 4, stat: 'str', mult: 4.0, icon: '🌋', type: 'splash', rarity: 'EPIC' },
+      { id: 'r2', ownerId: 'p1', name: 'Молот Тора', cost: 2, stat: 'str', mult: 7.0, icon: '🔨', type: 'single', priority: 'highestHp', rarity: 'LEGENDARY' },
+      { id: 'r3', ownerId: 'p2', name: 'Танец стали', cost: 3, stat: 'agi', mult: 3.0, icon: '⚔️', type: 'splash', rarity: 'RARE' },
+      { id: 'r4', ownerId: 'p2', name: 'Яд', cost: 1, stat: 'agi', mult: 8.0, icon: '🧪', type: 'single', priority: 'lowestHp', rarity: 'COMMON' },
+    ];
+
+    const shuffleArray = (array) => [...array].sort(() => Math.random() - 0.5);
+
+    const getTargetText = (type, priority) => {
+      if (type === 'splash') return 'всем врагам.';
+      if (priority === 'lowestHp') return 'самому слабому.';
+      if (priority === 'highestHp') return 'самому здоровому.';
+      return 'атакующим.';
+    };
+
+    // --- ФУНКЦИИ ГЕНЕРАЦИИ (КАРТА И ВРАГИ) ---
+    const MAP_Y_POSITIONS = {
+      1: [50],
+      2: [35, 65],
+      3: [20, 50, 80],
+      4: [15, 38, 62, 85],
+      5: [10, 30, 50, 70, 90]
+    };
+
+    const generateMap = () => {
+      const counts = [1, 4, 5, 4, 3, 1]; 
+      const layers = [];
+      const runId = Math.random().toString(36).substring(2, 9);
+      let nextId = 0;
+
+      for (let i = 0; i < counts.length; i++) {
+        const layer = [];
+        const count = counts[i];
+        for (let j = 0; j < count; j++) {
+          let type = 'combat_easy';
+          if (i === 0) type = 'base';
+          else if (i === counts.length - 1) type = 'boss';
+          else {
+            const rand = Math.random();
+            if (rand > 0.7) type = 'combat_hard';
+            else if (rand > 0.3) type = 'combat_medium';
+            else type = 'combat_easy';
+          }
+
+          layer.push({
+            id: `node_${runId}_${nextId++}`, 
+            stage: i,
+            type,
+            x: 10 + i * 16 + (i > 0 && i < 5 ? (Math.random() * 4 - 2) : 0), 
+            y: MAP_Y_POSITIONS[count][j] + (i > 0 && i < 5 ? (Math.random() * 8 - 4) : 0),
+            next: []
+          });
+        }
+        layers.push(layer);
+      }
+
+      for (let i = 0; i < layers.length - 1; i++) {
+        const curr = layers[i];
+        const next = layers[i + 1];
+
+        curr.forEach((node, idx) => {
+          const targetIdx = Math.floor((idx / curr.length) * next.length);
+          node.next.push(next[targetIdx].id);
+
+          if (i === 0) {
+            next.forEach(n => { if(!node.next.includes(n.id)) node.next.push(n.id); });
+          } else {
+            if (Math.random() > 0.3 && targetIdx + 1 < next.length) {
+              if(!node.next.includes(next[targetIdx + 1].id)) node.next.push(next[targetIdx + 1].id);
+            }
+            if (Math.random() > 0.3 && targetIdx - 1 >= 0) {
+              if(!node.next.includes(next[targetIdx - 1].id)) node.next.push(next[targetIdx - 1].id);
+            }
+            if (Math.random() > 0.8) {
+               const rndIdx = Math.floor(Math.random() * next.length);
+               if(!node.next.includes(next[rndIdx].id)) node.next.push(next[rndIdx].id);
+            }
+          }
+        });
+
+        next.forEach((nextNode, nextIdx) => {
+          const reachable = curr.some(n => n.next.includes(nextNode.id));
+          if (!reachable) {
+            const sourceIdx = Math.floor((nextIdx / next.length) * curr.length);
+            if (!curr[sourceIdx].next.includes(nextNode.id)) curr[sourceIdx].next.push(nextNode.id);
+          }
+        });
+      }
+      return layers.flat();
+    };
+
+    const spawnEnemies = (type, stage) => {
+      const s = stage || 1;
+      if (type === 'boss') {
+        return [{ id: `boss_${Date.now()}`, name: 'Лорд Демонов', hp: 300 + s * 50, maxHp: 300 + s * 50, icon: '🐲', isDead: false, xpReward: 200 }];
+      } else if (type === 'combat_hard') {
+        return [
+          { id: `h1_${Date.now()}`, name: 'Орк-Чемпион', hp: 120 + s * 30, maxHp: 120 + s * 30, icon: '👹', isDead: false, xpReward: 80 },
+          { id: `h2_${Date.now()}`, name: 'Темный Маг', hp: 80 + s * 20, maxHp: 80 + s * 20, icon: '🧙‍♂️', isDead: false, xpReward: 60 },
+          { id: `h3_${Date.now()}`, name: 'Голем', hp: 70 + s * 20, maxHp: 70 + s * 20, icon: '🪨', isDead: false, xpReward: 50 }
+        ];
+      } else if (type === 'combat_medium') {
+        return [
+          { id: `m1_${Date.now()}`, name: 'Бандит', hp: 60 + s * 15, maxHp: 60 + s * 15, icon: '🥷', isDead: false, xpReward: 40 },
+          { id: `m2_${Date.now()}`, name: 'Арбалетчик', hp: 40 + s * 15, maxHp: 40 + s * 15, icon: '🏹', isDead: false, xpReward: 35 }
+        ];
+      } else {
+        const enemies = [
+          { id: `e1_${Date.now()}`, name: 'Гоблин', hp: 45 + s * 15, maxHp: 45 + s * 15, icon: '👺', isDead: false, xpReward: 25 },
+          { id: `e2_${Date.now()}`, name: 'Волк', hp: 35 + s * 10, maxHp: 35 + s * 10, icon: '🐺', isDead: false, xpReward: 20 }
+        ];
+        return shuffleArray(enemies).slice(0, 1 + Math.floor(Math.random() * 2));
+      }
+    };
+
+    // --- 2. ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ ---
+    const TiltWrapper = ({ children, className, isDisabled }) => {
+      const [rotation, setRotation] = useState({ x: 0, y: 0 });
+      const [glare, setGlare] = useState({ x: 50, y: 50, opacity: 0 });
+      const [isHovered, setIsHovered] = useState(false);
+
+      const handleMouseMove = (e) => {
+        if (isDisabled) return;
+        const card = e.currentTarget.getBoundingClientRect();
+        const x = e.clientX - card.left;
+        const y = e.clientY - card.top;
+        const centerX = card.width / 2;
+        const centerY = card.height / 2;
+
+        const rotateX = ((centerY - y) / centerY) * 12; 
+        const rotateY = ((x - centerX) / centerX) * 12;
+
+        setRotation({ x: rotateX, y: rotateY });
+        setGlare({ x: (x / card.width) * 100, y: (y / card.height) * 100, opacity: 0.15 });
+      };
+
+      const handleMouseEnter = () => { if (!isDisabled) setIsHovered(true); };
+      const handleMouseLeave = () => { setIsHovered(false); setRotation({ x: 0, y: 0 }); setGlare(prev => ({ ...prev, opacity: 0 })); };
+
+      const borderMask = {
+        WebkitMaskImage: `linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)`,
+        WebkitMaskComposite: 'xor',
+        maskComposite: 'exclude',
+        padding: '3px' 
+      };
+
+      return (
+        <div 
+          className={`transition-all duration-300 ease-out relative ${className}`}
+          onMouseMove={handleMouseMove}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+          style={{
+            transform: `perspective(1000px) rotateX(${rotation.x}deg) rotateY(${rotation.y}deg) scale(${isHovered ? 1.05 : 1})`,
+            zIndex: isHovered ? 50 : 1,
+          }}
+        >
+          <div 
+            className="absolute -inset-[2px] pointer-events-none rounded-2xl z-50 transition-opacity duration-300"
+            style={{
+              ...borderMask,
+              opacity: isHovered ? 1 : 0,
+              background: `radial-gradient(220px circle at ${glare.x}% ${glare.y}%, rgba(255,255,255,${glare.opacity}) 0%, rgba(255,255,255,${glare.opacity * 0.3}) 40%, transparent 100%)`,
+            }}
+          />
+          <div 
+            className="absolute -inset-[12px] pointer-events-none rounded-3xl z-40 transition-opacity duration-500"
+            style={{
+              opacity: isHovered ? 0.15 : 0,
+              background: `radial-gradient(180px circle at ${glare.x}% ${glare.y}%, rgba(255,255,255,0.2) 0%, transparent 100%)`,
+              filter: 'blur(15px)'
+            }}
+          />
+          {children}
+        </div>
+      );
+    };
+
+    const FlyingCard = ({ startX, startY, endX, endY, isDiscard = false, isReshuffle = false }) => {
+      const [style, setStyle] = useState({ left: `${startX}px`, top: `${startY}px`, transform: 'translate(-50%, -50%) scale(0.2)', opacity: 0 });
+
+      useEffect(() => {
+        const t = setTimeout(() => {
+          setStyle({
+            left: `${endX}px`, top: `${endY}px`,
+            transform: `translate(-50%, -50%) scale(${isDiscard || isReshuffle ? 0.3 : 1.0}) rotate(${isReshuffle ? -360 : isDiscard ? 720 : 0}deg)`,
+            opacity: 1,
+            transition: `all 850ms ${isDiscard || isReshuffle ? 'cubic-bezier(0.5, -0.5, 0.5, 1.5)' : 'cubic-bezier(0.34, 1.56, 0.64, 1)'}`
+          });
+        }, 20);
+        return () => clearTimeout(t);
+      }, [endX, endY, isDiscard, isReshuffle]);
+
+      return (
+        <div className={`fixed z-[999] w-40 h-60 border-2 border-amber-400 rounded-xl bg-slate-800 shadow-2xl pointer-events-none ${isReshuffle ? 'brightness-125' : ''}`} style={style}>
+          <div className="h-6 w-full bg-[#7a1c1c] rounded-t-lg"></div>
+          <div className="flex-1 flex items-center justify-center p-3 bg-slate-900/60 h-[calc(100%-24px)] rounded-b-lg">
+            <div className="w-12 h-12 border-4 border-dashed border-slate-700 rounded-full opacity-30"></div>
+          </div>
+        </div>
+      );
+    };
+
+    const DamagePopup = ({ id, value, x, y, onComplete }) => {
+      const [offset, setOffset] = useState(0);
+      const [opacity, setOpacity] = useState(1);
+      const [scale, setScale] = useState(2.5);
+
+      useEffect(() => {
+        const t = setTimeout(() => { setOffset(-120); setOpacity(0); setScale(0.8); }, 50);
+        const c = setTimeout(() => onComplete(id), 2000);
+        return () => { clearTimeout(t); clearTimeout(c); };
+      }, [id, onComplete]);
+
+      const fontSize = Math.min(32 + (value / 1.5), 100);
+      return (
+        <div className="fixed z-[900] font-black text-red-500 pointer-events-none italic"
+          style={{ left: x, top: y, fontSize: `${fontSize}px`, opacity: opacity, transform: `translate(-50%, ${offset}px) scale(${scale})`, transition: 'all 2000ms cubic-bezier(0.18, 0.89, 0.32, 1.28)', WebkitTextStroke: '2px white', textShadow: '0 0 20px rgba(239, 68, 68, 0.8), 5px 5px 0px rgba(0,0,0,1)' }}>
+          {String(value)}
+        </div>
+      );
+    };
+
+    const FlyingXp = ({ id, amount, startX, startY, endX, endY, onComplete }) => {
+      const [pos, setPos] = useState({ x: startX, y: startY, opacity: 1, scale: 1 });
+      useEffect(() => {
+        const t = setTimeout(() => setPos({ x: endX, y: endY, opacity: 0, scale: 0.5 }), 50);
+        const c = setTimeout(() => onComplete(id, amount), 750);
+        return () => { clearTimeout(t); clearTimeout(c); };
+      }, [id, amount, endX, endY, onComplete]);
+      return (
+        <div className="fixed z-[800] font-black text-yellow-400 text-2xl pointer-events-none drop-shadow-lg"
+          style={{ left: 0, top: 0, transform: `translate(${pos.x - 20}px, ${pos.y - 20}px) scale(${pos.scale})`, opacity: pos.opacity, transition: 'all 700ms ease-in' }}>
+          +{String(amount)}
+        </div>
+      );
+    };
+
+    const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = false, comboState }) => {
+      if (!card) return null;
+      const rarity = RARITIES[card.rarity] || RARITIES.COMMON;
+      const { isCandidate, willGiveBonus } = comboState;
+      let dmg = owner ? Math.floor(owner[card.stat] * card.mult) : 0;
+      if (willGiveBonus) dmg = Math.floor(dmg * 1.5);
+
+      return (
+        <div className={`w-full h-full border border-slate-700/50 rounded-2xl flex flex-col overflow-hidden transition-all duration-300 relative shadow-inner bg-[#45475a] ${isCandidate && !isDisabled ? 'ring-2 ring-yellow-400 shadow-[0_0_30px_rgba(250,204,21,0.6)]' : ''} ${!isDisabled ? 'group-hover:brightness-110' : ''}`}>
+          <div className={`${rarity.header} py-1.5 px-3 border-b border-black/20 flex items-center justify-between shadow-md`}>
+            <span className="font-bold text-[10px] text-white uppercase tracking-wider truncate drop-shadow-md">{String(card.name)}</span>
+            <div className={`w-5 h-5 rounded-full flex items-center justify-center font-black text-[10px] border-2 border-white/20 shadow-lg ${mana < card.cost ? 'bg-blue-600' : 'bg-blue-500'}`}>
+              {String(card.cost)}
+            </div>
+          </div>
+          <div className="flex-1 flex flex-col items-center justify-center relative p-1 bg-[#373945] min-h-[50px]">
+            {isCandidate && (<div className="absolute top-1 left-1 bg-yellow-400 text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">COMBO!</div>)}
+            <span className="text-3xl drop-shadow-2xl group-hover:scale-110 transition-transform duration-500">{String(card.icon)}</span>
+            {showOwnerLabel && owner && (
+              <div className="absolute -bottom-2.5 bg-[#242631] px-3 py-1 rounded-full border border-[#1e1f29] flex items-center gap-1.5 shadow-lg z-20">
+                 <span className="text-[10px] drop-shadow-sm">{String(owner.icon)}</span>
+                 <span className="text-[8px] font-black text-white uppercase tracking-widest">{String(owner.name)}</span>
+              </div>
+            )}
+          </div>
+          <div className="text-center leading-relaxed bg-[#50546d] border-t border-slate-600/30 p-2 pt-4 pb-3 flex flex-col justify-center min-h-[60px]">
+            <p className="text-[10px] text-slate-200 font-medium">
+              Наносит <span className={`${willGiveBonus ? 'text-yellow-400 text-sm' : 'text-amber-400'} font-bold transition-all`}>{String(dmg)}</span> урона.<br/>
+              <span className="text-[8px] text-slate-300 mt-1 block">Приоритет {String(getTargetText(card.type, card.priority))}</span>
+            </p>
+          </div>
+        </div>
+      );
+    };
+
+    // --- 3. ГЛАВНОЕ ПРИЛОЖЕНИЕ ---
+    function App() {
+      const [players, setPlayers] = useState(() => INITIAL_PLAYERS_DATA.map(p => ({...p})));
+      const [enemies, setEnemies] = useState([]);
+      const [maxMana, setMaxMana] = useState(5);
+      const [mana, setMana] = useState(0); 
+      const [turnState, setTurnState] = useState('map'); 
+      const [drawPile, setDrawPile] = useState(() => shuffleArray([...INITIAL_DECK]));
+      const [discardPile, setDiscardPile] = useState([]);
+      const [xp, setXp] = useState(0);
+      const [playerLevel, setPlayerLevel] = useState(1); 
+      const [xpToNext, setXpToNext] = useState(100);
+      const [rewardOptions, setRewardOptions] = useState([]);
+      const initialMapRef = useRef(null);
+      if (!initialMapRef.current) { initialMapRef.current = generateMap(); }
+
+      const [gameMap, setGameMap] = useState(initialMapRef.current);
+      const [currentMapNodeId, setCurrentMapNodeId] = useState(initialMapRef.current[0].id);
+      const [completedNodes, setCompletedNodes] = useState([initialMapRef.current[0].id]);
+      const [currentStage, setCurrentStage] = useState(0); 
+
+      const [flyingXps, setFlyingXps] = useState([]);
+      const [showLevelUp, setShowLevelUp] = useState(false);
+      const [showReserve, setShowReserve] = useState(false);
+      const [flyingCards, setFlyingCards] = useState([]);
+      const [damagePopups, setDamagePopups] = useState([]);
+      const [shake, setShake] = useState({ x: 0, y: 0 });
+      const [flash, setFlash] = useState(false);
+      const [lastPlayedCost, setLastPlayedCost] = useState(null);
+      const [comboStreak, setComboStreak] = useState(0);
+
+      const appRef = useRef(null);
+      const [isFullscreen, setIsFullscreen] = useState(false);
+      const [fullscreenError, setFullscreenError] = useState(false);
+
+      const slotRefs = useRef({});
+      const enemyRefs = useRef({});
+      const deckRef = useRef(null);
+      const discardRef = useRef(null);
+      const xpBarRef = useRef(null);
+
+      const [isAnimating, setIsAnimating] = useState(false);
+      const [animatingPlayerId, setAnimatingPlayerId] = useState(null);
+      const [animatingEnemyId, setAnimatingEnemyId] = useState(null);
+      const [animatingTargetIds, setAnimatingTargetIds] = useState([]);
+      const [hoveredPlayerId, setHoveredPlayerId] = useState(null);
+      const [hoveredTargetIds, setHoveredTargetIds] = useState([]);
+
+      const setSlotRef = (id, el) => { if (el) slotRefs.current[id] = el; };
+      const setEnemyRef = (id, el) => { if (el) enemyRefs.current[id] = el; };
+
+      useEffect(() => {
+        const handleFullscreenChange = () => { setIsFullscreen(!!document.fullscreenElement); };
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      }, []);
+
+      const toggleFullscreen = () => {
+        if (!isFullscreen) {
+          if (document.fullscreenEnabled) {
+            document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => setIsFullscreen(true));
+          } else { setIsFullscreen(true); }
+        } else {
+          if (document.fullscreenElement) {
+            if (document.exitFullscreen) document.exitFullscreen().catch(() => setIsFullscreen(false));
+          }
+          setIsFullscreen(false);
+        }
+      };
+
+      const isNodeClickable = (node) => {
+        if (completedNodes.includes(node.id)) return false;
+        if (currentMapNodeId) {
+          const currNode = gameMap.find(n => n.id === currentMapNodeId);
+          if (currNode && currNode.next.includes(node.id)) return true;
+        }
+        return false;
+      };
+
+      const handleNodeClick = (node) => {
+        if (!isNodeClickable(node)) return;
+        setCurrentMapNodeId(node.id);
+        setCurrentStage(node.stage);
+        setEnemies(spawnEnemies(node.type, node.stage));
+        setTurnState('dealing');
+      };
+
+      const handleCardHover = (playerIndex) => {
+        const player = players[playerIndex];
+        if (turnState !== 'player' || player.hp <= 0 || !player.currentCard || player.hasActed || isAnimating || showLevelUp || turnState === 'victory_wait') return;
+        setHoveredPlayerId(player.id);
+        const targetIndices = getTargets(player.currentCard, playerIndex, enemies);
+        setHoveredTargetIds(targetIndices.map(idx => enemies[idx].id));
+      };
+
+      const resetGame = (fullReset = false) => {
+        setPlayers(INITIAL_PLAYERS_DATA.map(p => ({...p})));
+        setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setShowLevelUp(false); 
+        const newMap = generateMap();
+        setGameMap(newMap); setCurrentMapNodeId(newMap[0].id); setCompletedNodes([newMap[0].id]); setCurrentStage(0);
+
+        if (fullReset) {
+          setXp(0); setXpToNext(100); setPlayerLevel(1); setMaxMana(5); setDrawPile(shuffleArray([...INITIAL_DECK])); setDiscardPile([]);
+        } else {
+          let handCards = []; players.forEach(p => { if (p.currentCard && !p.currentCard.id.startsWith('b')) handCards.push(p.currentCard); });
+          const currentFullDeck = [...drawPile, ...discardPile, ...handCards];
+          setDrawPile(shuffleArray(currentFullDeck.length > 0 ? currentFullDeck : [...INITIAL_DECK])); setDiscardPile([]);
+        }
+        setTurnState('map');
+      };
+
+      const getTargets = useCallback((card, playerIndex, currentEnemies) => {
+        if (card.type === 'splash') return currentEnemies.map((e, i) => !e.isDead ? i : -1).filter(i => i !== -1);
+        const alive = currentEnemies.map((e, i) => ({...e, originalIndex: i})).filter(e => !e.isDead);
+        if (alive.length === 0) return [];
+        if (card.priority === 'lowestHp') { alive.sort((a, b) => a.hp - b.hp); return [alive[0].originalIndex]; }
+        else if (card.priority === 'highestHp') { alive.sort((a, b) => b.hp - a.hp); return [alive[0].originalIndex]; }
+        else { if (!currentEnemies[playerIndex]?.isDead && currentEnemies[playerIndex]) return [playerIndex]; return [alive[0].originalIndex]; }
+      }, []);
+
+      const triggerImpact = (damageValue) => {
+        setFlash(true); setTimeout(() => setFlash(false), 100);
+        const intensity = Math.min(damageValue / 6, 40);
+        const shakeInterval = setInterval(() => { setShake({ x: (Math.random() - 0.5) * intensity, y: (Math.random() - 0.5) * intensity }); }, 20);
+        setTimeout(() => { clearInterval(shakeInterval); setShake({ x: 0, y: 0 }); }, 300);
+      };
+
+      const handleXpGained = (id, amount) => {
+        setFlyingXps(prev => prev.filter(x => x.id !== id));
+        setXp(prev => {
+          const total = prev + amount;
+          if (total >= xpToNext) {
+            setRewardOptions(shuffleArray([...REWARD_POOL]).slice(0, 3));
+            setShowLevelUp(true); setPlayerLevel(l => l + 1); setMaxMana(m => m + 1); setXpToNext(curr => curr + 80);
+            return total - xpToNext;
+          }
+          return total;
+        });
+      };
+
+      const selectReward = (card) => {
+        setDiscardPile(prev => [...prev, { ...card, id: `rew_${Date.now()}_${Math.random()}` }]);
+        setShowLevelUp(false);
+      };
+
+      useEffect(() => {
+        if (turnState !== 'dealing' || showLevelUp) return;
+        setLastPlayedCost(null); setComboStreak(0);
+        const checkAndReshuffle = () => {
+          let currentDraw = [...drawPile]; let currentDiscard = [...discardPile];
+          const alivePlayersCount = players.filter(p => p.hp > 0).length;
+          if (currentDraw.length < alivePlayersCount && currentDiscard.length > 0) {
+            const discRect = discardRef.current?.getBoundingClientRect(); const deckRect = deckRef.current?.getBoundingClientRect();
+            if (discRect && deckRect) {
+              for (let i = 0; i < 5; i++) {
+                 setTimeout(() => {
+                    const flyId = `reshuffle_${Date.now()}_${i}`;
+                    setFlyingCards(prev => [...prev, { id: flyId, startX: discRect.left + discRect.width/2, startY: discRect.top + discRect.height/2, endX: deckRect.left + deckRect.width/2, endY: deckRect.top + deckRect.height/2, isReshuffle: true }]);
+                    setTimeout(() => setFlyingCards(p => p.filter(f => f.id !== flyId)), 850);
+                 }, i * 100);
+              }
+            }
+            currentDraw = shuffleArray([...currentDraw, ...currentDiscard]); currentDiscard = [];
+          }
+          return { currentDraw, currentDiscard };
+        };
+        const { currentDraw, currentDiscard } = checkAndReshuffle();
+        const tempDraw = [...currentDraw]; const assignments = {}; 
+        const alivePlayers = players.filter(p => p.hp > 0);
+        alivePlayers.forEach(p => {
+          if (tempDraw.length > 0) {
+            const candidateIndex = tempDraw.findIndex(c => c.ownerId === p.id);
+            if (candidateIndex !== -1) { assignments[p.id] = tempDraw.splice(candidateIndex, 1)[0]; }
+          }
+        });
+        let delay = 0; const deckRect = deckRef.current?.getBoundingClientRect();
+        players.forEach(p => {
+          if (p.hp <= 0) return;
+          const cardToDeal = assignments[p.id] || HERO_ABILITIES[p.id].basic;
+          const slotRect = slotRefs.current[p.id]?.getBoundingClientRect();
+          if (deckRect && slotRect) {
+            const flyId = `deal_${p.id}_${Date.now()}`;
+            setTimeout(() => setFlyingCards(prev => [...prev, { id: flyId, startX: deckRect.left + deckRect.width/2, startY: deckRect.top + deckRect.height/2, endX: slotRect.left + slotRect.width/2, endY: slotRect.top + slotRect.height * 0.75 }]), delay);
+            setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setPlayers(prev => prev.map(hero => hero.id === p.id ? { ...hero, currentCard: cardToDeal, justDealt: true } : hero)); }, delay + 850); 
+          }
+          delay += 300; 
+        });
+        setTimeout(() => { setDrawPile(tempDraw); setDiscardPile(currentDiscard); setPlayers(prev => prev.map(p => ({ ...p, hasActed: false, justDealt: false }))); setMana(maxMana); setTurnState('player'); }, delay + 1000); 
+      }, [turnState, showLevelUp, maxMana]);
+
+      const playCard = (playerIndex, card) => {
+        const player = players[playerIndex];
+        if (turnState !== 'player' || mana < card.cost || player.hp <= 0 || player.hasActed || isAnimating) return;
+        const targetIndices = getTargets(card, playerIndex, enemies);
+        if (targetIndices.length === 0) return;
+
+        setIsAnimating(true); setMana(m => m - card.cost); setAnimatingPlayerId(player.id); setAnimatingTargetIds(targetIndices.map(idx => enemies[idx].id));
+
+        const isContinuing = lastPlayedCost !== null && card.cost === lastPlayedCost + 1;
+        const multiplier = isContinuing ? 1.5 : 1.0;
+        if (isContinuing) setComboStreak(s => s + 1); else setComboStreak(0);
+        setLastPlayedCost(card.cost);
+
+        setTimeout(() => {
+          const damage = Math.floor(player[card.stat] * card.mult * multiplier);
+          const newEnemies = enemies.map(e => ({...e})); let xpToSpawn = []; 
+          triggerImpact(damage);
+
+          targetIndices.forEach(idx => {
+            const target = newEnemies[idx]; target.hp -= damage; const eRect = enemyRefs.current[target.id]?.getBoundingClientRect();
+            if (eRect) setDamagePopups(prev => [...prev, { id: Math.random(), value: damage, x: eRect.left + eRect.width / 2, y: eRect.top + eRect.height / 2 }]);
+            if (target.hp <= 0 && !target.isDead) { target.hp = 0; target.isDead = true; xpToSpawn.push({ id: target.id, amount: target.xpReward }); }
+          });
+
+          setEnemies(newEnemies); setAnimatingPlayerId(null); setAnimatingTargetIds([]); setHoveredPlayerId(null); setHoveredTargetIds([]);
+          
+          xpToSpawn.forEach(xpData => {
+            const eRect = enemyRefs.current[xpData.id]?.getBoundingClientRect(); const bRect = xpBarRef.current?.getBoundingClientRect();
+            if (eRect && bRect) setFlyingXps(prev => [...prev, { id: Math.random(), amount: xpData.amount, startX: eRect.left + eRect.width/2, startY: eRect.top, endX: bRect.left + bRect.width / 2, endY: bRect.top + bRect.height / 2 }]);
+          });
+          
+          const allDead = newEnemies.every(e => e.isDead);
+          if (allDead) { setTurnState('victory_wait'); }
+
+          const finish = () => {
+            setIsAnimating(false);
+            if (allDead) {
+              setCompletedNodes(prev => [...prev, currentMapNodeId]);
+              setTimeout(() => { if (currentStage === 5) { setTurnState('victory'); } else { setTurnState('map'); } }, 1500);
+            }
+          };
+
+          if (!card.id.startsWith('b')) {
+            const slotRect = slotRefs.current[player.id]?.getBoundingClientRect(); const discardRect = discardRef.current?.getBoundingClientRect();
+            setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, currentCard: null, hasActed: true } : p));
+            if (slotRect && discardRect) {
+              const flyId = `disc_${Date.now()}`;
+              setFlyingCards(prev => [...prev, { id: flyId, startX: slotRect.left + slotRect.width/2, startY: slotRect.top + slotRect.height * 0.75, endX: discardRect.left + discardRect.width/2, endY: discardRect.top + discardRect.height/2, isDiscard: true }]);
+              setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setDiscardPile(prev => [...prev, card]); finish(); }, 850);
+            } else { setDiscardPile(prev => [...prev, card]); finish(); }
+          } else { setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, currentCard: null, hasActed: true } : p)); finish(); }
+        }, 300); 
+      };
+
+      useEffect(() => {
+        if (turnState !== 'enemy' || showLevelUp) return;
+        let delay = 0; const aliveEnemies = enemies.filter(e => !e.isDead);
+        aliveEnemies.forEach((enemy) => {
+          setTimeout(() => {
+            setPlayers(prevPlayers => {
+              const alivePlayers = prevPlayers.filter(p => p.hp > 0); if (alivePlayers.length === 0) return prevPlayers;
+              const target = alivePlayers[Math.floor(Math.random() * alivePlayers.length)]; const dmg = Math.floor(Math.random() * 8) + 8 + (currentStage * 3); 
+              setAnimatingEnemyId(enemy.id); setAnimatingTargetIds([target.id]); setIsAnimating(true);
+              setTimeout(() => {
+                triggerImpact(10);
+                setPlayers(currentPs => currentPs.map(p => {
+                  if (p.id === target.id) { const newHp = Math.max(0, p.hp - dmg); if (newHp === 0 && p.currentCard && !p.currentCard.id.startsWith('b')) { setDiscardPile(dp => [...dp, p.currentCard]); } return { ...p, hp: newHp, currentCard: null }; } return p;
+                }));
+                setAnimatingEnemyId(null); setAnimatingTargetIds([]); setIsAnimating(false);
+              }, 300); return prevPlayers; 
+            });
+          }, delay); delay += 800; 
+        });
+        setTimeout(() => { setPlayers(prev => { if (prev.every(p => p.hp <= 0)) { setTurnState('gameover'); return prev; } return prev; }); if (turnState !== 'gameover' && turnState === 'enemy') setTurnState('dealing'); }, delay + 1000);
+      }, [turnState, showLevelUp, currentStage, enemies]);
+
+      const getCardComboStatus = (pId, card) => {
+        if (!card) return { isCandidate: false, willGiveBonus: false };
+        const willGiveBonus = lastPlayedCost !== null && card.cost === lastPlayedCost + 1;
+        let isCandidate = false;
+        if (willGiveBonus) isCandidate = true;
+        else if (lastPlayedCost === null) {
+          const hasFollowup = players.some(otherP => otherP.id !== pId && !otherP.hasActed && otherP.currentCard?.cost === card.cost + 1);
+          isCandidate = hasFollowup;
+        }
+        return { isCandidate, willGiveBonus };
+      };
+
+      const totalDeckSize = drawPile.length + discardPile.length + players.filter(p => p.currentCard && !p.currentCard.id.startsWith('b')).length;
+
+      return (
+        <div ref={appRef} className={`${isFullscreen && !document.fullscreenElement ? 'fixed inset-0 z-[9999] w-full h-full' : 'min-h-screen w-full relative'} bg-[#1e1f2e] text-slate-200 flex flex-col items-center font-sans select-none transition-all duration-300`} style={{ transform: !isFullscreen ? `translate(${shake.x}px, ${shake.y}px)` : 'none' }}>
+          <div className="w-full h-full flex flex-col items-center relative" style={{ transform: isFullscreen ? `translate(${shake.x}px, ${shake.y}px)` : 'none' }}>
+          
+          {flash && <div className="absolute inset-0 z-[1000] bg-white opacity-20 pointer-events-none transition-opacity duration-100"></div>}
+          
+          {fullscreenError && (
+            <div className="absolute top-20 right-4 z-[9999] bg-red-900/90 text-white px-4 py-2 rounded-xl border border-red-500 shadow-xl backdrop-blur-md animate-in fade-in duration-300 text-sm">
+              Полноэкранный режим заблокирован в текущей среде.
+            </div>
+          )}
+
+          <button onClick={toggleFullscreen} className="absolute top-4 right-4 z-[9000] bg-slate-900/80 border border-slate-700 text-slate-400 hover:text-white hover:border-amber-500 p-2 rounded-xl backdrop-blur-sm transition-all shadow-lg flex items-center justify-center group" title={isFullscreen ? "Выйти из полноэкранного режима" : "Развернуть игру на всё окно"}>
+            {isFullscreen ? (
+              <svg className="w-6 h-6 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3" /></svg>
+            ) : (
+              <svg className="w-6 h-6 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+            )}
+          </button>
+
+          <div className="w-full h-6 shrink-0 bg-slate-900 border-b border-amber-600/30 relative shadow-2xl z-[150] flex items-center" ref={xpBarRef}>
+            <div className="h-full bg-gradient-to-r from-yellow-700 via-amber-500 to-yellow-300 transition-all duration-1000 ease-out shadow-xl" style={{ width: `${(xp / xpToNext) * 100}%` }}></div>
+            <div className="absolute inset-0 flex items-center justify-center"><div className="text-[10px] font-black tracking-[0.2em] text-white drop-shadow-md uppercase">ПРОГРЕСС ОТРЯДА: {String(xp)} / {String(xpToNext)} XP (LVL {String(playerLevel)})</div></div>
+          </div>
+
+          {flyingCards.map(fc => <FlyingCard key={fc.id} {...fc} />)}
+          {flyingXps.map(fx => <FlyingXp key={fx.id} {...fx} onComplete={handleXpGained} />)}
+          {damagePopups.map(dp => (<DamagePopup key={dp.id} {...dp} onComplete={(id) => setDamagePopups(p => p.filter(x => x.id !== id))} />))}
+
+          <div className="flex w-full max-w-5xl justify-center relative z-0 p-1 mt-[25px]">
+            <div className="flex-1 flex flex-col justify-start w-full relative">
+              <div className="bg-slate-900/40 py-6 px-16 rounded-[40px] border border-slate-800/40 shadow-2xl flex justify-between items-center relative min-h-[220px] overflow-visible backdrop-blur-md">
+                <div className="absolute top-2 left-1/2 -translate-x-1/2 flex flex-col items-center">
+                   <div className="bg-slate-700 text-white px-6 py-1 rounded-full font-black text-sm shadow-[0_0_20px_rgba(0,0,0,0.5)] border-2 border-slate-500 uppercase italic tracking-tighter">{currentStage === 0 ? 'БАЗА' : `STAGE ${String(currentStage)}`}</div>
+                   <div className="w-[120px] h-[2px] bg-gradient-to-r from-transparent via-slate-500/50 to-transparent mt-2"></div>
+                </div>
+                <div className="flex flex-col gap-8 w-1/3 relative z-20">
+                  {players.map((player) => {
+                    const isHovered = hoveredPlayerId === player.id; const isAttacking = animatingPlayerId === player.id; const isBeingAttacked = animatingTargetIds.includes(player.id);
+                    return (
+                      <div key={`field-${player.id}`} className={`flex items-center gap-6 transition-all duration-500 ease-in-out ${player.hp <= 0 ? 'opacity-30 grayscale scale-75' : ''} ${isHovered && !isAnimating ? 'translate-x-4' : ''} ${isAttacking ? 'translate-x-[250px] scale-125 z-50 drop-shadow-[0_0_40px_rgba(59,130,246,1)] duration-300' : ''} ${isBeingAttacked ? 'translate-x-4 brightness-150 animate-pulse' : ''}`}>
+                        <div className={`text-6xl relative transition-all duration-300 ${isHovered && !isAnimating ? 'scale-125 drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''}`}>{String(player.icon)}{isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}</div>
+                        <div className={`flex flex-col transition-opacity duration-300 ${(isAttacking || isBeingAttacked) ? 'opacity-0' : 'opacity-100'}`}><span className={`font-black transition-colors ${isHovered ? 'text-white' : 'text-blue-400'} text-xl uppercase tracking-tighter`}>{String(player.name)}</span></div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="absolute left-1/2 top-10 bottom-10 w-px bg-gradient-to-b from-transparent via-slate-700 to-transparent opacity-20"></div>
+                <div className="flex flex-col gap-8 w-1/3 relative z-10">
+                  {enemies.map((enemy) => {
+                    const isHoveredTarget = hoveredTargetIds.includes(enemy.id); const isBeingAttacked = animatingTargetIds.includes(enemy.id); const isAttacking = animatingEnemyId === enemy.id;
+                    return (
+                      <div key={String(enemy.id)} ref={(el) => setEnemyRef(enemy.id, el)} className={`flex items-center justify-end gap-6 transition-all duration-500 ease-in-out ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isHoveredTarget && !isAnimating ? '-translate-x-4' : ''} ${isBeingAttacked ? '-translate-x-4 brightness-150 animate-pulse' : ''} ${isAttacking ? '-translate-x-[250px] scale-125 z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)] duration-300' : ''}`}>
+                        <div className={`flex flex-col items-end transition-opacity duration-300 ${(isAttacking || isBeingAttacked) ? 'opacity-0' : 'opacity-100'}`}><span className={`font-black transition-colors ${isHoveredTarget || isBeingAttacked ? 'text-white' : 'text-red-500'} text-xl uppercase tracking-tighter`}>{String(enemy.name)}</span>{!enemy.isDead && <span className="text-xs font-mono text-red-400 font-bold drop-shadow-sm">{String(enemy.hp)} HP</span>}</div>
+                        <div className={`text-6xl relative transition-all duration-300 ${isHoveredTarget || isBeingAttacked ? 'scale-125 drop-shadow-[0_0_25px_rgba(239,68,68,0.4)]' : ''}`}>{String(enemy.icon)}{isHoveredTarget && !isAnimating && <div className="absolute -inset-2 border-2 border-red-500 rounded-full animate-ping opacity-40"></div>}{isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex justify-between items-end w-full gap-4 relative z-10 mt-[25px]">
+                <div className="flex flex-col justify-end gap-4 items-center mb-1 w-32 relative">
+                  <div className="flex flex-col items-center w-full">
+                    <div className="text-blue-400 font-black uppercase tracking-widest text-[8px] mb-1">Энергия</div>
+                    <div className="w-24 h-24 rounded-full bg-slate-900 border-[6px] border-blue-500 shadow-[0_0_25px_rgba(59,130,246,0.5)] flex items-center justify-center relative overflow-hidden">
+                       <div className="absolute bottom-0 left-0 right-0 bg-blue-500/40 transition-all duration-700" style={{ height: `${(mana/maxMana)*100}%` }}></div>
+                       <span className="text-5xl font-black text-blue-100 z-10 drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)]">{String(mana)}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-center">
+                    <div ref={deckRef} onClick={() => turnState !== 'map' && setShowReserve(true)} className={`w-20 h-28 bg-slate-800 rounded-xl border-2 border-slate-600 flex flex-col items-center justify-center font-black shadow-xl transition-all ${turnState !== 'map' ? 'hover:scale-105 hover:border-blue-400 cursor-help' : 'opacity-50 grayscale'} ${turnState === 'dealing' ? 'border-blue-400 animate-pulse' : ''}`}>
+                       <span className="text-slate-300 drop-shadow-md text-3xl">{String(drawPile.length)}<span className="text-slate-600 text-lg">/{String(totalDeckSize)}</span></span>
+                       <span className="text-[9px] uppercase font-black tracking-widest text-slate-500 mt-2">Резерв</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-center gap-3 flex-1">
+                  {players.map((p, i) => {
+                    const card = p.currentCard; const isDead = p.hp <= 0; const isDisabled = turnState !== 'player' || mana < (card?.cost || 0) || isDead || p.hasActed || isAnimating || showLevelUp || turnState === 'map' || turnState === 'victory_wait'; const comboStatus = getCardComboStatus(p.id, card);
+                    return (
+                      <TiltWrapper key={p.id} isDisabled={isDisabled} className="w-52 h-[290px]">
+                        <div ref={(el) => setSlotRef(p.id, el)} onClick={() => !isDisabled && card && playCard(i, card)} onMouseEnter={() => handleCardHover(i)} onMouseLeave={() => { setHoveredPlayerId(null); setHoveredTargetIds([]); }} className={`w-full h-full bg-slate-800 border-2 rounded-2xl flex flex-col overflow-hidden relative group ${isDead ? 'border-slate-700 opacity-40 grayscale scale-95' : 'border-slate-600 shadow-2xl shadow-black/80'} ${!isDisabled ? 'cursor-pointer hover:border-slate-400' : ''}`}>
+                          <div className={`${p.bg} py-1.5 px-3 border-b border-white/10 flex justify-between items-center`}><span className="text-sm">{String(p.icon)}</span><span className="font-black uppercase tracking-tighter text-[10px] text-white">{String(p.name)}</span><span className="text-[8px] font-mono text-white/50">{String(p.hp)} HP</span></div>
+                          <div className="p-1.5 bg-slate-900/50 flex flex-col gap-1.5"><div className="h-1.5 bg-slate-950 rounded-full overflow-hidden shadow-inner"><div className="h-full bg-gradient-to-r from-green-600 to-green-300 transition-all duration-500" style={{ width: `${(p.hp/p.maxHp)*100}%` }}></div></div><div className="flex justify-between border-t border-white/5 pt-1 px-1"><div className="flex flex-col items-center w-1/3"><span className="text-[7px] text-slate-500 font-bold uppercase">Сил</span><span className="text-xs font-bold text-red-400">{String(p.str)}</span></div><div className="flex flex-col items-center border-l border-r border-slate-800 px-2"><span className="text-[7px] text-slate-500 font-bold uppercase">Лов</span><span className="text-xs font-bold text-green-400">{String(p.agi)}</span></div><div className="flex flex-col items-center w-1/3"><span className="text-[7px] text-slate-500 font-bold uppercase">Инт</span><span className="text-xs font-bold text-blue-400">{String(p.int)}</span></div></div></div>
+                          <div className="p-1.5 bg-slate-950 relative flex flex-col items-center justify-center flex-1 min-h-[190px]">
+                            {isDead ? <span className="text-[9px] uppercase text-slate-600 font-black tracking-widest">Павший</span> : !card && p.hasActed ? (
+                              <div className="flex flex-col items-center opacity-30 animate-pulse"><span className="text-4xl">⏳</span><span className="text-[8px] uppercase font-black mt-2 tracking-widest text-center leading-tight">Ход завершен</span></div>
+                            ) : card ? (
+                              <AbilityCard card={card} owner={p} mana={mana} maxMana={maxMana} isDisabled={isDisabled} comboState={comboStatus} />
+                            ) : <div className="w-full h-full border-2 border-dashed border-slate-800 rounded-xl flex items-center justify-center text-slate-800 font-black italic">...</div>}
+                          </div>
+                        </div>
+                      </TiltWrapper>
+                    );
+                  })}
+                </div>
+
+                <div className="flex flex-col justify-end gap-6 items-center mb-1 w-32">
+                  <button onClick={() => setTurnState('enemy')} disabled={turnState !== 'player' || isAnimating || showLevelUp || turnState === 'map' || turnState === 'victory_wait'} className="w-full py-4 bg-red-900/90 hover:bg-red-800 disabled:opacity-50 disabled:cursor-not-allowed rounded-2xl font-black uppercase tracking-widest text-[9px] transition-all shadow-2xl border border-red-700/50 hover:scale-105 active:scale-95">{turnState === 'dealing' ? 'ЖДИТЕ' : turnState === 'player' ? 'ЗАВЕРШИТЬ' : 'ВРАГ...'}</button>
+                  <div className="flex flex-col items-center">
+                    <div ref={discardRef} className="w-20 h-28 bg-slate-900/60 rounded-xl border-2 border-slate-700

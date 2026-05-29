@@ -60,35 +60,66 @@ const ITEM_RARITY_PREFIX = {
   LEGENDARY: 'Легендарный',
 };
 
+// Каждый предмет имеет ФИКСИРОВАННУЮ базовую рарность (названия соответствуют иконкам).
+// Распределение пирамидой: больше всего обычных, меньше редких/эпиков, мало легендарок.
 const ITEM_TEMPLATES = [
-  { name: 'Ржавый клинок', icon: 'item_10.png', focus: 'str' },
-  { name: 'Кинжал охотника', icon: 'item_11.png', focus: 'dex' },
-  { name: 'Посох ученика', icon: 'item_12.png', focus: 'int' },
-  { name: 'Булава стража', icon: 'item_13.png', focus: 'str' },
-  { name: 'Перчатки вора', icon: 'item_14.png', focus: 'dex' },
-  { name: 'Кристалл маны', icon: 'item_15.png', focus: 'int' },
-  { name: 'Топор берсерка', icon: 'item_20.png', focus: 'str' },
-  { name: 'Арбалет', icon: 'item_25.png', focus: 'dex' },
-  { name: 'Гримуар', icon: 'item_30.png', focus: 'int' },
-  { name: 'Щит паладина', icon: 'item_31.png', focus: 'str' },
-  { name: 'Сапоги стремительности', icon: 'item_32.png', focus: 'dex' },
-  { name: 'Амулет мудреца', icon: 'item_33.png', focus: 'int' },
-  { name: 'Молот кузнеца', icon: 'item_34.png', focus: 'str' },
-  { name: 'Кольцо ловкости', icon: 'item_35.png', focus: 'dex' },
-  { name: 'Огненный камень', icon: 'item_36.png', focus: 'int' },
-  { name: 'Копьё легиона', icon: 'item_37.png', focus: 'str' },
-  { name: 'Капюшон тени', icon: 'item_38.png', focus: 'dex' },
-  { name: 'Сфера пустоты', icon: 'item_39.png', focus: 'int' },
-  { name: 'Клинок титана', icon: 'item_40.png', focus: 'str' },
-  { name: 'Ядовитый клинок', icon: 'item_41.png', focus: 'dex' },
-  { name: 'Посох архимага', icon: 'item_42.png', focus: 'int' },
-  { name: 'Нагрудник', icon: 'item_43.png', focus: 'str' },
-  { name: 'Лук ветра', icon: 'item_44.png', focus: 'dex' },
-  { name: 'Корона разума', icon: 'item_45.png', focus: 'int' },
-  { name: 'Реликвия древних', icon: 'item_46.png', focus: 'str' },
+  // COMMON (11)
+  { name: 'Инструменты палача', icon: 'item_11.png', focus: 'str', rarity: 'COMMON' },
+  { name: 'Запас зелий', icon: 'item_13.png', focus: 'dex', rarity: 'COMMON' },
+  { name: 'Статуя горгульи', icon: 'item_14.png', focus: 'str', rarity: 'COMMON' },
+  { name: 'Зловещий кинжал', icon: 'item_20.png', focus: 'dex', rarity: 'COMMON' },
+  { name: 'Ступка алхимика', icon: 'item_31.png', focus: 'int', rarity: 'COMMON' },
+  { name: 'Кожаная перчатка', icon: 'item_34.png', focus: 'dex', rarity: 'COMMON' },
+  { name: 'Связка ключей', icon: 'item_36.png', focus: 'dex', rarity: 'COMMON' },
+  { name: 'Проклятые монеты', icon: 'item_39.png', focus: 'dex', rarity: 'COMMON' },
+  { name: 'Канделябр', icon: 'item_41.png', focus: 'int', rarity: 'COMMON' },
+  { name: 'Забытая шестерня', icon: 'item_43.png', focus: 'str', rarity: 'COMMON' },
+  { name: 'Свиток нетопыря', icon: 'item_45.png', focus: 'int', rarity: 'COMMON' },
+  // RARE (7)
+  { name: 'Астролябия', icon: 'item_15.png', focus: 'int', rarity: 'RARE' },
+  { name: 'Кости предков', icon: 'item_30.png', focus: 'str', rarity: 'RARE' },
+  { name: 'Букет аконита', icon: 'item_32.png', focus: 'int', rarity: 'RARE' },
+  { name: 'Рунические камни', icon: 'item_33.png', focus: 'int', rarity: 'RARE' },
+  { name: 'Фляга с ядом', icon: 'item_38.png', focus: 'dex', rarity: 'RARE' },
+  { name: 'Ржавые кандалы', icon: 'item_42.png', focus: 'str', rarity: 'RARE' },
+  { name: 'Перо и чернила', icon: 'item_44.png', focus: 'int', rarity: 'RARE' },
+  // EPIC (5)
+  { name: 'Древний гримуар', icon: 'item_10.png', focus: 'int', rarity: 'EPIC' },
+  { name: 'Череп ворона', icon: 'item_12.png', focus: 'int', rarity: 'EPIC' },
+  { name: 'Терновый венец', icon: 'item_25.png', focus: 'int', rarity: 'EPIC' },
+  { name: 'Рутиловый кристалл', icon: 'item_35.png', focus: 'int', rarity: 'EPIC' },
+  { name: 'Крылатый череп', icon: 'item_37.png', focus: 'str', rarity: 'EPIC' },
+  // LEGENDARY (2)
+  { name: 'Зеркало скорби', icon: 'item_40.png', focus: 'int', rarity: 'LEGENDARY' },
+  { name: 'Проклятый гроб', icon: 'item_46.png', focus: 'str', rarity: 'LEGENDARY' },
 ];
 
+// Цвет тинта по рарности — позволяет «перекрашивать» базовую иконку под новую рарность
+const RARITY_TINT = {
+  COMMON: null,
+  RARE: '#0EA5E9',
+  EPIC: '#a855f7',
+  LEGENDARY: '#f59e0b',
+};
+
 const getItemIconUrl = (icon) => `./icons/${icon}`;
+
+// Иконка предмета с опциональным цветным оверлеем (тинтом) для перекрашенной рарности
+const ItemIcon = ({ item, className = '', imgClassName = 'w-full h-full object-cover' }) => {
+  if (!item) return null;
+  const tint = item.tinted ? RARITY_TINT[item.rarity] : null;
+  return (
+    <div className={`relative ${className}`}>
+      <img src={getItemIconUrl(item.icon)} alt={item.name || ''} className={imgClassName} draggable={false} />
+      {tint && (
+        <div className="absolute inset-0 pointer-events-none" style={{ backgroundColor: tint, mixBlendMode: 'color', opacity: 0.85 }} />
+      )}
+      {tint && (
+        <div className="absolute inset-0 pointer-events-none" style={{ backgroundColor: tint, mixBlendMode: 'overlay', opacity: 0.35 }} />
+      )}
+    </div>
+  );
+};
 
 const rollItemRarity = () => {
   const total = Object.values(ITEM_RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
@@ -106,8 +137,32 @@ const getNextRarity = (rarity) => {
   return idx >= 0 && idx < RARITY_ORDER.length - 1 ? RARITY_ORDER[idx + 1] : null;
 };
 
+// Подбор шаблона под целевую рарность:
+// - «родные» шаблоны этой рарности идут без тинта (с весом)
+// - шаблоны более низкой рарности можно «перекрасить» под целевую (тинт) — расширяет ассортимент
+const pickTemplateForRarity = (rarity) => {
+  const targetIdx = RARITY_ORDER.indexOf(rarity);
+  const pool = [];
+  for (const t of ITEM_TEMPLATES) {
+    const tIdx = RARITY_ORDER.indexOf(t.rarity);
+    if (tIdx === targetIdx) {
+      // родной шаблон — больший вес, чтобы доминировал
+      pool.push({ template: t, tinted: false });
+      pool.push({ template: t, tinted: false });
+      pool.push({ template: t, tinted: false });
+    } else if (tIdx < targetIdx) {
+      // более низкий — перекрашиваем под целевую рарность
+      pool.push({ template: t, tinted: true });
+    }
+  }
+  if (pool.length === 0) {
+    return { template: ITEM_TEMPLATES[Math.floor(Math.random() * ITEM_TEMPLATES.length)], tinted: false };
+  }
+  return pool[Math.floor(Math.random() * pool.length)];
+};
+
 const generateItemOfRarity = (rarity) => {
-  const template = ITEM_TEMPLATES[Math.floor(Math.random() * ITEM_TEMPLATES.length)];
+  const { template, tinted } = pickTemplateForRarity(rarity);
   const range = ITEM_STAT_RANGES[rarity];
   const mainVal = Math.floor(Math.random() * (range.max - range.min + 1)) + range.min;
   const stats = { [template.focus]: mainVal };
@@ -117,13 +172,15 @@ const generateItemOfRarity = (rarity) => {
     const pick = secondary[Math.floor(Math.random() * secondary.length)];
     stats[pick] = Math.max(1, Math.round(mainVal * sec.ratio));
   }
+  // Перекрашенный предмет получает префикс новой рарности, родной — своё базовое имя
   const prefix = ITEM_RARITY_PREFIX[rarity];
-  const name = prefix ? `${prefix} ${template.name.toLowerCase()}` : template.name;
+  const name = tinted && prefix ? `${prefix} ${template.name.toLowerCase()}` : template.name;
   return {
     uid: `item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
     name,
     icon: template.icon,
     rarity,
+    tinted,
     stats,
   };
 };
@@ -695,7 +752,7 @@ const FlyingItem = ({ id, item, startX, startY, endX, endY, onComplete }) => {
     <div className="fixed z-[810] pointer-events-none"
       style={{ left: 0, top: 0, transform: `translate(${pos.x - 24}px, ${pos.y - 24}px) scale(${pos.scale}) rotate(${pos.rotate}deg)`, opacity: fade, transition: 'transform 600ms cubic-bezier(0.22, 1, 0.36, 1), opacity 120ms ease-out' }}>
       <div className={`w-12 h-12 rounded-lg border-2 ${rarity.border} bg-slate-900 shadow-[0_0_20px_rgba(250,204,21,0.5)] overflow-hidden relative`}>
-        <img src={getItemIconUrl(item.icon)} alt="" className="w-full h-full object-cover" draggable={false} />
+        <ItemIcon item={item} className="w-full h-full" />
         <div className="absolute inset-0 bg-white rounded-md" style={{ opacity: flash, transform: `scale(${1 + flash * 0.6})`, boxShadow: flash ? '0 0 25px 8px rgba(255,255,255,0.9)' : 'none', transition: 'opacity 130ms ease-out, transform 130ms ease-out' }} />
       </div>
     </div>
@@ -716,7 +773,7 @@ const ItemTooltip = ({ item, x, y }) => {
     <div className="fixed z-[5000] pointer-events-none w-52 bg-slate-950/95 border border-slate-600 rounded-xl p-3 shadow-2xl backdrop-blur-md"
       style={{ left, top }}>
       <div className="flex items-center gap-2 mb-2">
-        <img src={getItemIconUrl(item.icon)} alt="" className="w-10 h-10 rounded-lg border border-slate-600 object-cover" />
+        <ItemIcon item={item} className="w-10 h-10 rounded-lg border border-slate-600 overflow-hidden" />
         <div>
           <div className="text-xs font-black text-white uppercase tracking-tight">{item.name}</div>
           <div className={`text-[9px] font-bold uppercase ${rarity.text}`}>{rarity.name}</div>
@@ -754,7 +811,7 @@ const ItemSlot = ({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLe
         ${selected ? 'ring-2 ring-amber-400 scale-105 shadow-[0_0_15px_rgba(251,191,36,0.5)]' : ''}
         ${equip ? 'mt-[18px]' : ''}`}>
       {item ? (
-        <img src={getItemIconUrl(item.icon)} alt={item.name} className="w-full h-full object-cover pointer-events-none" draggable={false} />
+        <ItemIcon item={item} className="w-full h-full pointer-events-none" imgClassName="w-full h-full object-cover pointer-events-none" />
       ) : (
         <span className="text-[8px] text-slate-600 font-bold uppercase">{emptyLabel || ''}</span>
       )}
@@ -2697,7 +2754,7 @@ export default function App() {
                     onMouseLeave={hideItemTip}
                     className={`w-24 h-24 rounded-2xl border-2 flex items-center justify-center overflow-hidden transition-all ${slot ? `${(RARITIES[slot.rarity] || RARITIES.COMMON).border} bg-slate-950 cursor-pointer hover:brightness-125` : 'border-slate-500 border-dashed bg-slate-950/60 hover:border-amber-400'}`}>
                     {slot ? (
-                      <img src={getItemIconUrl(slot.icon)} alt={slot.name} className="w-full h-full object-cover" draggable={false} />
+                      <ItemIcon item={slot} className="w-full h-full" />
                     ) : (
                       <span className="text-slate-600 text-4xl font-black">+</span>
                     )}
