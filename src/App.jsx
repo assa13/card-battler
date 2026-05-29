@@ -602,64 +602,39 @@ const ShaderBackground = ({ intensity = 0 }) => {
           return rez;
       }
 
-      vec3 hsv2rgb(vec3 c) {
-          vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-          vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-          return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
-      }
-
       mat2 rot(float a) { float s = sin(a); float c = cos(a); return mat2(c, -s, s, c); }
 
       float complexFBM(vec2 p) {
-          // Скорость растёт с уровнем, ближе к концу — резкий скачок динамики (общая динамика снижена вдвое)
-          float speed = (mix(0.45, 2.6, clamp(iIntensity, 0.0, 2.0)) + max(0.0, iIntensity - 2.0) * 1.6) * 0.5;
+          float speed = mix(0.35, 1.1, clamp(iIntensity, 0.0, 1.0)) * 0.5;
           float t = iTime * speed;
 
-          // Очень лёгкое вращение всего поля вокруг центра (без сильного завихрения к центру)
           vec2 c = p - 1.75;
           float ang = t * (0.02 + 0.06 * iIntensity);
           c = rot(ang) * c;
           p = c + 1.75;
 
-          // Плавный однородный дрейф + органичный domain-warp (не привязан к радиусу)
           float slow = t / 3.0;
-          vec2 offset1 = vec2(sin(slow * 0.7), cos(slow * 0.9)) * (0.25 + 0.45 * iIntensity);
+          vec2 offset1 = vec2(sin(slow * 0.7), cos(slow * 0.9)) * (0.25 + 0.35 * iIntensity);
           vec2 offset2 = vec2(sin(t * 1.3), cos(t * 1.1)) * 0.4;
-          float warp = 1.0 + iIntensity * 0.7;
+          float warp = 1.0 + iIntensity * 0.55;
           return fractalNoise( p + offset1 + warp * fractalNoise( p + 1.5 * fractalNoise( p + 5.0 * fractalNoise(p - offset2) ) ) );
       }
 
       void main() {
           vec2 uv = gl_FragCoord.xy / iResolution.xy;
-          vec2 sp = uv * (3.5 + iIntensity * 0.7);
+          vec2 sp = uv * (3.5 + iIntensity * 0.4);
           float n = complexFBM(sp);
+          float blend = clamp(iIntensity, 0.0, 1.0); // 0 = только холод, 1 = оба цвета в рисунке
 
-          // --- Режим 0..1: спокойный синий -> раскалённый оранжево-красный ---
-          float k01 = clamp(iIntensity, 0.0, 1.0);
-          vec3 darkBg = mix(vec3(0.02, 0.03, 0.08), vec3(0.11, 0.02, 0.01), k01);
-          vec3 smokeColor = mix(vec3(0.08, 0.20, 0.50), vec3(0.92, 0.38, 0.05), k01);
-          vec3 col = mix(darkBg, smokeColor, clamp(n * 1.2, 0.0, 1.0));
+          // Цвет 1 — холодный (тёмная глубина + светлые синие переливы)
+          vec3 cold = mix(vec3(0.02, 0.05, 0.12), vec3(0.10, 0.40, 0.78), clamp(n * 1.15, 0.0, 1.0));
+          // Цвет 2 — красный (тёмная глубина + светлые алые переливы)
+          vec3 red = mix(vec3(0.09, 0.02, 0.04), vec3(0.82, 0.16, 0.12), clamp(n * 1.15, 0.0, 1.0));
 
-          // --- Режим 1..2: опаловый перелив (радужная переливающаяся плёнка) ---
-          if (iIntensity > 1.0) {
-              float k = clamp(iIntensity - 1.0, 0.0, 1.0);
-              float hue = fract(n * 1.8 + uv.x * 0.35 + uv.y * 0.35 + iTime * 0.025);
-              vec3 opal = hsv2rgb(vec3(hue, 0.55, 0.45 + 0.55 * n));
-              col = mix(col, opal, k);
-          }
+          // На ранних уровнях — только холод; красный постепенно входит в узоры шума
+          vec3 twoTone = mix(cold, red, n);
+          vec3 col = mix(cold, twoTone, blend);
 
-          // --- Режим 2..4: дикий психоделический режим с пульсацией яркости ---
-          if (iIntensity > 2.0) {
-              float k = clamp((iIntensity - 2.0) * 0.8, 0.0, 1.0);
-              float hue = fract(n * 3.0 + iTime * 0.09 + length(uv - 0.5) * 1.6);
-              float val = 0.35 + 0.65 * pow(clamp(n, 0.0, 1.0), 1.4);
-              vec3 wild = hsv2rgb(vec3(hue, 0.95, val));
-              wild *= 0.8 + 0.45 * sin(iTime * 1.5 + n * 12.0);
-              col = mix(col, wild, k);
-          }
-
-          // Общая яркость нарастает с уровнем
-          col *= 1.0 + iIntensity * 0.18;
           gl_FragColor = vec4(col, 1.0);
       }
     `;
@@ -1796,9 +1771,8 @@ export default function App() {
   const currentNode = gameMap.find(n => n.id === currentMapNodeId);
   const currentNodeInfo = getNodeInfo(currentNode?.type);
   // Фон отражает ТОЛЬКО текущий сектор (не меняется от врага к врагу): синий -> оранжевый
-  // 0 — спокойный синий, ~1 — раскалённый оранжевый, ~2 — опаловый перелив,
-  // 2..4 — всё более дикие психоделические режимы с искажением формы.
-  const bgIntensity = Math.min(4, Math.max(0, (sector - 1) * 0.5));
+  // 0 — только холодный синий; 1 — полное смешение с красным (по секторам)
+  const bgIntensity = Math.min(1, Math.max(0, (sector - 1) / 4));
 
   const mapLinks = useMemo(() => {
     const links = [];
