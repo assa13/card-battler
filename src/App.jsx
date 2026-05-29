@@ -615,20 +615,17 @@ const ShaderBackground = ({ intensity = 0 }) => {
           float speed = (mix(0.45, 2.6, clamp(iIntensity, 0.0, 2.0)) + max(0.0, iIntensity - 2.0) * 1.6) * 0.5;
           float t = iTime * speed;
 
-          // Вращательно-радиальное движение (никакого простого дрейфа слева-направо)
+          // Очень лёгкое вращение всего поля вокруг центра (без сильного завихрения к центру)
           vec2 c = p - 1.75;
-          float ang = t * (0.04 + 0.20 * iIntensity);
+          float ang = t * (0.02 + 0.06 * iIntensity);
           c = rot(ang) * c;
-          float r = length(c);
-          // Радиальная пульсация формы — на высоких уровнях рисунок «дышит» и закручивается
-          c += vec2(sin(t * 1.1 + r * (3.0 + iIntensity * 4.0)),
-                    cos(t * 0.9 - r * (3.0 + iIntensity * 4.0))) * (0.15 + 0.45 * iIntensity);
           p = c + 1.75;
 
+          // Плавный однородный дрейф + органичный domain-warp (не привязан к радиусу)
           float slow = t / 3.0;
-          vec2 offset1 = vec2(sin(slow * 0.7), cos(slow * 0.9)) * (0.3 + 0.7 * iIntensity);
-          vec2 offset2 = vec2(sin(t * 1.3), cos(t * 1.1)) * 0.5;
-          float warp = 1.2 + iIntensity * 1.4;
+          vec2 offset1 = vec2(sin(slow * 0.7), cos(slow * 0.9)) * (0.25 + 0.45 * iIntensity);
+          vec2 offset2 = vec2(sin(t * 1.3), cos(t * 1.1)) * 0.4;
+          float warp = 1.0 + iIntensity * 0.7;
           return fractalNoise( p + offset1 + warp * fractalNoise( p + 1.5 * fractalNoise( p + 5.0 * fractalNoise(p - offset2) ) ) );
       }
 
