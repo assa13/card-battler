@@ -688,20 +688,29 @@ const ItemTooltip = ({ item, x, y }) => {
   );
 };
 
-const ItemSlot = ({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLeave, size = 'md' }) => {
-  const sizeClass = size === 'sm' ? 'w-10 h-10' : 'w-11 h-11';
+const ItemSlot = ({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLeave, size = 'md', draggable: isDraggable, onDragStart, onDragOver, onDragLeave, onDrop, isDragOver }) => {
+  const sizeClass = size === 'sm' ? 'w-12 h-12' : 'w-[52px] h-[52px]';
   const rarity = item ? (RARITIES[item.rarity] || RARITIES.COMMON) : null;
   return (
-    <button type="button" onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}
-      className={`${sizeClass} rounded-lg border-2 flex items-center justify-center transition-all relative overflow-hidden
-        ${item ? `${rarity.border} bg-slate-900 hover:brightness-125` : 'border-slate-700 border-dashed bg-slate-900/50 hover:border-slate-500'}
+    <div
+      draggable={isDraggable && !!item}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className={`${sizeClass} rounded-lg border-2 flex items-center justify-center transition-all relative overflow-hidden select-none
+        ${item ? `${rarity.border} bg-slate-900 hover:brightness-125 cursor-grab active:cursor-grabbing` : 'border-slate-700 border-dashed bg-slate-900/50 hover:border-slate-500 cursor-default'}
+        ${isDragOver ? 'ring-2 ring-amber-400 scale-110 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.6)]' : ''}
         ${selected ? 'ring-2 ring-amber-400 scale-105 shadow-[0_0_15px_rgba(251,191,36,0.5)]' : ''}`}>
       {item ? (
-        <img src={getItemIconUrl(item.icon)} alt={item.name} className="w-full h-full object-cover" draggable={false} />
+        <img src={getItemIconUrl(item.icon)} alt={item.name} className="w-full h-full object-cover pointer-events-none" draggable={false} />
       ) : (
-        <span className="text-[7px] text-slate-600 font-bold uppercase">{emptyLabel || ''}</span>
+        <span className="text-[8px] text-slate-600 font-bold uppercase">{emptyLabel || ''}</span>
       )}
-    </button>
+    </div>
   );
 };
 
@@ -1341,7 +1350,8 @@ export default function App() {
   const [flyingItems, setFlyingItems] = useState([]);
   const [inventory, setInventory] = useState(Array(INVENTORY_SIZE).fill(null));
   const [equipped, setEquipped] = useState({ p1: null, p2: null, p3: null });
-  const [selectedInvIdx, setSelectedInvIdx] = useState(null);
+  const [dragSrcIdx, setDragSrcIdx] = useState(null);
+  const [dragOverPlayerId, setDragOverPlayerId] = useState(null);
   const [itemTooltip, setItemTooltip] = useState(null);
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [mergeQueue, setMergeQueue] = useState([]);
@@ -1638,7 +1648,7 @@ export default function App() {
     }
 
     setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setFlyingItems([]); setShowLevelUp(false); setMergeQueue([]);
-    setSelectedInvIdx(null); setItemTooltip(null);
+    setDragSrcIdx(null); setDragOverPlayerId(null); setItemTooltip(null);
     setCurrentEvent(null);
     setBloodParticles([]);
     setFlashingTargets([]);
@@ -1725,36 +1735,41 @@ export default function App() {
 
   const hideItemTip = () => setItemTooltip(null);
 
-  const handleInventoryClick = (idx) => {
-    if (turnState !== 'map') return;
-    if (selectedInvIdx === idx) { setSelectedInvIdx(null); return; }
-    if (inventory[idx]) { setSelectedInvIdx(idx); playSound('./assets/sfx/ui/click.wav', 0.35); }
+  const handleInvDragStart = (idx) => (e) => {
+    setDragSrcIdx(idx);
+    e.dataTransfer.effectAllowed = 'move';
   };
 
-  const handleEquipSlotClick = (playerId) => {
-    if (turnState !== 'map') return;
+  const handleEquipDragOver = (playerId) => (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverPlayerId(playerId);
+  };
+
+  const handleEquipDragLeave = () => setDragOverPlayerId(null);
+
+  const handleEquipDrop = (playerId) => (e) => {
+    e.preventDefault();
+    setDragOverPlayerId(null);
+    if (dragSrcIdx === null || !inventory[dragSrcIdx]) return;
+    const item = inventory[dragSrcIdx];
     const current = equipped[playerId];
-    if (selectedInvIdx !== null && inventory[selectedInvIdx]) {
-      const item = inventory[selectedInvIdx];
-      const newInv = [...inventory];
-      newInv[selectedInvIdx] = current;
-      setInventory(newInv);
-      setEquipped(prev => ({ ...prev, [playerId]: item }));
-      setSelectedInvIdx(null);
-      setPlayers(prev => prev.map(p => p.id === playerId ? syncPlayerMaxHp(p, item) : p));
-      playSound('./assets/sfx/events/powerup_select.wav', 0.45);
-      return;
-    }
-    if (current) {
-      const freeIdx = inventory.findIndex(s => s === null);
-      if (freeIdx === -1) return;
-      const newInv = [...inventory];
-      newInv[freeIdx] = current;
-      setInventory(newInv);
-      setEquipped(prev => ({ ...prev, [playerId]: null }));
-      setPlayers(prev => prev.map(p => p.id === playerId ? syncPlayerMaxHp(p, null) : p));
-      playSound('./assets/sfx/ui/card_discard.wav', 0.35);
-    }
+    setInventory(prev => { const n = [...prev]; n[dragSrcIdx] = current; return n; });
+    setEquipped(prev => ({ ...prev, [playerId]: item }));
+    setPlayers(prev => prev.map(p => p.id === playerId ? syncPlayerMaxHp(p, item) : p));
+    playSound('./assets/sfx/events/powerup_select.wav', 0.45);
+    setDragSrcIdx(null);
+  };
+
+  const handleUnequip = (playerId) => {
+    const current = equipped[playerId];
+    if (!current) return;
+    const freeIdx = inventory.findIndex(s => s === null);
+    if (freeIdx === -1) return;
+    setInventory(prev => { const n = [...prev]; n[freeIdx] = current; return n; });
+    setEquipped(prev => ({ ...prev, [playerId]: null }));
+    setPlayers(prev => prev.map(p => p.id === playerId ? syncPlayerMaxHp(p, null) : p));
+    playSound('./assets/sfx/ui/card_discard.wav', 0.35);
   };
 
   const collectAllDeckCards = () => {
@@ -2274,27 +2289,6 @@ export default function App() {
         )}
       </button>
 
-      <div ref={inventoryRef} className={`fixed bottom-4 left-4 ${turnState === 'map' ? 'z-[1300]' : 'z-[200]'} bg-slate-900/95 border-2 border-amber-600/50 rounded-2xl p-2.5 shadow-[0_0_25px_rgba(245,158,11,0.25)] backdrop-blur-md`}>
-        <div className="text-[8px] font-black uppercase tracking-widest text-amber-500 mb-1.5 text-center">
-          Инвентарь {inventory.filter(Boolean).length}/{INVENTORY_SIZE}
-        </div>
-        <div className="grid grid-cols-3 gap-1">
-          {inventory.map((item, idx) => (
-            <ItemSlot
-              key={idx}
-              item={item}
-              selected={selectedInvIdx === idx}
-              onClick={() => handleInventoryClick(idx)}
-              onMouseEnter={(e) => showItemTip(item, e)}
-              onMouseLeave={hideItemTip}
-            />
-          ))}
-        </div>
-        {turnState === 'map' && selectedInvIdx !== null && (
-          <div className="text-[7px] text-center text-slate-400 mt-1.5 leading-tight">Выберите слот экипировки под героем</div>
-        )}
-      </div>
-
       <div className="w-full h-6 shrink-0 bg-slate-900 border-b border-amber-600/30 relative shadow-2xl z-[150] flex items-center" ref={xpBarRef}>
         <div className="h-full bg-gradient-to-r from-yellow-700 via-amber-500 to-yellow-300 transition-all duration-1000 ease-out shadow-xl" style={{ width: `${(xp / xpToNext) * 100}%` }}></div>
         <div className="absolute inset-0 flex items-center justify-center"><div className="text-[10px] font-black tracking-[0.2em] text-white drop-shadow-md uppercase">ПРОГРЕСС ОТРЯДА: {String(xp)} / {String(xpToNext)} XP (LVL {String(playerLevel)})</div></div>
@@ -2435,10 +2429,14 @@ export default function App() {
                     <ItemSlot
                       item={eqItem}
                       size="sm"
-                      onClick={() => handleEquipSlotClick(p.id)}
+                      isDragOver={dragOverPlayerId === p.id}
+                      onDragOver={handleEquipDragOver(p.id)}
+                      onDragLeave={handleEquipDragLeave}
+                      onDrop={handleEquipDrop(p.id)}
+                      onClick={() => handleUnequip(p.id)}
                       onMouseEnter={(e) => showItemTip(eqItem, e)}
                       onMouseLeave={hideItemTip}
-                      emptyLabel={turnState === 'map' ? '+' : '—'}
+                      emptyLabel="⬇"
                     />
                   </div>
                   </div>
@@ -2455,6 +2453,24 @@ export default function App() {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Инвентарь — горизонтальная полоса под карточками */}
+          <div ref={inventoryRef} className="flex items-center justify-center gap-1.5 mt-3 bg-slate-900/85 border border-slate-700/70 rounded-2xl px-4 py-2 w-fit mx-auto">
+            <span className="text-[8px] uppercase font-black tracking-widest text-amber-500 mr-2 whitespace-nowrap">
+              Инвентарь {inventory.filter(Boolean).length}/{INVENTORY_SIZE}
+            </span>
+            {inventory.map((item, idx) => (
+              <ItemSlot
+                key={idx}
+                item={item}
+                selected={dragSrcIdx === idx}
+                draggable={true}
+                onDragStart={handleInvDragStart(idx)}
+                onMouseEnter={(e) => showItemTip(item, e)}
+                onMouseLeave={hideItemTip}
+              />
+            ))}
           </div>
         </div>
       </div>
@@ -2523,33 +2539,57 @@ export default function App() {
             <p className="text-slate-300 font-black text-sm tracking-widest uppercase text-right drop-shadow-md">Выберите следующий этап пути</p>
           </div>
 
-          <div className="flex justify-center gap-8 mt-5 w-full max-w-4xl px-4">
-            {players.map(p => {
-              const eqItem = equipped[p.id];
-              const eff = getEffectivePlayer(p, eqItem);
-              return (
-                <div key={`map-eq-${p.id}`} className="flex flex-col items-center gap-1.5 bg-slate-900/90 border border-slate-600 rounded-xl px-5 py-3 shadow-lg">
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl">{String(p.icon)}</span>
-                    <span className="text-[10px] font-black uppercase text-white tracking-tight">{String(p.name)}</span>
+          <div className="flex flex-col items-center gap-3 mt-5 w-full max-w-4xl px-4">
+            {/* Инвентарь на карте */}
+            <div className="flex items-center justify-center gap-1.5 bg-slate-900/90 border border-amber-600/40 rounded-2xl px-4 py-2">
+              <span className="text-[8px] uppercase font-black tracking-widest text-amber-500 mr-2 whitespace-nowrap">
+                Инвентарь {inventory.filter(Boolean).length}/{INVENTORY_SIZE}
+              </span>
+              {inventory.map((item, idx) => (
+                <ItemSlot
+                  key={idx}
+                  item={item}
+                  selected={dragSrcIdx === idx}
+                  draggable={true}
+                  onDragStart={handleInvDragStart(idx)}
+                  onMouseEnter={(e) => showItemTip(item, e)}
+                  onMouseLeave={hideItemTip}
+                />
+              ))}
+            </div>
+            <p className="text-[9px] text-slate-400 font-bold uppercase tracking-widest">
+              {dragSrcIdx !== null ? '⬇ Перетащите предмет в слот героя' : 'Перетащите предмет на героя чтобы экипировать'}
+            </p>
+            {/* Слоты экипировки героев */}
+            <div className="flex justify-center gap-6">
+              {players.map(p => {
+                const eqItem = equipped[p.id];
+                const eff = getEffectivePlayer(p, eqItem);
+                return (
+                  <div key={`map-eq-${p.id}`} className="flex flex-col items-center gap-1.5 bg-slate-900/90 border border-slate-600 rounded-xl px-5 py-3 shadow-lg">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">{String(p.icon)}</span>
+                      <span className="text-[10px] font-black uppercase text-white tracking-tight">{String(p.name)}</span>
+                    </div>
+                    <div className="text-[8px] text-slate-400 font-mono">Сил {eff.str} · Лов {eff.agi} · Инт {eff.int}</div>
+                    <ItemSlot
+                      item={eqItem}
+                      size="sm"
+                      isDragOver={dragOverPlayerId === p.id}
+                      onDragOver={handleEquipDragOver(p.id)}
+                      onDragLeave={handleEquipDragLeave}
+                      onDrop={handleEquipDrop(p.id)}
+                      onClick={() => handleUnequip(p.id)}
+                      onMouseEnter={(e) => showItemTip(eqItem, e)}
+                      onMouseLeave={hideItemTip}
+                      emptyLabel="⬇"
+                    />
+                    <span className="text-[7px] uppercase text-amber-500 tracking-widest font-bold">Экипировка</span>
                   </div>
-                  <div className="text-[8px] text-slate-400 font-mono">Сил {eff.str} · Лов {eff.agi} · Инт {eff.int}</div>
-                  <ItemSlot
-                    item={eqItem}
-                    size="sm"
-                    onClick={() => handleEquipSlotClick(p.id)}
-                    onMouseEnter={(e) => showItemTip(eqItem, e)}
-                    onMouseLeave={hideItemTip}
-                    emptyLabel="+"
-                  />
-                  <span className="text-[7px] uppercase text-amber-500 tracking-widest font-bold">Экипировка</span>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
-          {selectedInvIdx !== null && (
-            <p className="text-amber-400 text-[10px] font-black uppercase tracking-widest mt-3 animate-pulse">↑ Нажмите слот экипировки героя</p>
-          )}
         </div>
       )}
 
