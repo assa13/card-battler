@@ -1450,13 +1450,35 @@ export default function App() {
     setHoveredTargetIds(targetIndices.map(idx => enemies[idx].id));
   };
 
-  const resetGame = (fullReset = false, advanceSector = false) => {
-    // Сектор сбрасывается только при полном рестарте или победе над боссом; при смерти — сохраняется
+  const resetGame = (fullReset = false, advanceSector = false, fromDeath = false) => {
     if (fullReset) setSector(1);
     else if (advanceSector) setSector(s => s + 1);
-    // Любое начало забега заново (победа или смерть) переключает музыку в новое место
+    else if (fromDeath) setSector(1);
+
     musicFadeToRandom();
-    setPlayers(INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p })));
+
+    // Сначала собираем карты с рук (до очистки currentCard)
+    let handCards = [];
+    players.forEach(p => { if (p.currentCard && !p.currentCard.id.startsWith('b')) handCards.push(p.currentCard); });
+    const currentFullDeck = [...drawPile, ...discardPile, ...handCards];
+
+    if (fullReset) {
+      setPlayers(INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p })));
+      setXp(0); setXpToNext(60); setPlayerLevel(1); setMaxMana(5);
+      setDrawPile(shuffleArray([...INITIAL_DECK])); setDiscardPile([]);
+    } else {
+      // Смерть / новый сектор: статы, уровень, мана и колода сохраняются
+      setPlayers(prev => prev.map(p => syncPlayerMaxHp({
+        ...p,
+        hp: getMaxHpFromStats(p),
+        currentCard: null,
+        hasActed: false,
+        justDealt: false,
+      })));
+      setDrawPile(shuffleArray(currentFullDeck.length > 0 ? currentFullDeck : [...INITIAL_DECK]));
+      setDiscardPile([]);
+    }
+
     setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setShowLevelUp(false); setMergeQueue([]);
     setCurrentEvent(null);
     setBloodParticles([]);
@@ -1467,21 +1489,11 @@ export default function App() {
     pendingCardRewardRef.current = null;
     pendingTransitionRef.current = null;
     
-    // Сбрасываем говорящего врага
     if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
     setSpeakingEnemy(null);
 
     const newMap = generateMap();
     setGameMap(newMap); setCurrentMapNodeId(newMap[0].id); setCompletedNodes([newMap[0].id]); setCurrentStage(0);
-
-    if (fullReset) {
-      setXp(0); setXpToNext(60); setPlayerLevel(1); setMaxMana(5); setDrawPile(shuffleArray([...INITIAL_DECK])); setDiscardPile([]);
-    } else {
-      let handCards = [];
-      players.forEach(p => { if (p.currentCard && !p.currentCard.id.startsWith('b')) handCards.push(p.currentCard); });
-      const currentFullDeck = [...drawPile, ...discardPile, ...handCards];
-      setDrawPile(shuffleArray(currentFullDeck.length > 0 ? currentFullDeck : [...INITIAL_DECK])); setDiscardPile([]);
-    }
     setTurnState('map');
   };
 
@@ -2268,8 +2280,8 @@ export default function App() {
       {turnState === 'gameover' && (
         <div className="absolute inset-0 z-[2000] bg-red-950/80 flex flex-col items-center justify-center backdrop-blur-xl animate-in fade-in duration-700 p-6">
            <h1 className="text-8xl font-black text-white drop-shadow-[0_0_40px_rgba(239,68,68,1)] mb-4 tracking-tighter uppercase italic text-center">ОТРЯД ПАЛ</h1>
-           <p className="text-2xl text-red-300 font-bold uppercase tracking-[0.5em] mb-12 text-center">Сектор {String(sector)} · колода и опыт сохранены</p>
-           <button onClick={() => resetGame(false)} className="px-16 py-6 bg-white text-red-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">Вернуться на Базу (Stage 0)</button>
+           <p className="text-2xl text-red-300 font-bold uppercase tracking-[0.5em] mb-12 text-center">Колода и статы сохранены · возврат в сектор 1</p>
+           <button onClick={() => resetGame(false, false, true)} className="px-16 py-6 bg-white text-red-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">Вернуться на Базу (Stage 0)</button>
         </div>
       )}
 
