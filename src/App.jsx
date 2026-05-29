@@ -23,28 +23,28 @@ const HERO_ABILITIES = {
   p1: { 
     basic: { id: 'b1', name: 'Удар мечом', cost: 0, stat: 'str', mult: 2.0, icon: '⚔️', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'slash' },
     skills: [
-      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, stat: 'str', mult: 5.0, icon: '🔨', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'smash' },
-      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, stat: 'str', mult: 2.0, icon: '🌪️', type: 'splash', rarity: 'COMMON', vfxType: 'slash' },
-      { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, stat: 'str', mult: 1.5, icon: '🏃', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'slash' },
-      { id: 's1_4', ownerId: 'p1', name: 'Землетрясение', cost: 4, stat: 'str', mult: 4.0, icon: '🌋', type: 'splash', rarity: 'EPIC', vfxType: 'smash' }
+      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, stat: 'str', mult: 5.5, icon: '🔨', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'smash' },
+      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, stat: 'str', mult: 2.5, icon: '🌪️', type: 'splash', rarity: 'COMMON', vfxType: 'slash' },
+      { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, stat: 'str', mult: 2.5, icon: '🏃', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'slash' },
+      { id: 's1_4', ownerId: 'p1', name: 'Землетрясение', cost: 4, stat: 'str', mult: 4.5, icon: '🌋', type: 'splash', rarity: 'EPIC', vfxType: 'smash' }
     ]
   },
   p2: { 
     basic: { id: 'b2', name: 'Кинжал', cost: 0, stat: 'agi', mult: 1.0, icon: '🗡️', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'dagger_single' },
     skills: [
-      { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, stat: 'agi', mult: 8.0, icon: '🧪', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'poison' },
-      { id: 's2_2', ownerId: 'p2', name: 'Танец стали', cost: 3, stat: 'agi', mult: 1.5, icon: '⚔️', type: 'splash', rarity: 'RARE', vfxType: 'daggers' },
-      { id: 's2_3', ownerId: 'p2', name: 'Теневой шаг', cost: 2, stat: 'agi', mult: 3.5, icon: '🥷', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'dark_strike' },
-      { id: 's2_4', ownerId: 'p2', name: 'Шквал ножей', cost: 3, stat: 'agi', mult: 2.0, icon: '🗡️', type: 'splash', rarity: 'EPIC', vfxType: 'daggers' }
+      { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, stat: 'agi', mult: 2.5, icon: '🧪', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'poison' },
+      { id: 's2_2', ownerId: 'p2', name: 'Танец стали', cost: 3, stat: 'agi', mult: 3.5, icon: '⚔️', type: 'splash', rarity: 'RARE', vfxType: 'daggers' },
+      { id: 's2_3', ownerId: 'p2', name: 'Теневой шаг', cost: 2, stat: 'agi', mult: 4.0, icon: '🥷', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'dark_strike' },
+      { id: 's2_4', ownerId: 'p2', name: 'Шквал ножей', cost: 3, stat: 'agi', mult: 4.5, icon: '🗡️', type: 'splash', rarity: 'EPIC', vfxType: 'daggers' }
     ]
   },
   p3: { 
     basic: { id: 'b3', name: 'Искра', cost: 0, stat: 'int', mult: 1.0, icon: '✨', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'magic_spark' },
     skills: [
-      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, stat: 'int', mult: 1.5, icon: '☄️', type: 'splash', rarity: 'RARE', vfxType: 'fireball' },
-      { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, stat: 'int', mult: 2.0, icon: '❄️', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'ice_spike' },
-      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, stat: 'int', mult: 2.5, icon: '⚡', type: 'splash', rarity: 'RARE', vfxType: 'lightning' },
-      { id: 's3_4', ownerId: 'p3', name: 'Черная дыра', cost: 5, stat: 'int', mult: 5.0, icon: '🌌', type: 'splash', rarity: 'LEGENDARY', vfxType: 'dark_void' }
+      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, stat: 'int', mult: 3.0, icon: '☄️', type: 'splash', rarity: 'RARE', vfxType: 'fireball' },
+      { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, stat: 'int', mult: 4.0, icon: '❄️', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'ice_spike' },
+      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, stat: 'int', mult: 3.5, icon: '⚡', type: 'splash', rarity: 'RARE', vfxType: 'lightning' },
+      { id: 's3_4', ownerId: 'p3', name: 'Черная дыра', cost: 5, stat: 'int', mult: 6.0, icon: '🌌', type: 'splash', rarity: 'LEGENDARY', vfxType: 'dark_void' }
     ]
   }
 };
