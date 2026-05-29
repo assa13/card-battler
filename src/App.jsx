@@ -33,6 +33,96 @@ const CLASS_WEIGHTS = {
   p3: { str: 0.3, dex: 0.4, int: 1.0 },
 };
 
+const INVENTORY_SIZE = 9;
+const LOOT_DROP_CHANCE = 0.32;
+const ITEM_RARITY_WEIGHTS = { COMMON: 55, RARE: 28, EPIC: 13, LEGENDARY: 4 };
+const ITEM_STAT_RANGES = {
+  COMMON: { min: 1, max: 3 },
+  RARE: { min: 2, max: 5 },
+  EPIC: { min: 4, max: 8 },
+  LEGENDARY: { min: 7, max: 14 },
+};
+
+const ITEM_TEMPLATES = [
+  { name: 'Ржавый клинок', icon: 'item_10.png', focus: 'str' },
+  { name: 'Кинжал охотника', icon: 'item_11.png', focus: 'dex' },
+  { name: 'Посох ученика', icon: 'item_12.png', focus: 'int' },
+  { name: 'Булава стража', icon: 'item_13.png', focus: 'str' },
+  { name: 'Перчатки вора', icon: 'item_14.png', focus: 'dex' },
+  { name: 'Кристалл маны', icon: 'item_15.png', focus: 'int' },
+  { name: 'Топор берсерка', icon: 'item_20.png', focus: 'str' },
+  { name: 'Арбалет', icon: 'item_25.png', focus: 'dex' },
+  { name: 'Гримуар', icon: 'item_30.png', focus: 'int' },
+  { name: 'Щит паладина', icon: 'item_31.png', focus: 'str' },
+  { name: 'Сапоги стремительности', icon: 'item_32.png', focus: 'dex' },
+  { name: 'Амулет мудреца', icon: 'item_33.png', focus: 'int' },
+  { name: 'Молот кузнеца', icon: 'item_34.png', focus: 'str' },
+  { name: 'Кольцо ловкости', icon: 'item_35.png', focus: 'dex' },
+  { name: 'Огненный камень', icon: 'item_36.png', focus: 'int' },
+  { name: 'Копьё легиона', icon: 'item_37.png', focus: 'str' },
+  { name: 'Капюшон тени', icon: 'item_38.png', focus: 'dex' },
+  { name: 'Сфера пустоты', icon: 'item_39.png', focus: 'int' },
+  { name: 'Клинок титана', icon: 'item_40.png', focus: 'str' },
+  { name: 'Ядовитый клинок', icon: 'item_41.png', focus: 'dex' },
+  { name: 'Посох архимага', icon: 'item_42.png', focus: 'int' },
+  { name: 'Нагрудник', icon: 'item_43.png', focus: 'str' },
+  { name: 'Лук ветра', icon: 'item_44.png', focus: 'dex' },
+  { name: 'Корона разума', icon: 'item_45.png', focus: 'int' },
+  { name: 'Реликвия древних', icon: 'item_46.png', focus: 'str' },
+];
+
+const getItemIconUrl = (icon) => `./icons/${icon}`;
+
+const rollItemRarity = () => {
+  const total = Object.values(ITEM_RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
+  let roll = Math.random() * total;
+  for (const [rarity, weight] of Object.entries(ITEM_RARITY_WEIGHTS)) {
+    roll -= weight;
+    if (roll <= 0) return rarity;
+  }
+  return 'COMMON';
+};
+
+const generateRandomItem = () => {
+  const template = ITEM_TEMPLATES[Math.floor(Math.random() * ITEM_TEMPLATES.length)];
+  const rarity = rollItemRarity();
+  const range = ITEM_STAT_RANGES[rarity];
+  const mainVal = Math.floor(Math.random() * (range.max - range.min + 1)) + range.min;
+  const stats = { [template.focus]: mainVal };
+  if (Math.random() < (rarity === 'COMMON' ? 0.1 : rarity === 'RARE' ? 0.25 : 0.45)) {
+    const secondary = ['str', 'dex', 'int'].filter(s => s !== template.focus);
+    const pick = secondary[Math.floor(Math.random() * secondary.length)];
+    stats[pick] = Math.floor(Math.random() * Math.max(1, range.min)) + 1;
+  }
+  return {
+    uid: `item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    name: template.name,
+    icon: template.icon,
+    rarity,
+    stats,
+  };
+};
+
+const rollLootDrop = () => (Math.random() < LOOT_DROP_CHANCE ? generateRandomItem() : null);
+
+const getEffectivePlayer = (player, equippedItem) => {
+  if (!player) return player;
+  const bonus = equippedItem?.stats || {};
+  const str = player.str + (bonus.str || 0);
+  const agi = player.agi + (bonus.dex || bonus.agi || 0);
+  const int = player.int + (bonus.int || 0);
+  const maxHp = (player.baseMaxHp ?? 20) + str * STAT_EFFECTS.str.hp;
+  return { ...player, str, agi, int, maxHp };
+};
+
+const formatItemStats = (stats = {}) => {
+  const parts = [];
+  if (stats.str) parts.push(`Сила +${stats.str}`);
+  if (stats.dex || stats.agi) parts.push(`Ловкость +${stats.dex || stats.agi}`);
+  if (stats.int) parts.push(`Инт +${stats.int}`);
+  return parts.length ? parts.join(' · ') : 'Без бонусов';
+};
+
 const HERO_ABILITIES = {
   p1: { 
     basic: { id: 'b1', name: 'Удар мечом', cost: 0, mult: 1.5, scale: { str: 1.0, dex: 0.2 }, dmgType: 'melee', icon: '⚔️', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'slash' },
@@ -113,10 +203,13 @@ const getLevelMultiplier = (card) => Math.pow(2, getCardLevel(card) - 1);
 
 const getPlayerDex = (player) => player?.agi ?? 0;
 
-const getMaxHpFromStats = (player) => (player.baseMaxHp ?? 20) + player.str * STAT_EFFECTS.str.hp;
+const getMaxHpFromStats = (player, equippedItem = null) => {
+  const str = player.str + (equippedItem?.stats?.str || 0);
+  return (player.baseMaxHp ?? 20) + str * STAT_EFFECTS.str.hp;
+};
 
-const syncPlayerMaxHp = (player) => {
-  const maxHp = getMaxHpFromStats(player);
+const syncPlayerMaxHp = (player, equippedItem = null) => {
+  const maxHp = getMaxHpFromStats(player, equippedItem);
   return { ...player, maxHp, hp: Math.min(player.hp, maxHp) };
 };
 
@@ -552,6 +645,63 @@ const FlyingXp = ({ id, amount, startX, startY, endX, endY, onComplete }) => {
       style={{ left: 0, top: 0, transform: `translate(${pos.x - 20}px, ${pos.y - 20}px) scale(${pos.scale})`, opacity: pos.opacity, transition: 'all 700ms ease-in' }}>
       +{String(amount)}
     </div>
+  );
+};
+
+const FlyingItem = ({ id, item, startX, startY, endX, endY, onComplete }) => {
+  const [pos, setPos] = useState({ x: startX, y: startY, opacity: 1, scale: 1.2, rotate: 0 });
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setPos({ x: endX, y: endY, opacity: 0, scale: 0.4, rotate: 360 }), 50);
+    const c = setTimeout(() => onCompleteRef.current(id, item), 800);
+    return () => { clearTimeout(t); clearTimeout(c); };
+  }, [id, item, endX, endY]);
+
+  const rarity = RARITIES[item.rarity] || RARITIES.COMMON;
+  return (
+    <div className="fixed z-[810] pointer-events-none"
+      style={{ left: 0, top: 0, transform: `translate(${pos.x - 24}px, ${pos.y - 24}px) scale(${pos.scale}) rotate(${pos.rotate}deg)`, opacity: pos.opacity, transition: 'all 750ms cubic-bezier(0.22, 1, 0.36, 1)' }}>
+      <div className={`w-12 h-12 rounded-lg border-2 ${rarity.border} bg-slate-900 shadow-[0_0_20px_rgba(250,204,21,0.5)] overflow-hidden`}>
+        <img src={getItemIconUrl(item.icon)} alt="" className="w-full h-full object-cover" draggable={false} />
+      </div>
+    </div>
+  );
+};
+
+const ItemTooltip = ({ item, x, y }) => {
+  if (!item) return null;
+  const rarity = RARITIES[item.rarity] || RARITIES.COMMON;
+  return (
+    <div className="fixed z-[5000] pointer-events-none w-52 bg-slate-950/95 border border-slate-600 rounded-xl p-3 shadow-2xl backdrop-blur-md"
+      style={{ left: Math.min(x + 14, window.innerWidth - 220), top: Math.max(8, y - 10) }}>
+      <div className="flex items-center gap-2 mb-2">
+        <img src={getItemIconUrl(item.icon)} alt="" className="w-10 h-10 rounded-lg border border-slate-600 object-cover" />
+        <div>
+          <div className="text-xs font-black text-white uppercase tracking-tight">{item.name}</div>
+          <div className={`text-[9px] font-bold uppercase ${rarity.text}`}>{rarity.name}</div>
+        </div>
+      </div>
+      <div className="text-[10px] text-slate-300 leading-relaxed">{formatItemStats(item.stats)}</div>
+    </div>
+  );
+};
+
+const ItemSlot = ({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLeave, size = 'md' }) => {
+  const sizeClass = size === 'sm' ? 'w-10 h-10' : 'w-11 h-11';
+  const rarity = item ? (RARITIES[item.rarity] || RARITIES.COMMON) : null;
+  return (
+    <button type="button" onClick={onClick} onMouseEnter={onMouseEnter} onMouseLeave={onMouseLeave}
+      className={`${sizeClass} rounded-lg border-2 flex items-center justify-center transition-all relative overflow-hidden
+        ${item ? `${rarity.border} bg-slate-900 hover:brightness-125` : 'border-slate-700 border-dashed bg-slate-900/50 hover:border-slate-500'}
+        ${selected ? 'ring-2 ring-amber-400 scale-105 shadow-[0_0_15px_rgba(251,191,36,0.5)]' : ''}`}>
+      {item ? (
+        <img src={getItemIconUrl(item.icon)} alt={item.name} className="w-full h-full object-cover" draggable={false} />
+      ) : (
+        <span className="text-[7px] text-slate-600 font-bold uppercase">{emptyLabel || ''}</span>
+      )}
+    </button>
   );
 };
 
@@ -1188,6 +1338,11 @@ export default function App() {
   const [sectorSplash, setSectorSplash] = useState(null);
 
   const [flyingXps, setFlyingXps] = useState([]);
+  const [flyingItems, setFlyingItems] = useState([]);
+  const [inventory, setInventory] = useState(Array(INVENTORY_SIZE).fill(null));
+  const [equipped, setEquipped] = useState({ p1: null, p2: null, p3: null });
+  const [selectedInvIdx, setSelectedInvIdx] = useState(null);
+  const [itemTooltip, setItemTooltip] = useState(null);
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [mergeQueue, setMergeQueue] = useState([]);
   const [showReserve, setShowReserve] = useState(false);
@@ -1263,6 +1418,7 @@ export default function App() {
   const deckRef = useRef(null);
   const discardRef = useRef(null);
   const xpBarRef = useRef(null);
+  const inventoryRef = useRef(null);
   const mapScrollRef = useRef(null);
   const audioRef = useRef(null);
   const showLevelUpRef = useRef(false);
@@ -1466,20 +1622,23 @@ export default function App() {
       setPlayers(INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p })));
       setXp(0); setXpToNext(60); setPlayerLevel(1); setMaxMana(5);
       setDrawPile(shuffleArray([...INITIAL_DECK])); setDiscardPile([]);
+      setInventory(Array(INVENTORY_SIZE).fill(null));
+      setEquipped({ p1: null, p2: null, p3: null });
     } else {
-      // Смерть / новый сектор: статы, уровень, мана и колода сохраняются
+      // Смерть / новый сектор: статы, уровень, мана, колода и предметы сохраняются
       setPlayers(prev => prev.map(p => syncPlayerMaxHp({
         ...p,
-        hp: getMaxHpFromStats(p),
+        hp: Math.min(p.hp, getMaxHpFromStats(p, equipped[p.id])),
         currentCard: null,
         hasActed: false,
         justDealt: false,
-      })));
+      }, equipped[p.id])));
       setDrawPile(shuffleArray(currentFullDeck.length > 0 ? currentFullDeck : [...INITIAL_DECK]));
       setDiscardPile([]);
     }
 
-    setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setShowLevelUp(false); setMergeQueue([]);
+    setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setFlyingItems([]); setShowLevelUp(false); setMergeQueue([]);
+    setSelectedInvIdx(null); setItemTooltip(null);
     setCurrentEvent(null);
     setBloodParticles([]);
     setFlashingTargets([]);
@@ -1538,6 +1697,64 @@ export default function App() {
       }
       return total;
     });
+  };
+
+  const addItemToInventory = useCallback((item) => {
+    let added = false;
+    setInventory(prev => {
+      const idx = prev.findIndex(s => s === null);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      next[idx] = item;
+      added = true;
+      return next;
+    });
+    return added;
+  }, []);
+
+  const handleItemLanded = useCallback((id, item) => {
+    setFlyingItems(prev => prev.filter(x => x.id !== id));
+    if (!addItemToInventory(item)) playSound('./assets/sfx/ui/click.wav', 0.3);
+    else playSound('./assets/sfx/game/xp_gain.wav', 0.35);
+  }, [addItemToInventory]);
+
+  const showItemTip = (item, e) => {
+    if (!item) return;
+    setItemTooltip({ item, x: e.clientX, y: e.clientY });
+  };
+
+  const hideItemTip = () => setItemTooltip(null);
+
+  const handleInventoryClick = (idx) => {
+    if (turnState !== 'map') return;
+    if (selectedInvIdx === idx) { setSelectedInvIdx(null); return; }
+    if (inventory[idx]) { setSelectedInvIdx(idx); playSound('./assets/sfx/ui/click.wav', 0.35); }
+  };
+
+  const handleEquipSlotClick = (playerId) => {
+    if (turnState !== 'map') return;
+    const current = equipped[playerId];
+    if (selectedInvIdx !== null && inventory[selectedInvIdx]) {
+      const item = inventory[selectedInvIdx];
+      const newInv = [...inventory];
+      newInv[selectedInvIdx] = current;
+      setInventory(newInv);
+      setEquipped(prev => ({ ...prev, [playerId]: item }));
+      setSelectedInvIdx(null);
+      setPlayers(prev => prev.map(p => p.id === playerId ? syncPlayerMaxHp(p, item) : p));
+      playSound('./assets/sfx/events/powerup_select.wav', 0.45);
+      return;
+    }
+    if (current) {
+      const freeIdx = inventory.findIndex(s => s === null);
+      if (freeIdx === -1) return;
+      const newInv = [...inventory];
+      newInv[freeIdx] = current;
+      setInventory(newInv);
+      setEquipped(prev => ({ ...prev, [playerId]: null }));
+      setPlayers(prev => prev.map(p => p.id === playerId ? syncPlayerMaxHp(p, null) : p));
+      playSound('./assets/sfx/ui/card_discard.wav', 0.35);
+    }
   };
 
   const collectAllDeckCards = () => {
@@ -1707,6 +1924,7 @@ export default function App() {
 
   const playCard = (playerIndex, card) => {
     const player = players[playerIndex];
+    const effectivePlayer = getEffectivePlayer(player, equipped[player.id]);
     if (turnState !== 'player' || mana < card.cost || player.hp <= 0 || player.hasActed || isAnimating) return;
     const targetIndices = getTargets(card, playerIndex, enemies);
     if (targetIndices.length === 0) return;
@@ -1745,8 +1963,8 @@ export default function App() {
 
     setTimeout(() => {
       setVfxList([]); 
-      const { damage, isCrit } = rollCardDamage(player, card, multiplier);
-      const newEnemies = enemies.map(e => ({...e})); let xpToSpawn = []; 
+      const { damage, isCrit } = rollCardDamage(effectivePlayer, card, multiplier);
+      const newEnemies = enemies.map(e => ({...e})); let xpToSpawn = []; let lootToSpawn = [];
       
       playSound(getCombatHitSound(card.vfxType || 'slash'));
       if (isCrit) playSound('./assets/sfx/combat/hit_heavy.wav', 0.7);
@@ -1766,7 +1984,13 @@ export default function App() {
               newBlood.push({ id: Math.random(), x: eRect.left + eRect.width/2, y: eRect.top + eRect.height/2 });
            }
         }
-        if (target.hp <= 0 && !target.isDead) { target.hp = 0; target.isDead = true; xpToSpawn.push({ id: target.id, amount: target.xpReward }); playSound('./assets/sfx/combat/death.wav', 0.7); }
+        if (target.hp <= 0 && !target.isDead) {
+          target.hp = 0; target.isDead = true;
+          xpToSpawn.push({ id: target.id, amount: target.xpReward });
+          const loot = rollLootDrop();
+          if (loot) lootToSpawn.push({ id: target.id, item: loot });
+          playSound('./assets/sfx/combat/death.wav', 0.7);
+        }
       });
       setBloodParticles(prev => [...prev, ...newBlood]);
 
@@ -1777,6 +2001,20 @@ export default function App() {
       xpToSpawn.forEach(xpData => {
         const eRect = enemyRefs.current[xpData.id]?.getBoundingClientRect(); const bRect = xpBarRef.current?.getBoundingClientRect();
         if (eRect && bRect) setFlyingXps(prev => [...prev, { id: Math.random(), amount: xpData.amount, startX: eRect.left + eRect.width/2, startY: eRect.top, endX: bRect.left + bRect.width / 2, endY: bRect.top + bRect.height / 2 }]);
+      });
+
+      lootToSpawn.forEach(lootData => {
+        const eRect = enemyRefs.current[lootData.id]?.getBoundingClientRect();
+        const iRect = inventoryRef.current?.getBoundingClientRect();
+        if (eRect && iRect) {
+          setFlyingItems(prev => [...prev, {
+            id: Math.random(), item: lootData.item,
+            startX: eRect.left + eRect.width / 2, startY: eRect.top + eRect.height / 2,
+            endX: iRect.left + iRect.width / 2, endY: iRect.top + iRect.height / 2,
+          }]);
+        } else {
+          addItemToInventory(lootData.item);
+        }
       });
       
       const allDead = newEnemies.every(e => e.isDead);
@@ -2036,6 +2274,27 @@ export default function App() {
         )}
       </button>
 
+      <div ref={inventoryRef} className={`fixed bottom-4 left-4 ${turnState === 'map' ? 'z-[1300]' : 'z-[200]'} bg-slate-900/90 border border-slate-700 rounded-2xl p-2.5 shadow-2xl backdrop-blur-md`}>
+        <div className="text-[8px] font-black uppercase tracking-widest text-amber-500 mb-1.5 text-center">
+          Инвентарь {inventory.filter(Boolean).length}/{INVENTORY_SIZE}
+        </div>
+        <div className="grid grid-cols-3 gap-1">
+          {inventory.map((item, idx) => (
+            <ItemSlot
+              key={idx}
+              item={item}
+              selected={selectedInvIdx === idx}
+              onClick={() => handleInventoryClick(idx)}
+              onMouseEnter={(e) => showItemTip(item, e)}
+              onMouseLeave={hideItemTip}
+            />
+          ))}
+        </div>
+        {turnState === 'map' && selectedInvIdx !== null && (
+          <div className="text-[7px] text-center text-slate-400 mt-1.5 leading-tight">Выберите слот экипировки под героем</div>
+        )}
+      </div>
+
       <div className="w-full h-6 shrink-0 bg-slate-900 border-b border-amber-600/30 relative shadow-2xl z-[150] flex items-center" ref={xpBarRef}>
         <div className="h-full bg-gradient-to-r from-yellow-700 via-amber-500 to-yellow-300 transition-all duration-1000 ease-out shadow-xl" style={{ width: `${(xp / xpToNext) * 100}%` }}></div>
         <div className="absolute inset-0 flex items-center justify-center"><div className="text-[10px] font-black tracking-[0.2em] text-white drop-shadow-md uppercase">ПРОГРЕСС ОТРЯДА: {String(xp)} / {String(xpToNext)} XP (LVL {String(playerLevel)})</div></div>
@@ -2044,6 +2303,8 @@ export default function App() {
       {vfxList.map(v => <CombatVfx key={v.id} vfx={v} />)}
       {flyingCards.map(fc => <FlyingCard key={fc.id} {...fc} />)}
       {flyingXps.map(fx => <FlyingXp key={fx.id} {...fx} onComplete={handleXpGained} />)}
+      {flyingItems.map(fi => <FlyingItem key={fi.id} {...fi} onComplete={handleItemLanded} />)}
+      {itemTooltip && <ItemTooltip item={itemTooltip.item} x={itemTooltip.x} y={itemTooltip.y} />}
       {damagePopups.map(dp => (<DamagePopup key={dp.id} {...dp} onComplete={(id) => setDamagePopups(p => p.filter(x => x.id !== id))} />))}
       {bloodParticles.map(bp => <BloodParticle key={bp.id} {...bp} onComplete={(id) => setBloodParticles(p => p.filter(x => x.id !== id))} />)}
 
@@ -2149,20 +2410,38 @@ export default function App() {
             <div className="flex justify-center gap-3 flex-1 translate-y-[10px]">
               {players.map((p, i) => {
                 const card = p.currentCard; const isDead = p.hp <= 0; const isDisabled = turnState !== 'player' || mana < (card?.cost || 0) || isDead || p.hasActed || isAnimating || showLevelUp || turnState === 'map' || turnState === 'victory_wait'; const comboStatus = getCardComboStatus(p.id, card);
+                const eff = getEffectivePlayer(p, equipped[p.id]);
+                const eqItem = equipped[p.id];
+                const renderStat = (base, effective, color) => effective > base
+                  ? <span className={`text-xs font-bold ${color}`}>{String(effective)}<span className="text-[8px] text-green-400 ml-0.5">+{effective - base}</span></span>
+                  : <span className={`text-xs font-bold ${color}`}>{String(base)}</span>;
                 return (
-                  <TiltWrapper key={p.id} isDisabled={isDisabled} globalShake={shake} className="w-52 h-[290px]">
+                  <div key={p.id} className="flex flex-col items-center gap-1">
+                  <TiltWrapper isDisabled={isDisabled} globalShake={shake} className="w-52 h-[290px]">
                     <div ref={(el) => setSlotRef(p.id, el)} onClick={() => !isDisabled && card && playCard(i, card)} onMouseEnter={() => handleCardHover(i)} onMouseLeave={() => { setHoveredPlayerId(null); setHoveredTargetIds([]); }} className={`w-full h-full bg-slate-800 border-2 rounded-2xl flex flex-col overflow-hidden relative group ${isDead ? 'border-slate-700 opacity-40 grayscale scale-95' : 'border-slate-600 shadow-2xl shadow-black/80'} ${!isDisabled ? 'cursor-pointer hover:border-[#1E88E5]' : ''}`}>
-                      <div className={`${p.bg} py-1.5 px-3 border-b border-white/10 flex justify-between items-center`}><span className="text-sm">{String(p.icon)}</span><span className="font-black uppercase tracking-tighter text-[10px] text-white">{String(p.name)}</span><span className="text-[8px] font-mono text-red-400">{String(p.hp)} HP</span></div>
-                      <div className="p-1.5 bg-slate-900/50 flex flex-col gap-1.5"><div className="h-1.5 bg-slate-950 rounded-full overflow-hidden shadow-inner"><div className="h-full bg-[#D32F2F] transition-all duration-500" style={{ width: `${(p.hp/p.maxHp)*100}%` }}></div></div><div className="flex justify-between border-t border-white/5 pt-1 px-1"><div className="flex flex-col items-center w-1/3"><span className="text-[7px] text-slate-500 font-bold uppercase">Сил</span><span className="text-xs font-bold text-red-400">{String(p.str)}</span></div><div className="flex flex-col items-center border-l border-r border-slate-800 px-2"><span className="text-[7px] text-slate-500 font-bold uppercase">Лов</span><span className="text-xs font-bold text-green-400">{String(p.agi)}</span></div><div className="flex flex-col items-center w-1/3"><span className="text-[7px] text-slate-500 font-bold uppercase">Инт</span><span className="text-xs font-bold text-blue-400">{String(p.int)}</span></div></div></div>
+                      <div className={`${p.bg} py-1.5 px-3 border-b border-white/10 flex justify-between items-center`}><span className="text-sm">{String(p.icon)}</span><span className="font-black uppercase tracking-tighter text-[10px] text-white">{String(p.name)}</span><span className="text-[8px] font-mono text-red-400">{String(p.hp)}/{String(eff.maxHp)} HP</span></div>
+                      <div className="p-1.5 bg-slate-900/50 flex flex-col gap-1.5"><div className="h-1.5 bg-slate-950 rounded-full overflow-hidden shadow-inner"><div className="h-full bg-[#D32F2F] transition-all duration-500" style={{ width: `${(p.hp/eff.maxHp)*100}%` }}></div></div><div className="flex justify-between border-t border-white/5 pt-1 px-1"><div className="flex flex-col items-center w-1/3"><span className="text-[7px] text-slate-500 font-bold uppercase">Сил</span>{renderStat(p.str, eff.str, 'text-red-400')}</div><div className="flex flex-col items-center border-l border-r border-slate-800 px-2"><span className="text-[7px] text-slate-500 font-bold uppercase">Лов</span>{renderStat(p.agi, eff.agi, 'text-green-400')}</div><div className="flex flex-col items-center w-1/3"><span className="text-[7px] text-slate-500 font-bold uppercase">Инт</span>{renderStat(p.int, eff.int, 'text-blue-400')}</div></div></div>
                       <div className="p-1.5 bg-slate-950 relative flex flex-col items-center justify-center flex-1 min-h-[190px]">
                         {isDead ? <span className="text-[9px] uppercase text-slate-600 font-black tracking-widest">Павший</span> : !card && p.hasActed ? (
                           <div className="flex flex-col items-center opacity-30 animate-pulse"><span className="text-4xl text-[#1E88E5]">⏳</span><span className="text-[8px] uppercase font-black mt-2 tracking-widest text-center leading-tight text-white">Ход завершен</span></div>
                         ) : card ? (
-                          <AbilityCard card={card} owner={p} mana={mana} maxMana={maxMana} isDisabled={isDisabled} comboState={comboStatus} />
+                          <AbilityCard card={card} owner={eff} mana={mana} maxMana={maxMana} isDisabled={isDisabled} comboState={comboStatus} />
                         ) : <div className="w-full h-full border-2 border-dashed border-slate-800 rounded-xl flex items-center justify-center text-[#1E88E5]/40 font-black italic">...</div>}
                       </div>
                     </div>
                   </TiltWrapper>
+                  <div className="flex flex-col items-center gap-0.5">
+                    <span className="text-[7px] uppercase text-slate-500 font-bold tracking-widest">Экипировка</span>
+                    <ItemSlot
+                      item={eqItem}
+                      size="sm"
+                      onClick={() => handleEquipSlotClick(p.id)}
+                      onMouseEnter={(e) => showItemTip(eqItem, e)}
+                      onMouseLeave={hideItemTip}
+                      emptyLabel={turnState === 'map' ? '+' : '—'}
+                    />
+                  </div>
+                  </div>
                 );
               })}
             </div>
