@@ -761,8 +761,9 @@ const PRELOAD_ASSETS = [
   './assets/sfx/ui/click.wav',
   './assets/sfx/ui/hover.wav',
   './corner.png',
-  './file.mp3',
 ];
+
+const MUSIC_URL = './file.mp3';
 
 function playSound(path, volume = 1.0) {
   try {
@@ -963,19 +964,21 @@ const SectorSplashScreen = ({ text, sector, onContinue }) => {
 };
 
 // --- Экран загрузки (прогрев звуков и ассетов) ---
-const Preloader = ({ assets, onDone }) => {
-  const [loaded, setLoaded] = useState(0);
-  const [done, setDone] = useState(false);
-  const total = assets.length;
+const Preloader = ({ assets, onMusicReady, onEnter }) => {
+  const [sfxLoaded, setSfxLoaded] = useState(0);
+  const [musicProgress, setMusicProgress] = useState(0); // 0..1
+  const totalUnits = assets.length + 1;
+  const loadedUnits = sfxLoaded + musicProgress;
+  const pct = Math.min(100, Math.round((loadedUnits / totalUnits) * 100));
+  const ready = sfxLoaded >= assets.length && musicProgress >= 1;
 
   useEffect(() => {
     let cancelled = false;
-    let count = 0;
-    const bump = () => {
+    let sfxCount = 0;
+    const bumpSfx = () => {
       if (cancelled) return;
-      count++;
-      setLoaded(count);
-      if (count >= total) setDone(true);
+      sfxCount++;
+      setSfxLoaded(sfxCount);
     };
 
     assets.forEach((src) => {
@@ -983,26 +986,51 @@ const Preloader = ({ assets, onDone }) => {
       if (isAudio) {
         const a = new Audio();
         a.preload = 'auto';
-        const fin = () => bump();
+        const fin = () => bumpSfx();
         a.addEventListener('canplaythrough', fin, { once: true });
         a.addEventListener('error', fin, { once: true });
         a.src = src;
         a.load();
-        _audioCache[src] = a; // тёплый кэш для мгновенного воспроизведения
+        _audioCache[src] = a;
       } else {
         const img = new Image();
-        img.onload = bump;
-        img.onerror = bump;
+        img.onload = bumpSfx;
+        img.onerror = bumpSfx;
         img.src = src;
       }
     });
 
-    // Запасной таймаут на случай, если какие-то события не сработают
-    const timeout = setTimeout(() => { if (!cancelled) setDone(true); }, 15000);
-    return () => { cancelled = true; clearTimeout(timeout); };
-  }, []);
+    (async () => {
+      try {
+        const res = await fetch(MUSIC_URL);
+        if (!res.ok) throw new Error('music fetch failed');
+        const total = Number(res.headers.get('content-length')) || 0;
+        const reader = res.body.getReader();
+        const chunks = [];
+        let received = 0;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (cancelled) return;
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          if (total > 0) setMusicProgress(Math.min(0.99, received / total));
+        }
+        if (cancelled) return;
+        const blob = new Blob(chunks, { type: 'audio/mpeg' });
+        const url = URL.createObjectURL(blob);
+        onMusicReady(url);
+        setMusicProgress(1);
+      } catch {
+        if (!cancelled) {
+          onMusicReady(MUSIC_URL);
+          setMusicProgress(1);
+        }
+      }
+    })();
 
-  const pct = Math.min(100, Math.round((loaded / total) * 100));
+    return () => { cancelled = true; };
+  }, [assets, onMusicReady]);
 
   return (
     <div className="fixed inset-0 z-[3000] bg-[#0a0a0f] flex flex-col items-center justify-center overflow-hidden">
@@ -1022,15 +1050,15 @@ const Preloader = ({ assets, onDone }) => {
           />
         </div>
         <div className="flex justify-between mt-3 text-[11px] uppercase tracking-widest font-black">
-          <span className="text-slate-500">{done ? 'Готово' : 'Загрузка ассетов…'}</span>
+          <span className="text-slate-500">{ready ? 'Готово' : 'Загрузка ассетов…'}</span>
           <span className="text-slate-300">{pct}%</span>
         </div>
       </div>
 
       <div className="mt-12 h-16 flex items-center justify-center">
-        {done ? (
+        {ready && pct >= 100 ? (
           <button
-            onClick={onDone}
+            onClick={onEnter}
             className="px-14 py-5 bg-white text-slate-900 rounded-full font-black text-xl uppercase tracking-tighter hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.45)] animate-in fade-in zoom-in-90 duration-500"
           >
             Войти
@@ -1108,6 +1136,9 @@ export default function App() {
   const musicFadeRef = useRef(null);
   const musicOnRef = useRef(true);
 
+  const musicBlobUrlRef = useRef(null);
+  const musicStartedRef = useRef(false);
+
   useEffect(() => { _sfxVolume = sfxVolume; }, [sfxVolume]);
   useEffect(() => {
     musicVolumeRef.current = musicVolume;
@@ -1115,27 +1146,34 @@ export default function App() {
   }, [musicVolume, musicOn]);
   useEffect(() => { musicOnRef.current = musicOn; }, [musicOn]);
 
-  // Автозапуск музыки при первом действии пользователя (автоплей со звуком заблокирован браузерами)
-  useEffect(() => {
-    const tryStart = () => {
-      const audio = audioRef.current;
-      if (audio && musicOnRef.current && audio.paused) {
-        if (audio.duration && isFinite(audio.duration)) audio.currentTime = Math.random() * audio.duration;
-        audio.volume = 0;
-        audio.play().then(() => {
-          fadeAudio(audio, 0, musicVolumeRef.current, 1000, null);
-        }).catch(() => {});
-      }
-      window.removeEventListener('pointerdown', tryStart);
-      window.removeEventListener('keydown', tryStart);
-    };
-    window.addEventListener('pointerdown', tryStart);
-    window.addEventListener('keydown', tryStart);
-    return () => {
-      window.removeEventListener('pointerdown', tryStart);
-      window.removeEventListener('keydown', tryStart);
-    };
+  const handleMusicPreloaded = useCallback((url) => {
+    musicBlobUrlRef.current = url;
   }, []);
+
+  const startBackgroundMusic = useCallback(() => {
+    if (musicStartedRef.current) return;
+    const audio = audioRef.current;
+    if (!audio || !musicOnRef.current) return;
+    musicStartedRef.current = true;
+    const play = () => {
+      if (audio.duration && isFinite(audio.duration)) audio.currentTime = Math.random() * audio.duration;
+      audio.volume = musicVolumeRef.current;
+      audio.play().catch(() => {});
+    };
+    if (audio.readyState >= 2) play();
+    else audio.addEventListener('canplay', play, { once: true });
+  }, []);
+
+  const handleEnterGame = useCallback(() => {
+    const audio = audioRef.current;
+    if (audio && musicBlobUrlRef.current) {
+      audio.src = musicBlobUrlRef.current;
+      audio.loop = true;
+      audio.load();
+    }
+    startBackgroundMusic();
+    setAppReady(true);
+  }, [startBackgroundMusic]);
 
   const appRef = useRef(null);
   const slotRefs = useRef({});
@@ -1330,6 +1368,7 @@ export default function App() {
   };
 
   const resetGame = (fullReset = false, advanceSector = false) => {
+    // Сектор сбрасывается только при полном рестарте или победе над боссом; при смерти — сохраняется
     if (fullReset) setSector(1);
     else if (advanceSector) setSector(s => s + 1);
     // Любое начало забега заново (победа или смерть) переключает музыку в новое место
@@ -1406,8 +1445,19 @@ export default function App() {
     });
   };
 
-  // Реальные карты, которые сейчас на руках (без базовых "b*")
-  const getRealHandCards = () => players.filter(p => p.currentCard && !p.currentCard.id.startsWith('b')).map(p => p.currentCard);
+  const collectAllDeckCards = () => {
+    const hand = players.map(p => p.currentCard).filter(c => c && !c.id.startsWith('b'));
+    const seen = new Set();
+    return [...drawPile, ...discardPile, ...hand].filter(c => c && !seen.has(c.id) && seen.add(c.id));
+  };
+
+  const openAllCardsView = () => {
+    setOwnedCards(collectAllDeckCards());
+    setShowAllCards(true);
+  };
+
+  // Реальные карты, которые сейчас на руках (без базовых "b*"), включая павших героев
+  const getRealHandCards = () => players.map(p => p.currentCard).filter(c => c && !c.id.startsWith('b'));
 
   // Применяет результат слияния, корректно учитывая карты на руках:
   // слитые карты убираются с рук, оставшиеся на руках не дублируются в колоде.
@@ -1677,17 +1727,6 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drawPile, discardPile, players, turnState, mergeQueue, showLevelUp, cardRewardCards, isAnimating]);
 
-  // Полная база карт для окна "Все карты" — обновляется только в стабильном состоянии,
-  // поэтому количество не «прыгает» из-за анимаций переноса карт.
-  useEffect(() => {
-    if (flyingCards.length > 0 || isAnimating || turnState === 'dealing') return;
-    const hand = players.filter(p => p.currentCard && !p.currentCard.id.startsWith('b')).map(p => p.currentCard);
-    const seen = new Set();
-    const all = [...drawPile, ...discardPile, ...hand].filter(c => c && !seen.has(c.id) && seen.add(c.id));
-    setOwnedCards(all);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawPile, discardPile, players, flyingCards, isAnimating, turnState]);
-
   useEffect(() => {
     if (turnState !== 'enemy' || showLevelUp) return;
     let delay = 0; const aliveEnemies = enemies.filter(e => !e.isDead);
@@ -1829,7 +1868,13 @@ export default function App() {
     <div
       className={`${isFullscreen ? 'fixed inset-0 z-[9999]' : 'h-screen relative'} w-full bg-transparent text-slate-200 flex flex-col items-center font-sans select-none transition-all duration-300 overflow-hidden`}
     >
-      {!appReady && <Preloader assets={PRELOAD_ASSETS} onDone={() => setAppReady(true)} />}
+      {!appReady && (
+        <Preloader
+          assets={PRELOAD_ASSETS}
+          onMusicReady={handleMusicPreloaded}
+          onEnter={handleEnterGame}
+        />
+      )}
       <ShaderBackground intensity={bgIntensity} />
 
       {/* Декоративные уголки сцены боя: слой над фоном, но под HUD; не пересекают верхний прогрессбар */}
@@ -1863,7 +1908,7 @@ export default function App() {
         </div>
       )}
 
-      <audio ref={audioRef} src="./file.mp3" preload="auto" loop />
+      <audio ref={audioRef} loop preload="auto" />
 
       {/* Музыка + SFX + полноэкран */}
       <div className="absolute top-4 right-[52px] z-[9000] flex items-center gap-3 bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg">
@@ -2001,7 +2046,7 @@ export default function App() {
                    <span className="text-slate-300 drop-shadow-md text-3xl">{String(drawPile.length)}<span className="text-[#1E88E5] text-lg">/{String(totalDeckSize)}</span></span>
                    <span className="text-[9px] uppercase font-black tracking-widest text-[#1E88E5] mt-2">Резерв</span>
                 </div>
-                <button onClick={() => setShowAllCards(true)} className="text-[8px] uppercase font-black tracking-widest text-slate-300 bg-slate-800/80 border border-slate-600 rounded-md px-2 py-1 hover:border-[#1E88E5] hover:text-white transition-all">Все карты</button>
+                <button onClick={openAllCardsView} className="text-[8px] uppercase font-black tracking-widest text-slate-300 bg-slate-800/80 border border-slate-600 rounded-md px-2 py-1 hover:border-[#1E88E5] hover:text-white transition-all">Все карты</button>
               </div>
             </div>
 
@@ -2139,7 +2184,7 @@ export default function App() {
       {turnState === 'gameover' && (
         <div className="absolute inset-0 z-[2000] bg-red-950/80 flex flex-col items-center justify-center backdrop-blur-xl animate-in fade-in duration-700 p-6">
            <h1 className="text-8xl font-black text-white drop-shadow-[0_0_40px_rgba(239,68,68,1)] mb-4 tracking-tighter uppercase italic text-center">ОТРЯД ПАЛ</h1>
-           <p className="text-2xl text-red-300 font-bold uppercase tracking-[0.5em] mb-12 text-center">Ваша колода и опыт сохранены</p>
+           <p className="text-2xl text-red-300 font-bold uppercase tracking-[0.5em] mb-12 text-center">Сектор {String(sector)} · колода и опыт сохранены</p>
            <button onClick={() => resetGame(false)} className="px-16 py-6 bg-white text-red-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">Вернуться на Базу (Stage 0)</button>
         </div>
       )}
