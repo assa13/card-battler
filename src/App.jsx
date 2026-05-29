@@ -2274,7 +2274,7 @@ export default function App() {
         )}
       </button>
 
-      <div ref={inventoryRef} className={`fixed bottom-4 left-4 ${turnState === 'map' ? 'z-[1300]' : 'z-[200]'} bg-slate-900/90 border border-slate-700 rounded-2xl p-2.5 shadow-2xl backdrop-blur-md`}>
+      <div ref={inventoryRef} className={`fixed bottom-4 left-4 ${turnState === 'map' ? 'z-[1300]' : 'z-[200]'} bg-slate-900/95 border-2 border-amber-600/50 rounded-2xl p-2.5 shadow-[0_0_25px_rgba(245,158,11,0.25)] backdrop-blur-md`}>
         <div className="text-[8px] font-black uppercase tracking-widest text-amber-500 mb-1.5 text-center">
           Инвентарь {inventory.filter(Boolean).length}/{INVENTORY_SIZE}
         </div>
@@ -2522,6 +2522,34 @@ export default function App() {
             </div>
             <p className="text-slate-300 font-black text-sm tracking-widest uppercase text-right drop-shadow-md">Выберите следующий этап пути</p>
           </div>
+
+          <div className="flex justify-center gap-8 mt-5 w-full max-w-4xl px-4">
+            {players.map(p => {
+              const eqItem = equipped[p.id];
+              const eff = getEffectivePlayer(p, eqItem);
+              return (
+                <div key={`map-eq-${p.id}`} className="flex flex-col items-center gap-1.5 bg-slate-900/90 border border-slate-600 rounded-xl px-5 py-3 shadow-lg">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl">{String(p.icon)}</span>
+                    <span className="text-[10px] font-black uppercase text-white tracking-tight">{String(p.name)}</span>
+                  </div>
+                  <div className="text-[8px] text-slate-400 font-mono">Сил {eff.str} · Лов {eff.agi} · Инт {eff.int}</div>
+                  <ItemSlot
+                    item={eqItem}
+                    size="sm"
+                    onClick={() => handleEquipSlotClick(p.id)}
+                    onMouseEnter={(e) => showItemTip(eqItem, e)}
+                    onMouseLeave={hideItemTip}
+                    emptyLabel="+"
+                  />
+                  <span className="text-[7px] uppercase text-amber-500 tracking-widest font-bold">Экипировка</span>
+                </div>
+              );
+            })}
+          </div>
+          {selectedInvIdx !== null && (
+            <p className="text-amber-400 text-[10px] font-black uppercase tracking-widest mt-3 animate-pulse">↑ Нажмите слот экипировки героя</p>
+          )}
         </div>
       )}
 
