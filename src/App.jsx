@@ -100,9 +100,14 @@ const rollItemRarity = () => {
   return 'COMMON';
 };
 
-const generateRandomItem = () => {
+const RARITY_ORDER = ['COMMON', 'RARE', 'EPIC', 'LEGENDARY'];
+const getNextRarity = (rarity) => {
+  const idx = RARITY_ORDER.indexOf(rarity);
+  return idx >= 0 && idx < RARITY_ORDER.length - 1 ? RARITY_ORDER[idx + 1] : null;
+};
+
+const generateItemOfRarity = (rarity) => {
   const template = ITEM_TEMPLATES[Math.floor(Math.random() * ITEM_TEMPLATES.length)];
-  const rarity = rollItemRarity();
   const range = ITEM_STAT_RANGES[rarity];
   const mainVal = Math.floor(Math.random() * (range.max - range.min + 1)) + range.min;
   const stats = { [template.focus]: mainVal };
@@ -122,6 +127,8 @@ const generateRandomItem = () => {
     stats,
   };
 };
+
+const generateRandomItem = () => generateItemOfRarity(rollItemRarity());
 
 const rollLootDrop = () => (Math.random() < LOOT_DROP_CHANCE ? generateRandomItem() : null);
 
@@ -1364,6 +1371,9 @@ export default function App() {
   const [dragSrcIdx, setDragSrcIdx] = useState(null);
   const [dragOverPlayerId, setDragOverPlayerId] = useState(null);
   const [itemTooltip, setItemTooltip] = useState(null);
+  const [showCraft, setShowCraft] = useState(false);
+  const [craftSlots, setCraftSlots] = useState([null, null, null]);
+  const [craftWarning, setCraftWarning] = useState('');
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [mergeQueue, setMergeQueue] = useState([]);
   const [showReserve, setShowReserve] = useState(false);
@@ -1465,7 +1475,19 @@ export default function App() {
           }
         }
         if (cancelled) return;
-        const blob = new Blob(chunks, { type: 'audio/mpeg' });
+        // Склеиваем загруженное и обрезаем до последней целой MP3-границы кадра,
+        // иначе аудио не декодируется и не играет
+        let merged = new Uint8Array(received);
+        let offset = 0;
+        for (const c of chunks) { merged.set(c, offset); offset += c.length; }
+        if (halfTotal) {
+          let cut = merged.length;
+          for (let i = merged.length - 2; i > merged.length - 4000 && i > 0; i--) {
+            if (merged[i] === 0xff && (merged[i + 1] & 0xe0) === 0xe0) { cut = i; break; }
+          }
+          merged = merged.subarray(0, cut);
+        }
+        const blob = new Blob([merged], { type: 'audio/mpeg' });
         musicBlobUrlRef.current = URL.createObjectURL(blob);
         setMediaBytes(prev => ({ loaded: prev.total || received, total: prev.total || received, done: true }));
       } catch {
@@ -1710,6 +1732,7 @@ export default function App() {
 
     setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setFlyingItems([]); setShowLevelUp(false); setMergeQueue([]);
     setDragSrcIdx(null); setDragOverPlayerId(null); setItemTooltip(null);
+    setShowCraft(false); setCraftSlots([null, null, null]); setCraftWarning('');
     setCurrentEvent(null);
     setBloodParticles([]);
     setFlashingTargets([]);
@@ -1842,6 +1865,68 @@ export default function App() {
     setEquipped(prev => ({ ...prev, [playerId]: null }));
     setPlayers(prev => prev.map(p => p.id === playerId ? syncPlayerMaxHp(p, null) : p));
     playSound('./assets/sfx/ui/card_discard.wav', 0.35);
+  };
+
+  // --- Крафт ---
+  const openCraft = () => {
+    setCraftSlots([null, null, null]);
+    setCraftWarning('');
+    setShowCraft(true);
+    setItemTooltip(null);
+    playSound('./assets/sfx/ui/click.wav', 0.5);
+  };
+
+  const closeCraft = () => {
+    setShowCraft(false);
+    setCraftSlots([null, null, null]);
+    setCraftWarning('');
+  };
+
+  // uid предметов, уже помещённых в слоты крафта (чтобы не показывать их дважды)
+  const craftUsedUids = craftSlots.filter(Boolean).map(it => it.uid);
+
+  const placeInCraft = (item) => {
+    setCraftWarning('');
+    setCraftSlots(prev => {
+      if (prev.some(s => s && s.uid === item.uid)) return prev;
+      const idx = prev.findIndex(s => s === null);
+      if (idx === -1) return prev;
+      const n = [...prev]; n[idx] = item; return n;
+    });
+    playSound('./assets/sfx/ui/click.wav', 0.35);
+  };
+
+  const removeFromCraft = (slotIdx) => {
+    setCraftWarning('');
+    setCraftSlots(prev => { const n = [...prev]; n[slotIdx] = null; return n; });
+  };
+
+  const doCraft = () => {
+    const items = craftSlots.filter(Boolean);
+    if (items.length < 3) {
+      setCraftWarning('Нужно поместить 3 предмета');
+      return;
+    }
+    const rarity = items[0].rarity;
+    if (!items.every(it => it.rarity === rarity)) {
+      setCraftWarning('Все предметы должны быть одной редкости');
+      return;
+    }
+    const next = getNextRarity(rarity);
+    if (!next) {
+      setCraftWarning('Легендарные предметы нельзя улучшить');
+      return;
+    }
+    const usedUids = items.map(it => it.uid);
+    const result = generateItemOfRarity(next);
+    setInventory(prev => {
+      const cleared = prev.map(s => (s && usedUids.includes(s.uid) ? null : s));
+      const idx = cleared.findIndex(s => s === null);
+      if (idx !== -1) cleared[idx] = result;
+      return cleared;
+    });
+    playSound('./assets/sfx/events/powerup_select.wav', 0.6);
+    closeCraft();
   };
 
   const collectAllDeckCards = () => {
@@ -2545,10 +2630,7 @@ export default function App() {
 
           {/* Инвентарь — горизонтальная полоса под карточками */}
           <div ref={inventoryRef} className="flex items-center justify-center gap-1.5 rounded-2xl px-[65px] py-3 w-fit mx-auto" style={{ marginTop: '48px', background: 'linear-gradient(to right, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 50%, rgba(15,23,42,0) 100%)' }}>
-            <span className="text-[8px] uppercase font-black tracking-widest text-amber-500 mr-2 whitespace-nowrap">
-              Инвентарь {inventory.filter(Boolean).length}/{INVENTORY_SIZE}
-            </span>
-            {inventory.map((item, idx) => (
+            {inventory.slice(0, 4).map((item, idx) => (
               <ItemSlot
                 key={idx}
                 item={item}
@@ -2559,9 +2641,93 @@ export default function App() {
                 onMouseLeave={hideItemTip}
               />
             ))}
+            <button onClick={openCraft} className="mx-2 px-4 py-2.5 rounded-xl bg-gradient-to-b from-amber-500 to-amber-700 border border-amber-400/60 text-white font-black uppercase tracking-widest text-[10px] shadow-[0_0_18px_rgba(245,158,11,0.5)] hover:scale-105 active:scale-95 transition-all whitespace-nowrap">
+              ⚒ Крафт
+            </button>
+            {inventory.slice(4).map((item, sIdx) => {
+              const idx = sIdx + 4;
+              return (
+                <ItemSlot
+                  key={idx}
+                  item={item}
+                  selected={dragSrcIdx === idx}
+                  draggable={true}
+                  onDragStart={handleInvDragStart(idx)}
+                  onMouseEnter={(e) => showItemTip(item, e)}
+                  onMouseLeave={hideItemTip}
+                />
+              );
+            })}
           </div>
         </div>
       </div>
+
+      {/* --- ПОПАП КРАФТА --- */}
+      {showCraft && (
+        <div className="fixed inset-0 z-[6000] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300" onClick={closeCraft}>
+          <div className="relative w-full max-w-2xl bg-slate-900 border-2 border-amber-600/50 rounded-3xl p-8 shadow-[0_0_60px_rgba(245,158,11,0.25)]" onClick={(e) => e.stopPropagation()}>
+            <button onClick={closeCraft} className="absolute top-4 right-4 w-9 h-9 rounded-full bg-slate-800 border border-slate-600 text-slate-300 hover:text-white hover:border-red-500 hover:bg-red-900/40 transition-all flex items-center justify-center font-black text-lg">✕</button>
+
+            <h2 className="text-3xl font-black text-amber-500 uppercase italic tracking-widest text-center mb-1 drop-shadow-md">Крафт предметов</h2>
+            <p className="text-slate-400 text-[11px] uppercase tracking-widest text-center mb-6">3 предмета одной редкости → 1 предмет выше</p>
+
+            {/* Слоты крафта */}
+            <div className="flex items-center justify-center gap-4 mb-6">
+              {craftSlots.map((slot, i) => (
+                <React.Fragment key={i}>
+                  <div
+                    onClick={() => slot && removeFromCraft(i)}
+                    onMouseEnter={(e) => showItemTip(slot, e)}
+                    onMouseLeave={hideItemTip}
+                    className={`w-20 h-20 rounded-xl border-2 flex items-center justify-center overflow-hidden transition-all ${slot ? `${(RARITIES[slot.rarity] || RARITIES.COMMON).border} bg-slate-950 cursor-pointer hover:brightness-125` : 'border-slate-700 border-dashed bg-slate-950/50'}`}>
+                    {slot ? (
+                      <img src={getItemIconUrl(slot.icon)} alt={slot.name} className="w-full h-full object-cover" draggable={false} />
+                    ) : (
+                      <span className="text-slate-600 text-3xl font-black">+</span>
+                    )}
+                  </div>
+                  {i < 2 && <span className="text-amber-500 text-2xl font-black">+</span>}
+                </React.Fragment>
+              ))}
+            </div>
+
+            {/* Кнопка слияния + предупреждение */}
+            <div className="flex flex-col items-center gap-2 mb-6">
+              <button onClick={doCraft} className="px-12 py-3 rounded-full bg-gradient-to-b from-amber-500 to-amber-700 border border-amber-400/60 text-white font-black uppercase tracking-widest text-sm shadow-[0_0_20px_rgba(245,158,11,0.5)] hover:scale-105 active:scale-95 transition-all">
+                Слияние
+              </button>
+              {craftWarning && (
+                <p className="text-red-400 text-[11px] font-bold uppercase tracking-wide animate-in fade-in duration-200">{craftWarning}</p>
+              )}
+            </div>
+
+            {/* Доступные предметы из инвентаря */}
+            <div className="border-t border-slate-700/60 pt-4">
+              <p className="text-[9px] uppercase font-black tracking-widest text-slate-500 mb-2 text-center">Ваши предметы</p>
+              <div className="flex flex-wrap items-center justify-center gap-2 min-h-[56px]">
+                {inventory.filter(it => it && !craftUsedUids.includes(it.uid)).length === 0 ? (
+                  <span className="text-slate-600 text-xs italic">Нет доступных предметов</span>
+                ) : (
+                  inventory.map((item, idx) => {
+                    if (!item || craftUsedUids.includes(item.uid)) return null;
+                    const r = RARITIES[item.rarity] || RARITIES.COMMON;
+                    return (
+                      <div
+                        key={idx}
+                        onClick={() => placeInCraft(item)}
+                        onMouseEnter={(e) => showItemTip(item, e)}
+                        onMouseLeave={hideItemTip}
+                        className={`w-12 h-12 rounded-lg border-2 ${r.border} bg-slate-950 overflow-hidden cursor-pointer hover:scale-110 hover:brightness-125 transition-all`}>
+                        <img src={getItemIconUrl(item.icon)} alt={item.name} className="w-full h-full object-cover" draggable={false} />
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* --- ИНТЕРФЕЙС КАРТЫ СЕКТОРА --- */}
       {turnState === 'map' && (
