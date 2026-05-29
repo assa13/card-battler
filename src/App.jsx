@@ -14,37 +14,51 @@ const RARITIES = {
 };
 
 const INITIAL_PLAYERS_DATA = [
-  { id: 'p1', name: 'Воин', hp: 50, maxHp: 50, str: 15, agi: 5, int: 2, icon: '🛡️', bg: 'bg-blue-900', currentCard: null, hasActed: false },
-  { id: 'p2', name: 'Разбойник', hp: 35, maxHp: 35, str: 6, agi: 18, int: 4, icon: '🗡️', bg: 'bg-green-900', currentCard: null, hasActed: false },
-  { id: 'p3', name: 'Маг', hp: 25, maxHp: 25, str: 2, agi: 6, int: 20, icon: '🔮', bg: 'bg-purple-900', currentCard: null, hasActed: false },
+  { id: 'p1', name: 'Воин', baseMaxHp: 35, hp: 50, maxHp: 50, str: 15, agi: 5, int: 2, icon: '🛡️', bg: 'bg-blue-900', currentCard: null, hasActed: false },
+  { id: 'p2', name: 'Разбойник', baseMaxHp: 29, hp: 35, maxHp: 35, str: 6, agi: 18, int: 4, icon: '🗡️', bg: 'bg-green-900', currentCard: null, hasActed: false },
+  { id: 'p3', name: 'Маг', baseMaxHp: 23, hp: 25, maxHp: 25, str: 2, agi: 6, int: 20, icon: '🔮', bg: 'bg-purple-900', currentCard: null, hasActed: false },
 ];
+
+// Базовые эффекты характеристик (за 1 очко)
+const STAT_EFFECTS = {
+  str: { hp: 1, universalDmg: 0.35 },
+  dex: { rangedDmg: 1, critChance: 0.01 },
+  int: { magicDmg: 1, splashPower: 0.05 },
+};
+
+// Классовые веса (для справки / будущей экипировки)
+const CLASS_WEIGHTS = {
+  p1: { str: 1.0, dex: 0.35, int: 0.2 },
+  p2: { str: 0.45, dex: 1.0, int: 0.3 },
+  p3: { str: 0.3, dex: 0.4, int: 1.0 },
+};
 
 const HERO_ABILITIES = {
   p1: { 
-    basic: { id: 'b1', name: 'Удар мечом', cost: 0, stat: 'str', mult: 2.0, icon: '⚔️', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'slash' },
+    basic: { id: 'b1', name: 'Удар мечом', cost: 0, mult: 1.5, scale: { str: 1.0, dex: 0.2 }, dmgType: 'melee', icon: '⚔️', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'slash' },
     skills: [
-      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, stat: 'str', mult: 5.5, icon: '🔨', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'smash' },
-      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, stat: 'str', mult: 2.5, icon: '🌪️', type: 'splash', rarity: 'COMMON', vfxType: 'slash' },
-      { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, stat: 'str', mult: 2.5, icon: '🏃', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'slash' },
-      { id: 's1_4', ownerId: 'p1', name: 'Землетрясение', cost: 4, stat: 'str', mult: 4.5, icon: '🌋', type: 'splash', rarity: 'EPIC', vfxType: 'smash' }
+      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.5, scale: { str: 1.0, dex: 0.15 }, dmgType: 'melee', icon: '🔨', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'smash' },
+      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.2, scale: { str: 0.9, dex: 0.25 }, dmgType: 'melee', icon: '🌪️', type: 'splash', rarity: 'COMMON', vfxType: 'slash' },
+      { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, mult: 1.3, scale: { str: 1.0, dex: 0.35 }, dmgType: 'melee', icon: '🏃', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'slash' },
+      { id: 's1_4', ownerId: 'p1', name: 'Землетрясение', cost: 4, mult: 1.8, scale: { str: 0.4, int: 0.8 }, dmgType: 'magic', icon: '🌋', type: 'splash', rarity: 'EPIC', vfxType: 'smash' }
     ]
   },
   p2: { 
-    basic: { id: 'b2', name: 'Кинжал', cost: 0, stat: 'agi', mult: 1.0, icon: '🗡️', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'dagger_single' },
+    basic: { id: 'b2', name: 'Кинжал', cost: 0, mult: 1.2, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🗡️', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'dagger_single' },
     skills: [
-      { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, stat: 'agi', mult: 2.5, icon: '🧪', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'poison' },
-      { id: 's2_2', ownerId: 'p2', name: 'Танец стали', cost: 3, stat: 'agi', mult: 3.5, icon: '⚔️', type: 'splash', rarity: 'RARE', vfxType: 'daggers' },
-      { id: 's2_3', ownerId: 'p2', name: 'Теневой шаг', cost: 2, stat: 'agi', mult: 4.0, icon: '🥷', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'dark_strike' },
-      { id: 's2_4', ownerId: 'p2', name: 'Шквал ножей', cost: 3, stat: 'agi', mult: 4.5, icon: '🗡️', type: 'splash', rarity: 'EPIC', vfxType: 'daggers' }
+      { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.0, scale: { dex: 1.0, int: 0.25 }, dmgType: 'ranged', icon: '🧪', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'poison' },
+      { id: 's2_2', ownerId: 'p2', name: 'Танец стали', cost: 3, mult: 1.4, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '⚔️', type: 'splash', rarity: 'RARE', vfxType: 'daggers' },
+      { id: 's2_3', ownerId: 'p2', name: 'Теневой шаг', cost: 2, mult: 1.8, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🥷', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'dark_strike' },
+      { id: 's2_4', ownerId: 'p2', name: 'Шквал ножей', cost: 3, mult: 1.6, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '🗡️', type: 'splash', rarity: 'EPIC', vfxType: 'daggers' }
     ]
   },
   p3: { 
-    basic: { id: 'b3', name: 'Искра', cost: 0, stat: 'int', mult: 1.0, icon: '✨', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'magic_spark' },
+    basic: { id: 'b3', name: 'Искра', cost: 0, mult: 1.0, scale: { int: 1.0, dex: 0.2 }, dmgType: 'magic', icon: '✨', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'magic_spark' },
     skills: [
-      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, stat: 'int', mult: 3.0, icon: '☄️', type: 'splash', rarity: 'RARE', vfxType: 'fireball' },
-      { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, stat: 'int', mult: 4.0, icon: '❄️', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'ice_spike' },
-      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, stat: 'int', mult: 3.5, icon: '⚡', type: 'splash', rarity: 'RARE', vfxType: 'lightning' },
-      { id: 's3_4', ownerId: 'p3', name: 'Черная дыра', cost: 5, stat: 'int', mult: 6.0, icon: '🌌', type: 'splash', rarity: 'LEGENDARY', vfxType: 'dark_void' }
+      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 1.5, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '☄️', type: 'splash', rarity: 'RARE', vfxType: 'fireball' },
+      { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, scale: { int: 1.0, dex: 0.25 }, dmgType: 'magic', icon: '❄️', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'ice_spike' },
+      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, mult: 1.4, scale: { dex: 0.8, int: 0.4 }, dmgType: 'magic', icon: '⚡', type: 'splash', rarity: 'RARE', vfxType: 'lightning' },
+      { id: 's3_4', ownerId: 'p3', name: 'Черная дыра', cost: 5, mult: 2.2, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '🌌', type: 'splash', rarity: 'LEGENDARY', vfxType: 'dark_void' }
     ]
   }
 };
@@ -96,9 +110,69 @@ const shuffleArray = (array) => [...array].sort(() => Math.random() - 0.5);
 // Уровень карты — обеспечивает бесконечный рост урона при слиянии (x2 за каждое слияние)
 const getCardLevel = (card) => (card && card.level) || 1;
 const getLevelMultiplier = (card) => Math.pow(2, getCardLevel(card) - 1);
-const getCardDamage = (owner, card, bonus = 1) => {
-  if (!owner || !card) return 0;
-  return Math.floor(owner[card.stat] * card.mult * getLevelMultiplier(card) * bonus);
+
+const getPlayerDex = (player) => player?.agi ?? 0;
+
+const getMaxHpFromStats = (player) => (player.baseMaxHp ?? 20) + player.str * STAT_EFFECTS.str.hp;
+
+const syncPlayerMaxHp = (player) => {
+  const maxHp = getMaxHpFromStats(player);
+  return { ...player, maxHp, hp: Math.min(player.hp, maxHp) };
+};
+
+const getCardScale = (card) => {
+  if (card?.scale) return card.scale;
+  if (card?.stat === 'agi') return { dex: 1.0, str: 0.35 };
+  if (card?.stat === 'int') return { int: 1.0, str: 0.3 };
+  return { str: 1.0, dex: 0.2 };
+};
+
+const getCardDmgType = (card) => card?.dmgType || 'melee';
+
+const getCritChance = (player) => Math.min(0.75, getPlayerDex(player) * STAT_EFFECTS.dex.critChance);
+
+const formatCardScale = (card) => {
+  const s = getCardScale(card);
+  const parts = [];
+  if (s.str) parts.push(`STR×${Math.round(s.str * 100)}%`);
+  if (s.dex) parts.push(`DEX×${Math.round(s.dex * 100)}%`);
+  if (s.int) parts.push(`INT×${Math.round(s.int * 100)}%`);
+  return parts.join(' ');
+};
+
+const computeCardDamage = (owner, card, bonus = 1) => {
+  if (!owner || !card) return { damage: 0, critChance: 0 };
+  const scale = getCardScale(card);
+  const str = owner.str ?? 0;
+  const dex = getPlayerDex(owner);
+  const int = owner.int ?? 0;
+  const dmgType = getCardDmgType(card);
+
+  const scaledStats =
+    str * (scale.str || 0) +
+    dex * (scale.dex || 0) +
+    int * (scale.int || 0);
+
+  let total = card.mult * scaledStats;
+  total += str * STAT_EFFECTS.str.universalDmg;
+  if (dmgType === 'ranged') total += dex * STAT_EFFECTS.dex.rangedDmg;
+  if (dmgType === 'magic') total += int * STAT_EFFECTS.int.magicDmg;
+
+  total *= getLevelMultiplier(card) * bonus;
+
+  if (card.type === 'splash') {
+    total *= 1 + int * STAT_EFFECTS.int.splashPower;
+  }
+
+  return { damage: Math.max(0, Math.floor(total)), critChance: getCritChance(owner) };
+};
+
+const getCardDamage = (owner, card, bonus = 1) => computeCardDamage(owner, card, bonus).damage;
+
+const rollCardDamage = (owner, card, bonus = 1) => {
+  const { damage, critChance } = computeCardDamage(owner, card, bonus);
+  const isCrit = Math.random() < critChance;
+  return { damage: isCrit ? Math.floor(damage * 2) : damage, isCrit, critChance };
 };
 
 // Сливает пары одинаковых карт (имя + редкость + уровень), повышая уровень. Рарность не меняется,
@@ -434,10 +508,10 @@ const FlyingCard = ({ startX, startY, endX, endY, isDiscard = false, isReshuffle
   );
 };
 
-const DamagePopup = ({ id, value, x, y, onComplete }) => {
+const DamagePopup = ({ id, value, x, y, isCrit, onComplete }) => {
   const [offset, setOffset] = useState(0);
   const [opacity, setOpacity] = useState(1);
-  const [scale, setScale] = useState(2.5);
+  const [scale, setScale] = useState(isCrit ? 3.2 : 2.5);
   
   const onCompleteRef = useRef(onComplete);
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
@@ -449,10 +523,14 @@ const DamagePopup = ({ id, value, x, y, onComplete }) => {
   }, [id]);
 
   const fontSize = Math.min(32 + (value / 1.5), 100);
+  const colorClass = isCrit ? 'text-yellow-300' : 'text-red-500';
+  const shadow = isCrit
+    ? '0 0 24px rgba(250,204,21,0.95), 5px 5px 0px rgba(0,0,0,1)'
+    : '0 0 20px rgba(239, 68, 68, 0.8), 5px 5px 0px rgba(0,0,0,1)';
   return (
-    <div className="fixed z-[900] font-black text-red-500 pointer-events-none italic"
-      style={{ left: x, top: y, fontSize: `${fontSize}px`, opacity: opacity, transform: `translate(-50%, ${offset}px) scale(${scale})`, transition: 'all 2000ms cubic-bezier(0.18, 0.89, 0.32, 1.28)', WebkitTextStroke: '2px white', textShadow: '0 0 20px rgba(239, 68, 68, 0.8), 5px 5px 0px rgba(0,0,0,1)' }}>
-      {String(value)}
+    <div className={`fixed z-[900] font-black pointer-events-none italic ${colorClass}`}
+      style={{ left: x, top: y, fontSize: `${fontSize}px`, opacity: opacity, transform: `translate(-50%, ${offset}px) scale(${scale})`, transition: 'all 2000ms cubic-bezier(0.18, 0.89, 0.32, 1.28)', WebkitTextStroke: '2px white', textShadow: shadow }}>
+      {isCrit ? `${String(value)} CRIT!` : String(value)}
     </div>
   );
 };
@@ -704,6 +782,8 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
   
   let dmg = owner ? getCardDamage(owner, card) : 0;
   if (willGiveBonus) dmg = Math.floor(dmg * 1.5);
+  const critPct = owner ? Math.round(getCritChance(owner) * 100) : 0;
+  const scaleLine = formatCardScale(card);
 
   const displayRarityName = showOwnerLabel && owner ? `${rarity.name} - ${owner.name}` : rarity.name;
 
@@ -726,6 +806,7 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
             className={`font-bold transition-all duration-500 ${grow ? 'text-green-400' : (willGiveBonus ? 'text-yellow-400 text-sm' : 'text-amber-400')}`}
             style={{ display: 'inline-block', transform: grow ? 'scale(1.9)' : 'scale(1)', textShadow: grow ? '0 0 14px rgba(34,197,94,0.95)' : 'none' }}
           >{String(dmg)}</span> урона.<br/>
+          <span className="text-[7px] text-slate-400 mt-0.5 block leading-tight">{scaleLine}{critPct > 0 && ` · Крит ${critPct}%`}</span>
           <span className="text-[8px] text-slate-300 mt-1 block">Приоритет {String(getTargetText(card.type, card.priority))}</span>
         </p>
       </div>
@@ -1074,7 +1155,7 @@ const Preloader = ({ assets, onMusicReady, onEnter }) => {
 // --- 3. ГЛАВНОЕ ПРИЛОЖЕНИЕ ---
 
 export default function App() {
-  const [players, setPlayers] = useState(() => INITIAL_PLAYERS_DATA.map(p => ({...p})));
+  const [players, setPlayers] = useState(() => INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p })));
   const [enemies, setEnemies] = useState([]);
   
   const [maxMana, setMaxMana] = useState(5);
@@ -1317,16 +1398,18 @@ export default function App() {
         setMaxMana(m => m + 1);
      } else if (powerupId === 'stats') {
         setPlayers(prev => prev.map(p => {
-           let updated = {...p};
+           let updated = { ...p };
            if (p.id === 'p1') updated.str *= 2;
            if (p.id === 'p2') updated.agi *= 2;
            if (p.id === 'p3') updated.int *= 2;
-           return updated;
+           const maxHp = getMaxHpFromStats(updated);
+           const hpGain = maxHp - p.maxHp;
+           return syncPlayerMaxHp({ ...updated, hp: p.hp + Math.max(0, hpGain) });
         }));
      } else if (powerupId === 'hp') {
         setPlayers(prev => prev.map(p => {
            const bonus = Math.floor(p.maxHp * 0.5);
-           return { ...p, maxHp: p.maxHp + bonus, hp: p.hp + bonus };
+           return syncPlayerMaxHp({ ...p, baseMaxHp: (p.baseMaxHp ?? p.maxHp - p.str) + bonus, hp: p.hp + bonus });
         }));
      } else if (powerupId === 'cards') {
         const legendaries = REWARD_POOL.filter(c => c.rarity === 'LEGENDARY');
@@ -1373,7 +1456,7 @@ export default function App() {
     else if (advanceSector) setSector(s => s + 1);
     // Любое начало забега заново (победа или смерть) переключает музыку в новое место
     musicFadeToRandom();
-    setPlayers(INITIAL_PLAYERS_DATA.map(p => ({...p})));
+    setPlayers(INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p })));
     setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setShowLevelUp(false); setMergeQueue([]);
     setCurrentEvent(null);
     setBloodParticles([]);
@@ -1650,10 +1733,11 @@ export default function App() {
 
     setTimeout(() => {
       setVfxList([]); 
-      const damage = getCardDamage(player, card, multiplier);
+      const { damage, isCrit } = rollCardDamage(player, card, multiplier);
       const newEnemies = enemies.map(e => ({...e})); let xpToSpawn = []; 
       
       playSound(getCombatHitSound(card.vfxType || 'slash'));
+      if (isCrit) playSound('./assets/sfx/combat/hit_heavy.wav', 0.7);
       triggerImpact(damage);
 
       const hitEnemyIds = targetIndices.map(idx => enemies[idx].id);
@@ -1665,7 +1749,7 @@ export default function App() {
         const target = newEnemies[idx]; target.hp -= damage;
         const eRect = enemyRefs.current[target.id]?.getBoundingClientRect();
         if (eRect) {
-           setDamagePopups(prev => [...prev, { id: Math.random(), value: damage, x: eRect.left + eRect.width / 2, y: eRect.top + eRect.height / 2 }]);
+           setDamagePopups(prev => [...prev, { id: Math.random(), value: damage, isCrit, x: eRect.left + eRect.width / 2, y: eRect.top + eRect.height / 2 }]);
            for(let i=0; i<30; i++) {
               newBlood.push({ id: Math.random(), x: eRect.left + eRect.width/2, y: eRect.top + eRect.height/2 });
            }
