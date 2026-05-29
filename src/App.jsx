@@ -1877,28 +1877,55 @@ export default function App() {
   };
 
   const closeCraft = () => {
+    // Вернуть предметы из слотов крафта обратно в инвентарь
+    const placed = craftSlots.filter(Boolean);
+    if (placed.length > 0) {
+      setInventory(prev => {
+        const n = [...prev];
+        placed.forEach(it => {
+          const free = n.findIndex(s => s === null);
+          if (free !== -1) n[free] = it;
+        });
+        return n;
+      });
+    }
     setShowCraft(false);
     setCraftSlots([null, null, null]);
     setCraftWarning('');
   };
 
-  // uid предметов, уже помещённых в слоты крафта (чтобы не показывать их дважды)
-  const craftUsedUids = craftSlots.filter(Boolean).map(it => it.uid);
-
-  const placeInCraft = (item) => {
+  // Перетаскивание предмета из инвентаря в конкретный слот крафта
+  const handleCraftDrop = (slotIdx) => (e) => {
+    e.preventDefault();
+    if (dragSrcIdx === null || !inventory[dragSrcIdx]) return;
+    const item = inventory[dragSrcIdx];
     setCraftWarning('');
     setCraftSlots(prev => {
-      if (prev.some(s => s && s.uid === item.uid)) return prev;
-      const idx = prev.findIndex(s => s === null);
-      if (idx === -1) return prev;
-      const n = [...prev]; n[idx] = item; return n;
+      const n = [...prev];
+      // Если в слоте уже был предмет — вернём его в инвентарь
+      const displaced = n[slotIdx];
+      n[slotIdx] = item;
+      setInventory(inv => {
+        const ni = [...inv];
+        ni[dragSrcIdx] = displaced || null;
+        return ni;
+      });
+      return n;
     });
+    setDragSrcIdx(null);
     playSound('./assets/sfx/ui/click.wav', 0.35);
   };
 
   const removeFromCraft = (slotIdx) => {
     setCraftWarning('');
-    setCraftSlots(prev => { const n = [...prev]; n[slotIdx] = null; return n; });
+    setCraftSlots(prev => {
+      const item = prev[slotIdx];
+      if (!item) return prev;
+      const freeIdx = inventory.findIndex(s => s === null);
+      if (freeIdx === -1) return prev;
+      setInventory(inv => { const ni = [...inv]; ni[freeIdx] = item; return ni; });
+      const n = [...prev]; n[slotIdx] = null; return n;
+    });
   };
 
   const doCraft = () => {
@@ -1917,16 +1944,17 @@ export default function App() {
       setCraftWarning('Легендарные предметы нельзя улучшить');
       return;
     }
-    const usedUids = items.map(it => it.uid);
     const result = generateItemOfRarity(next);
     setInventory(prev => {
-      const cleared = prev.map(s => (s && usedUids.includes(s.uid) ? null : s));
-      const idx = cleared.findIndex(s => s === null);
-      if (idx !== -1) cleared[idx] = result;
-      return cleared;
+      const idx = prev.findIndex(s => s === null);
+      const n = [...prev];
+      if (idx !== -1) n[idx] = result;
+      return n;
     });
+    setCraftSlots([null, null, null]);
     playSound('./assets/sfx/events/powerup_select.wav', 0.6);
-    closeCraft();
+    setShowCraft(false);
+    setCraftWarning('');
   };
 
   const collectAllDeckCards = () => {
@@ -2628,9 +2656,16 @@ export default function App() {
             </div>
           </div>
 
+          {/* Кнопка крафта — мелкая, над инвентарём */}
+          <div className="flex justify-center" style={{ marginTop: '40px' }}>
+            <button onClick={openCraft} className="px-3 py-1 rounded-lg bg-gradient-to-b from-amber-500 to-amber-700 border border-amber-400/60 text-white font-black uppercase tracking-widest text-[8px] shadow-[0_0_12px_rgba(245,158,11,0.45)] hover:scale-105 active:scale-95 transition-all whitespace-nowrap">
+              ⚒ Крафт
+            </button>
+          </div>
+
           {/* Инвентарь — горизонтальная полоса под карточками */}
-          <div ref={inventoryRef} className="flex items-center justify-center gap-1.5 rounded-2xl px-[65px] py-3 w-fit mx-auto" style={{ marginTop: '48px', background: 'linear-gradient(to right, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 50%, rgba(15,23,42,0) 100%)' }}>
-            {inventory.slice(0, 4).map((item, idx) => (
+          <div ref={inventoryRef} className={`relative flex items-center justify-center gap-1.5 rounded-2xl px-[65px] py-3 w-fit mx-auto ${showCraft ? 'z-[6100]' : ''}`} style={{ marginTop: '8px', background: 'linear-gradient(to right, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 50%, rgba(15,23,42,0) 100%)' }}>
+            {inventory.map((item, idx) => (
               <ItemSlot
                 key={idx}
                 item={item}
@@ -2641,89 +2676,48 @@ export default function App() {
                 onMouseLeave={hideItemTip}
               />
             ))}
-            <button onClick={openCraft} className="mx-2 px-4 py-2.5 rounded-xl bg-gradient-to-b from-amber-500 to-amber-700 border border-amber-400/60 text-white font-black uppercase tracking-widest text-[10px] shadow-[0_0_18px_rgba(245,158,11,0.5)] hover:scale-105 active:scale-95 transition-all whitespace-nowrap">
-              ⚒ Крафт
-            </button>
-            {inventory.slice(4).map((item, sIdx) => {
-              const idx = sIdx + 4;
-              return (
-                <ItemSlot
-                  key={idx}
-                  item={item}
-                  selected={dragSrcIdx === idx}
-                  draggable={true}
-                  onDragStart={handleInvDragStart(idx)}
-                  onMouseEnter={(e) => showItemTip(item, e)}
-                  onMouseLeave={hideItemTip}
-                />
-              );
-            })}
           </div>
         </div>
       </div>
 
-      {/* --- ПОПАП КРАФТА --- */}
+      {/* --- КРАФТ: затемнение + слоты по центру (инвентарь остаётся внизу) --- */}
       {showCraft && (
-        <div className="fixed inset-0 z-[6000] bg-black/80 backdrop-blur-md flex items-center justify-center p-6 animate-in fade-in duration-300" onClick={closeCraft}>
-          <div className="relative w-full max-w-2xl bg-slate-900 border-2 border-amber-600/50 rounded-3xl p-8 shadow-[0_0_60px_rgba(245,158,11,0.25)]" onClick={(e) => e.stopPropagation()}>
-            <button onClick={closeCraft} className="absolute top-4 right-4 w-9 h-9 rounded-full bg-slate-800 border border-slate-600 text-slate-300 hover:text-white hover:border-red-500 hover:bg-red-900/40 transition-all flex items-center justify-center font-black text-lg">✕</button>
+        <div className="fixed inset-0 z-[6000] bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-300" onClick={closeCraft}>
+          <div className="relative flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
+            <button onClick={closeCraft} className="absolute -top-12 -right-12 w-10 h-10 rounded-full bg-slate-800 border border-slate-600 text-slate-300 hover:text-white hover:border-red-500 hover:bg-red-900/40 transition-all flex items-center justify-center font-black text-lg">✕</button>
 
-            <h2 className="text-3xl font-black text-amber-500 uppercase italic tracking-widest text-center mb-1 drop-shadow-md">Крафт предметов</h2>
-            <p className="text-slate-400 text-[11px] uppercase tracking-widest text-center mb-6">3 предмета одной редкости → 1 предмет выше</p>
+            <p className="text-slate-300 text-[11px] uppercase tracking-[0.3em] text-center mb-6 font-black drop-shadow-md">Перетащите 3 предмета одной редкости из инвентаря</p>
 
-            {/* Слоты крафта */}
-            <div className="flex items-center justify-center gap-4 mb-6">
+            {/* Слоты крафта (drop-таргеты) */}
+            <div className="flex items-center justify-center gap-5 mb-7">
               {craftSlots.map((slot, i) => (
                 <React.Fragment key={i}>
                   <div
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={handleCraftDrop(i)}
                     onClick={() => slot && removeFromCraft(i)}
                     onMouseEnter={(e) => showItemTip(slot, e)}
                     onMouseLeave={hideItemTip}
-                    className={`w-20 h-20 rounded-xl border-2 flex items-center justify-center overflow-hidden transition-all ${slot ? `${(RARITIES[slot.rarity] || RARITIES.COMMON).border} bg-slate-950 cursor-pointer hover:brightness-125` : 'border-slate-700 border-dashed bg-slate-950/50'}`}>
+                    className={`w-24 h-24 rounded-2xl border-2 flex items-center justify-center overflow-hidden transition-all ${slot ? `${(RARITIES[slot.rarity] || RARITIES.COMMON).border} bg-slate-950 cursor-pointer hover:brightness-125` : 'border-slate-500 border-dashed bg-slate-950/60 hover:border-amber-400'}`}>
                     {slot ? (
                       <img src={getItemIconUrl(slot.icon)} alt={slot.name} className="w-full h-full object-cover" draggable={false} />
                     ) : (
-                      <span className="text-slate-600 text-3xl font-black">+</span>
+                      <span className="text-slate-600 text-4xl font-black">+</span>
                     )}
                   </div>
-                  {i < 2 && <span className="text-amber-500 text-2xl font-black">+</span>}
+                  {i < 2 && <span className="text-amber-500 text-3xl font-black drop-shadow-md">+</span>}
                 </React.Fragment>
               ))}
             </div>
 
             {/* Кнопка слияния + предупреждение */}
-            <div className="flex flex-col items-center gap-2 mb-6">
-              <button onClick={doCraft} className="px-12 py-3 rounded-full bg-gradient-to-b from-amber-500 to-amber-700 border border-amber-400/60 text-white font-black uppercase tracking-widest text-sm shadow-[0_0_20px_rgba(245,158,11,0.5)] hover:scale-105 active:scale-95 transition-all">
-                Слияние
-              </button>
+            <button onClick={doCraft} className="px-14 py-3 rounded-full bg-gradient-to-b from-amber-500 to-amber-700 border border-amber-400/60 text-white font-black uppercase tracking-widest text-sm shadow-[0_0_20px_rgba(245,158,11,0.5)] hover:scale-105 active:scale-95 transition-all">
+              Слияние
+            </button>
+            <div className="h-5 mt-2">
               {craftWarning && (
                 <p className="text-red-400 text-[11px] font-bold uppercase tracking-wide animate-in fade-in duration-200">{craftWarning}</p>
               )}
-            </div>
-
-            {/* Доступные предметы из инвентаря */}
-            <div className="border-t border-slate-700/60 pt-4">
-              <p className="text-[9px] uppercase font-black tracking-widest text-slate-500 mb-2 text-center">Ваши предметы</p>
-              <div className="flex flex-wrap items-center justify-center gap-2 min-h-[56px]">
-                {inventory.filter(it => it && !craftUsedUids.includes(it.uid)).length === 0 ? (
-                  <span className="text-slate-600 text-xs italic">Нет доступных предметов</span>
-                ) : (
-                  inventory.map((item, idx) => {
-                    if (!item || craftUsedUids.includes(item.uid)) return null;
-                    const r = RARITIES[item.rarity] || RARITIES.COMMON;
-                    return (
-                      <div
-                        key={idx}
-                        onClick={() => placeInCraft(item)}
-                        onMouseEnter={(e) => showItemTip(item, e)}
-                        onMouseLeave={hideItemTip}
-                        className={`w-12 h-12 rounded-lg border-2 ${r.border} bg-slate-950 overflow-hidden cursor-pointer hover:scale-110 hover:brightness-125 transition-all`}>
-                        <img src={getItemIconUrl(item.icon)} alt={item.name} className="w-full h-full object-cover" draggable={false} />
-                      </div>
-                    );
-                  })
-                )}
-              </div>
             </div>
           </div>
         </div>
