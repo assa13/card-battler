@@ -2477,7 +2477,7 @@ export default function App() {
                       </div>
                     </div>
                   </TiltWrapper>
-                  <div className="-mt-4 relative z-0 bg-slate-800 border-2 border-t-0 border-slate-600 rounded-b-2xl px-3 pt-5 pb-2 shadow-2xl shadow-black/80">
+                  <div className="-mt-4 relative z-0 bg-slate-800 rounded-b-2xl px-3 pt-5 pb-[18px] shadow-2xl shadow-black/80">
                     <ItemSlot
                       item={eqItem}
                       size="sm"
@@ -2508,7 +2508,7 @@ export default function App() {
           </div>
 
           {/* Инвентарь — горизонтальная полоса под карточками */}
-          <div ref={inventoryRef} className="flex items-center justify-center gap-1.5 rounded-2xl px-10 py-3 w-fit mx-auto" style={{ marginTop: '33px', background: 'linear-gradient(to bottom, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 50%, rgba(15,23,42,0) 100%)' }}>
+          <div ref={inventoryRef} className="flex items-center justify-center gap-1.5 rounded-2xl px-10 py-3 w-fit mx-auto" style={{ marginTop: '48px', background: 'linear-gradient(to right, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 50%, rgba(15,23,42,0) 100%)' }}>
             <span className="text-[8px] uppercase font-black tracking-widest text-amber-500 mr-2 whitespace-nowrap">
               Инвентарь {inventory.filter(Boolean).length}/{INVENTORY_SIZE}
             </span>
