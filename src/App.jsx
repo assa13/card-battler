@@ -36,6 +36,8 @@ const CLASS_WEIGHTS = {
 const INVENTORY_SIZE = 9;
 const LOOT_DROP_CHANCE = 0.65;
 const ITEM_RARITY_WEIGHTS = { COMMON: 68, RARE: 21, EPIC: 9, LEGENDARY: 2 };
+const ITEM_BURN_XP = { COMMON: 4, RARE: 8, EPIC: 16, LEGENDARY: 30 };
+const getItemBurnXp = (item) => (item && ITEM_BURN_XP[item.rarity]) || 0;
 const ITEM_STAT_RANGES = {
   COMMON: { min: 1, max: 3 },
   RARE: { min: 2, max: 5 },
@@ -649,22 +651,27 @@ const FlyingXp = ({ id, amount, startX, startY, endX, endY, onComplete }) => {
 };
 
 const FlyingItem = ({ id, item, startX, startY, endX, endY, onComplete }) => {
-  const [pos, setPos] = useState({ x: startX, y: startY, opacity: 1, scale: 1.2, rotate: 0 });
+  const [pos, setPos] = useState({ x: startX, y: startY, scale: 1.2, rotate: 0 });
+  const [flash, setFlash] = useState(0);
+  const [fade, setFade] = useState(1);
   const onCompleteRef = useRef(onComplete);
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
   useEffect(() => {
-    const t = setTimeout(() => setPos({ x: endX, y: endY, opacity: 0, scale: 0.4, rotate: 360 }), 50);
-    const c = setTimeout(() => onCompleteRef.current(id, item), 800);
-    return () => { clearTimeout(t); clearTimeout(c); };
+    const t = setTimeout(() => setPos({ x: endX, y: endY, scale: 0.7, rotate: 360 }), 50);
+    const f1 = setTimeout(() => setFlash(1), 640);
+    const f2 = setTimeout(() => { setFlash(0); setFade(0); }, 770);
+    const c = setTimeout(() => onCompleteRef.current(id, item), 830);
+    return () => { [t, f1, f2, c].forEach(clearTimeout); };
   }, [id, item, endX, endY]);
 
   const rarity = RARITIES[item.rarity] || RARITIES.COMMON;
   return (
     <div className="fixed z-[810] pointer-events-none"
-      style={{ left: 0, top: 0, transform: `translate(${pos.x - 24}px, ${pos.y - 24}px) scale(${pos.scale}) rotate(${pos.rotate}deg)`, opacity: pos.opacity, transition: 'all 750ms cubic-bezier(0.22, 1, 0.36, 1)' }}>
-      <div className={`w-12 h-12 rounded-lg border-2 ${rarity.border} bg-slate-900 shadow-[0_0_20px_rgba(250,204,21,0.5)] overflow-hidden`}>
+      style={{ left: 0, top: 0, transform: `translate(${pos.x - 24}px, ${pos.y - 24}px) scale(${pos.scale}) rotate(${pos.rotate}deg)`, opacity: fade, transition: 'transform 600ms cubic-bezier(0.22, 1, 0.36, 1), opacity 120ms ease-out' }}>
+      <div className={`w-12 h-12 rounded-lg border-2 ${rarity.border} bg-slate-900 shadow-[0_0_20px_rgba(250,204,21,0.5)] overflow-hidden relative`}>
         <img src={getItemIconUrl(item.icon)} alt="" className="w-full h-full object-cover" draggable={false} />
+        <div className="absolute inset-0 bg-white rounded-md" style={{ opacity: flash, transform: `scale(${1 + flash * 0.6})`, boxShadow: flash ? '0 0 25px 8px rgba(255,255,255,0.9)' : 'none', transition: 'opacity 130ms ease-out, transform 130ms ease-out' }} />
       </div>
     </div>
   );
@@ -1295,6 +1302,7 @@ export default function App() {
   const [xp, setXp] = useState(0);
   const [playerLevel, setPlayerLevel] = useState(1); 
   const [xpToNext, setXpToNext] = useState(60);
+  const xpToNextRef = useRef(60);
   const [rewardOptions, setRewardOptions] = useState([]);
   
   const [currentEvent, setCurrentEvent] = useState(null);
@@ -1362,6 +1370,7 @@ export default function App() {
     if (audioRef.current && musicOn) audioRef.current.volume = musicVolume;
   }, [musicVolume, musicOn]);
   useEffect(() => { musicOnRef.current = musicOn; }, [musicOn]);
+  useEffect(() => { xpToNextRef.current = xpToNext; }, [xpToNext]);
 
   const startBackgroundMusic = useCallback(() => {
     if (musicStartedRef.current) return;
@@ -1712,37 +1721,48 @@ export default function App() {
     setTimeout(() => { clearInterval(shakeInterval); setShake({ x: 0, y: 0, rot: 0 }); }, 350);
   };
 
-  const handleXpGained = (id, amount) => {
-    playSound('./assets/sfx/game/xp_gain.wav', 0.5);
-    setFlyingXps(prev => prev.filter(x => x.id !== id));
+  const gainXp = useCallback((amount) => {
+    if (!amount || amount <= 0) return;
     setXp(prev => {
       const total = prev + amount;
-      if (total >= xpToNext) {
+      const cur = xpToNextRef.current;
+      if (total >= cur) {
         setRewardOptions(shuffleArray([...REWARD_POOL]).slice(0, 3));
-        setShowLevelUp(true); setPlayerLevel(l => l + 1); setMaxMana(m => m + 1); setXpToNext(curr => curr + 50);
-        return total - xpToNext;
+        setShowLevelUp(true); setPlayerLevel(l => l + 1); setMaxMana(m => m + 1);
+        setXpToNext(cur + 50); xpToNextRef.current = cur + 50;
+        return total - cur;
       }
       return total;
     });
+  }, []);
+
+  const handleXpGained = (id, amount) => {
+    playSound('./assets/sfx/game/xp_gain.wav', 0.5);
+    setFlyingXps(prev => prev.filter(x => x.id !== id));
+    gainXp(amount);
   };
 
   const addItemToInventory = useCallback((item) => {
-    let added = false;
+    let burnedXp = 0;
     setInventory(prev => {
       const idx = prev.findIndex(s => s === null);
-      if (idx === -1) return prev;
+      if (idx === -1) {
+        // Инвентарь полон: первый предмет сгорает в опыт, остальные сдвигаются
+        burnedXp = getItemBurnXp(prev[0]);
+        return [...prev.slice(1), item];
+      }
       const next = [...prev];
       next[idx] = item;
-      added = true;
       return next;
     });
-    return added;
-  }, []);
+    if (burnedXp > 0) gainXp(burnedXp);
+    return true;
+  }, [gainXp]);
 
   const handleItemLanded = useCallback((id, item) => {
     setFlyingItems(prev => prev.filter(x => x.id !== id));
-    if (!addItemToInventory(item)) playSound('./assets/sfx/ui/click.wav', 0.3);
-    else playSound('./assets/sfx/game/xp_gain.wav', 0.35);
+    addItemToInventory(item);
+    playSound('./assets/sfx/game/xp_gain.wav', 0.35);
   }, [addItemToInventory]);
 
   const showItemTip = (item, e) => {
@@ -2417,7 +2437,7 @@ export default function App() {
           </div>
 
           <div className="flex justify-between items-end w-full gap-4 relative z-10 mt-[5px]">
-            <div className="flex flex-col justify-end gap-4 items-center mb-[19px] w-32 relative">
+            <div className="flex flex-col justify-end gap-4 items-center mb-[19px] w-32 relative -translate-y-[20px]">
               <div className="flex flex-col items-center w-full">
                 <div className="text-[#1E88E5] font-black uppercase tracking-widest text-[8px] mb-1">Энергия</div>
                 <div className="w-24 h-24 rounded-full bg-slate-900 border-[6px] border-[#1E88E5] shadow-[0_0_25px_rgba(30,136,229,0.5)] flex items-center justify-center relative overflow-hidden">
@@ -2477,7 +2497,7 @@ export default function App() {
               })}
             </div>
 
-            <div className="flex flex-col justify-end gap-6 items-center mb-[19px] w-32">
+            <div className="flex flex-col justify-end gap-6 items-center mb-[19px] w-32 -translate-y-[20px]">
               <button onClick={() => { playSound('./assets/sfx/game/enemy_turn.wav', 0.6); setTurnState('enemy'); }} disabled={turnState !== 'player' || isAnimating || showLevelUp || turnState === 'map' || turnState === 'victory_wait'} className="w-full py-4 bg-[#D32F2F] hover:bg-red-700 disabled:opacity-50 disabled:bg-red-900 disabled:cursor-not-allowed rounded-2xl font-black uppercase tracking-widest text-[9px] transition-all shadow-[0_0_20px_rgba(211,47,47,0.4)] border border-red-500 hover:scale-105 active:scale-95 text-white">{turnState === 'dealing' ? 'ЖДИТЕ' : turnState === 'player' ? 'ЗАВЕРШИТЬ' : 'ВРАГ...'}</button>
               <div className="flex flex-col items-center">
                 <div ref={discardRef} className="w-20 h-28 bg-slate-900/60 rounded-xl border-2 border-slate-700 border-dashed flex items-center justify-center font-black text-3xl opacity-60 transition-all hover:opacity-100 shadow-inner overflow-hidden">
@@ -2489,7 +2509,7 @@ export default function App() {
           </div>
 
           {/* Инвентарь — горизонтальная полоса под карточками */}
-          <div ref={inventoryRef} className="flex items-center justify-center gap-1.5 bg-slate-900/40 border border-slate-700/70 rounded-2xl px-4 py-2 w-fit mx-auto" style={{ marginTop: '23px' }}>
+          <div ref={inventoryRef} className="flex items-center justify-center gap-1.5 rounded-2xl px-10 py-2.5 w-fit mx-auto" style={{ marginTop: '33px', background: 'radial-gradient(ellipse at center, rgba(15,23,42,0.6) 0%, rgba(15,23,42,0.35) 45%, rgba(15,23,42,0) 80%)' }}>
             <span className="text-[8px] uppercase font-black tracking-widest text-amber-500 mr-2 whitespace-nowrap">
               Инвентарь {inventory.filter(Boolean).length}/{INVENTORY_SIZE}
             </span>
