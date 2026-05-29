@@ -2656,15 +2656,8 @@ export default function App() {
             </div>
           </div>
 
-          {/* Кнопка крафта — мелкая, над инвентарём */}
-          <div className="flex justify-center" style={{ marginTop: '40px' }}>
-            <button onClick={openCraft} className="px-3 py-1 rounded-lg bg-gradient-to-b from-amber-500 to-amber-700 border border-amber-400/60 text-white font-black uppercase tracking-widest text-[8px] shadow-[0_0_12px_rgba(245,158,11,0.45)] hover:scale-105 active:scale-95 transition-all whitespace-nowrap">
-              ⚒ Крафт
-            </button>
-          </div>
-
-          {/* Инвентарь — горизонтальная полоса под карточками */}
-          <div ref={inventoryRef} className={`relative flex items-center justify-center gap-1.5 rounded-2xl px-[65px] py-3 w-fit mx-auto ${showCraft ? 'z-[6100]' : ''}`} style={{ marginTop: '8px', background: 'linear-gradient(to right, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 50%, rgba(15,23,42,0) 100%)' }}>
+          {/* Инвентарь — горизонтальная полоса под карточками + кнопка крафта справа */}
+          <div ref={inventoryRef} className="relative flex items-center justify-center gap-1.5 rounded-2xl px-[55px] py-3 w-fit mx-auto" style={{ marginTop: '33px', background: 'linear-gradient(to right, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 50%, rgba(15,23,42,0) 100%)' }}>
             {inventory.map((item, idx) => (
               <ItemSlot
                 key={idx}
@@ -2676,6 +2669,10 @@ export default function App() {
                 onMouseLeave={hideItemTip}
               />
             ))}
+            <button onClick={openCraft} title="Крафт" className="w-[52px] h-[52px] ml-2 rounded-lg bg-gradient-to-b from-amber-500 to-amber-700 border-2 border-amber-400/60 text-white font-black uppercase tracking-tight text-[9px] leading-none shadow-[0_0_12px_rgba(245,158,11,0.45)] hover:scale-105 active:scale-95 transition-all flex flex-col items-center justify-center gap-0.5">
+              <span className="text-base">⚒</span>
+              Крафт
+            </button>
           </div>
         </div>
       </div>
@@ -2719,6 +2716,22 @@ export default function App() {
                 <p className="text-red-400 text-[11px] font-bold uppercase tracking-wide animate-in fade-in duration-200">{craftWarning}</p>
               )}
             </div>
+          </div>
+
+          {/* Инвентарь внутри оверлея — источник предметов для перетаскивания */}
+          <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center justify-center gap-1.5 rounded-2xl px-8 py-3 bg-slate-900/80 border border-slate-700/70 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <span className="text-[8px] uppercase font-black tracking-widest text-amber-500 mr-2 whitespace-nowrap">Инвентарь</span>
+            {inventory.map((item, idx) => (
+              <ItemSlot
+                key={`craft-inv-${idx}`}
+                item={item}
+                selected={dragSrcIdx === idx}
+                draggable={true}
+                onDragStart={handleInvDragStart(idx)}
+                onMouseEnter={(e) => showItemTip(item, e)}
+                onMouseLeave={hideItemTip}
+              />
+            ))}
           </div>
         </div>
       )}
