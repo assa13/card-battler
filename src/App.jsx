@@ -341,6 +341,9 @@ const computeCardDamage = (owner, card, bonus = 1) => {
     total *= 1 + int * STAT_EFFECTS.int.splashPower;
   }
 
+  // Баланс: маг (p3) слишком доминировал и ваншотил — урезаем все его коэффициенты вдвое
+  if (owner.id === 'p3') total *= 0.5;
+
   return { damage: Math.max(0, Math.floor(total)), critChance: getCritChance(owner) };
 };
 
@@ -559,10 +562,11 @@ const generateMap = () => {
 };
 
 const spawnEnemies = (type, stage, sector = 1) => {
-  // Сложность растёт и внутри сектора (stage), и от сектора к сектору.
-  // Каждый сектор продолжает «лестницу» этажей и добавляет общий множитель HP.
+  // Сложность задаётся в первую очередь СЕКТОРОМ: чем дальше прошёл — тем сильнее враги.
+  // Множитель растёт экспоненциально по секторам, чтобы успевать за ростом силы отряда (слияние карт ×2).
+  // Не дорос до сектора — проигрываешь и начинаешь заново (ресурсы сохраняются).
   const s = (stage || 1) + (sector - 1) * 6;
-  const mult = 1 + (sector - 1) * 0.4;
+  const mult = Math.pow(1.55, sector - 1);
   let counter = 0;
   const mk = (prefix, name, baseHp, perStage, icon, xp) => {
     const hp = Math.round((baseHp + s * perStage) * mult);
