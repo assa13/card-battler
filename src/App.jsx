@@ -969,14 +969,10 @@ const ShaderBackground = ({ intensity = 0 }) => {
           vec2 uv = gl_FragCoord.xy / iResolution.xy;
           vec2 sp = uv * (3.5 + iIntensity * 0.4);
           float n = complexFBM(sp);
-          float blend = clamp(iIntensity, 0.0, 1.0); // 0 = только холод, 1 = оба цвета в рисунке
+          float blend = clamp(iIntensity, 0.0, 1.0);
 
-          // Цвет 1 — холодный (тёмная глубина + светлые синие переливы)
           vec3 cold = mix(vec3(0.02, 0.05, 0.12), vec3(0.10, 0.40, 0.78), clamp(n * 1.15, 0.0, 1.0));
-          // Цвет 2 — красный (тёмная глубина + светлые алые переливы)
           vec3 red = mix(vec3(0.09, 0.02, 0.04), vec3(0.82, 0.16, 0.12), clamp(n * 1.15, 0.0, 1.0));
-
-          // На ранних уровнях — только холод; красный постепенно входит в узоры шума
           vec3 twoTone = mix(cold, red, n);
           vec3 col = mix(cold, twoTone, blend);
 
@@ -1009,9 +1005,6 @@ const ShaderBackground = ({ intensity = 0 }) => {
     const iResolutionLocation = gl.getUniformLocation(program, 'iResolution');
     const iIntensityLocation = gl.getUniformLocation(program, 'iIntensity');
 
-    // Адаптивное качество: на слабом GPU / без аппаратного ускорения шейдер
-    // тяжёлый, поэтому фон сам деградирует (ниже разрешение и fps), а в крайнем
-    // случае замирает на статичном кадре. Фон размытый — потери незаметны.
     const TIERS = [
       { scale: 0.6, fps: 30 },
       { scale: 0.45, fps: 24 },
@@ -1019,14 +1012,13 @@ const ShaderBackground = ({ intensity = 0 }) => {
     ];
     let tier = 0;
 
-    // Если рендерер программный (SwiftShader/llvmpipe и т.п.) — сразу самый низкий тир.
     try {
       const dbg = gl.getExtension('WEBGL_debug_renderer_info');
       const rendererName = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : '';
       if (/swiftshader|software|llvmpipe|microsoft basic|paravirtual/i.test(rendererName)) {
         tier = TIERS.length - 1;
       }
-    } catch (e) { /* расширение недоступно — игнорируем */ }
+    } catch (e) { /* расширение недоступно */ }
 
     const resize = () => {
       const scale = TIERS[tier].scale;
@@ -1048,8 +1040,6 @@ const ShaderBackground = ({ intensity = 0 }) => {
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     };
 
-    // Замер плавности через интервалы requestAnimationFrame: если кадры стабильно
-    // длинные (главный поток/компоновщик не вытягивает) — понижаем тир, на дне — замираем.
     let lastRaf = 0, intervalSum = 0, intervalCount = 0, evalAt = 0;
     const render = (now = 0) => {
       animationFrameId = requestAnimationFrame(render);
@@ -1061,11 +1051,11 @@ const ShaderBackground = ({ intensity = 0 }) => {
       if (now >= evalAt) {
         const avg = intervalCount ? intervalSum / intervalCount : 16;
         intervalSum = 0; intervalCount = 0; evalAt = now + 1500;
-        if (avg > 30) { // < ~33 fps стабильно
+        if (avg > 30) {
           if (tier < TIERS.length - 1) {
             tier++; frameInterval = 1000 / TIERS[tier].fps; resize();
           } else {
-            cancelAnimationFrame(animationFrameId); // дно — оставляем статичный кадр
+            cancelAnimationFrame(animationFrameId);
             return;
           }
         }
@@ -1076,13 +1066,43 @@ const ShaderBackground = ({ intensity = 0 }) => {
       draw();
     };
 
-    if (tier >= TIERS.length - 1) draw(); // на дне сначала гарантированно рисуем кадр
+    if (tier >= TIERS.length - 1) draw();
     animationFrameId = requestAnimationFrame(render);
 
     return () => { window.removeEventListener('resize', resize); cancelAnimationFrame(animationFrameId); };
   }, []);
 
-  return <canvas ref={canvasRef} className="fixed inset-0 w-full h-full z-[-1] pointer-events-none" />;
+  return <canvas ref={canvasRef} className="fixed inset-0 w-full h-full z-[-2] pointer-events-none" />;
+};
+
+const BG_IMAGE_URL = './bg/catacombs.png';
+const BG_MASK_URL = './bg/mask.png';
+
+// Картинка поверх шейдера: масштаб от ширины экрана, градиентная маска (якорь сверху, 100% ширины).
+const ImageBackground = () => {
+  const maskStyle = {
+    WebkitMaskImage: `url('${BG_MASK_URL}')`,
+    maskImage: `url('${BG_MASK_URL}')`,
+    WebkitMaskSize: '100% auto',
+    maskSize: '100% auto',
+    WebkitMaskPosition: 'top center',
+    maskPosition: 'top center',
+    WebkitMaskRepeat: 'no-repeat',
+    maskRepeat: 'no-repeat',
+  };
+
+  return (
+    <div className="fixed inset-0 z-[-1] pointer-events-none overflow-hidden">
+      <div className="absolute top-0 left-0 w-full" style={maskStyle}>
+        <img
+          src={BG_IMAGE_URL}
+          alt=""
+          className="block w-full h-auto select-none"
+          draggable={false}
+        />
+      </div>
+    </div>
+  );
 };
 
 const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = false, comboState, growDamage = false }) => {
@@ -2538,6 +2558,7 @@ export default function App() {
         </div>
       )}
       <ShaderBackground intensity={bgIntensity} />
+      <ImageBackground />
 
       {/* Декоративные уголки сцены боя: слой над фоном, но под HUD; не пересекают верхний прогрессбар */}
       <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
