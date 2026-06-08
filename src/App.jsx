@@ -112,10 +112,9 @@ const ItemIcon = ({ item, className = '', imgClassName = 'w-full h-full object-c
     <div className={`relative ${className}`}>
       <img src={getItemIconUrl(item.icon)} alt={item.name || ''} className={imgClassName} draggable={false} />
       {tint && (
-        <div className="absolute inset-0 pointer-events-none" style={{ backgroundColor: tint, mixBlendMode: 'color', opacity: 0.85 }} />
-      )}
-      {tint && (
-        <div className="absolute inset-0 pointer-events-none" style={{ backgroundColor: tint, mixBlendMode: 'overlay', opacity: 0.35 }} />
+        // Дешёвая перекраска: один полупрозрачный слой обычным наложением (без mix-blend-mode,
+        // который заставлял компоновщик пересчитывать блендинг с анимированным фоном каждый кадр)
+        <div className="absolute inset-0 pointer-events-none rounded-[inherit]" style={{ backgroundColor: tint, opacity: 0.5 }} />
       )}
     </div>
   );
@@ -922,7 +921,7 @@ const ShaderBackground = ({ intensity = 0 }) => {
       uniform vec2 iResolution;
       uniform float iTime;
       uniform float iIntensity;
-      #define OCTAVES 8.0
+      #define OCTAVES 5.0
 
       float rand2(vec2 co){ return fract(cos(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453); }
 
@@ -963,7 +962,7 @@ const ShaderBackground = ({ intensity = 0 }) => {
           vec2 offset1 = vec2(sin(slow * 0.7), cos(slow * 0.9)) * (0.25 + 0.35 * iIntensity);
           vec2 offset2 = vec2(sin(t * 1.3), cos(t * 1.1)) * 0.4;
           float warp = 1.0 + iIntensity * 0.55;
-          return fractalNoise( p + offset1 + warp * fractalNoise( p + 1.5 * fractalNoise( p + 5.0 * fractalNoise(p - offset2) ) ) );
+          return fractalNoise( p + offset1 + warp * fractalNoise( p + 1.5 * fractalNoise( p - offset2 ) ) );
       }
 
       void main() {
@@ -1010,23 +1009,32 @@ const ShaderBackground = ({ intensity = 0 }) => {
     const iResolutionLocation = gl.getUniformLocation(program, 'iResolution');
     const iIntensityLocation = gl.getUniformLocation(program, 'iIntensity');
 
+    // Рендерим фон в пониженном разрешении и растягиваем по CSS — фон размытый, потери незаметны,
+    // а пикселей для тяжёлого шейдера в ~3 раза меньше.
+    const RENDER_SCALE = 0.6;
     const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      canvas.width = Math.max(1, Math.round(window.innerWidth * RENDER_SCALE));
+      canvas.height = Math.max(1, Math.round(window.innerHeight * RENDER_SCALE));
       gl.viewport(0, 0, canvas.width, canvas.height);
     };
     window.addEventListener('resize', resize); resize();
 
     let animationFrameId; const startTime = Date.now();
-    const render = () => {
+    // Кап ~30 fps: для медленного фона визуально незаметно, но вдвое меньше вызовов шейдера.
+    const frameInterval = 1000 / 30;
+    let lastFrame = -Infinity;
+    const render = (now = 0) => {
+      animationFrameId = requestAnimationFrame(render);
+      if (document.hidden) return; // вкладка скрыта — не тратим GPU
+      if (now - lastFrame < frameInterval) return;
+      lastFrame = now;
       intensityRef.current += (targetIntensityRef.current - intensityRef.current) * 0.02;
       gl.uniform1f(iTimeLocation, (Date.now() - startTime) / 1000);
       gl.uniform1f(iIntensityLocation, intensityRef.current);
       gl.uniform2f(iResolutionLocation, canvas.width, canvas.height);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
-      animationFrameId = requestAnimationFrame(render);
     };
-    render();
+    animationFrameId = requestAnimationFrame(render);
 
     return () => { window.removeEventListener('resize', resize); cancelAnimationFrame(animationFrameId); };
   }, []);
