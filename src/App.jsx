@@ -1079,28 +1079,31 @@ const BG_IMAGE_URL = './bg/catacombs.png';
 const BG_MASK_URL = './bg/mask.png';
 
 // Картинка поверх шейдера: масштаб от ширины экрана, градиентная маска (якорь сверху, 100% ширины).
+// Маска растягивается на 100%×100% элемента картинки — иначе при mask-size:100% auto
+// градиент (24×1024) оказывается в ~43× выше картинки и fade не попадает на неё.
 const ImageBackground = () => {
   const maskStyle = {
     WebkitMaskImage: `url('${BG_MASK_URL}')`,
     maskImage: `url('${BG_MASK_URL}')`,
-    WebkitMaskSize: '100% auto',
-    maskSize: '100% auto',
+    WebkitMaskSize: '100% 100%',
+    maskSize: '100% 100%',
     WebkitMaskPosition: 'top center',
     maskPosition: 'top center',
     WebkitMaskRepeat: 'no-repeat',
     maskRepeat: 'no-repeat',
+    WebkitMaskMode: 'alpha',
+    maskMode: 'alpha',
   };
 
   return (
     <div className="fixed inset-0 z-[-1] pointer-events-none overflow-hidden">
-      <div className="absolute top-0 left-0 w-full" style={maskStyle}>
-        <img
-          src={BG_IMAGE_URL}
-          alt=""
-          className="block w-full h-auto select-none"
-          draggable={false}
-        />
-      </div>
+      <img
+        src={BG_IMAGE_URL}
+        alt=""
+        className="absolute top-0 left-0 block w-full h-auto select-none"
+        style={maskStyle}
+        draggable={false}
+      />
     </div>
   );
 };
