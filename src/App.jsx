@@ -1009,31 +1009,74 @@ const ShaderBackground = ({ intensity = 0 }) => {
     const iResolutionLocation = gl.getUniformLocation(program, 'iResolution');
     const iIntensityLocation = gl.getUniformLocation(program, 'iIntensity');
 
-    // Рендерим фон в пониженном разрешении и растягиваем по CSS — фон размытый, потери незаметны,
-    // а пикселей для тяжёлого шейдера в ~3 раза меньше.
-    const RENDER_SCALE = 0.6;
+    // Адаптивное качество: на слабом GPU / без аппаратного ускорения шейдер
+    // тяжёлый, поэтому фон сам деградирует (ниже разрешение и fps), а в крайнем
+    // случае замирает на статичном кадре. Фон размытый — потери незаметны.
+    const TIERS = [
+      { scale: 0.6, fps: 30 },
+      { scale: 0.45, fps: 24 },
+      { scale: 0.3, fps: 20 },
+    ];
+    let tier = 0;
+
+    // Если рендерер программный (SwiftShader/llvmpipe и т.п.) — сразу самый низкий тир.
+    try {
+      const dbg = gl.getExtension('WEBGL_debug_renderer_info');
+      const rendererName = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : '';
+      if (/swiftshader|software|llvmpipe|microsoft basic|paravirtual/i.test(rendererName)) {
+        tier = TIERS.length - 1;
+      }
+    } catch (e) { /* расширение недоступно — игнорируем */ }
+
     const resize = () => {
-      canvas.width = Math.max(1, Math.round(window.innerWidth * RENDER_SCALE));
-      canvas.height = Math.max(1, Math.round(window.innerHeight * RENDER_SCALE));
+      const scale = TIERS[tier].scale;
+      canvas.width = Math.max(1, Math.round(window.innerWidth * scale));
+      canvas.height = Math.max(1, Math.round(window.innerHeight * scale));
       gl.viewport(0, 0, canvas.width, canvas.height);
     };
     window.addEventListener('resize', resize); resize();
 
     let animationFrameId; const startTime = Date.now();
-    // Кап ~30 fps: для медленного фона визуально незаметно, но вдвое меньше вызовов шейдера.
-    const frameInterval = 1000 / 30;
+    let frameInterval = 1000 / TIERS[tier].fps;
     let lastFrame = -Infinity;
-    const render = (now = 0) => {
-      animationFrameId = requestAnimationFrame(render);
-      if (document.hidden) return; // вкладка скрыта — не тратим GPU
-      if (now - lastFrame < frameInterval) return;
-      lastFrame = now;
+
+    const draw = () => {
       intensityRef.current += (targetIntensityRef.current - intensityRef.current) * 0.02;
       gl.uniform1f(iTimeLocation, (Date.now() - startTime) / 1000);
       gl.uniform1f(iIntensityLocation, intensityRef.current);
       gl.uniform2f(iResolutionLocation, canvas.width, canvas.height);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     };
+
+    // Замер плавности через интервалы requestAnimationFrame: если кадры стабильно
+    // длинные (главный поток/компоновщик не вытягивает) — понижаем тир, на дне — замираем.
+    let lastRaf = 0, intervalSum = 0, intervalCount = 0, evalAt = 0;
+    const render = (now = 0) => {
+      animationFrameId = requestAnimationFrame(render);
+      if (document.hidden) { lastRaf = 0; return; }
+
+      if (lastRaf) { intervalSum += now - lastRaf; intervalCount++; }
+      lastRaf = now;
+      if (!evalAt) evalAt = now + 1500;
+      if (now >= evalAt) {
+        const avg = intervalCount ? intervalSum / intervalCount : 16;
+        intervalSum = 0; intervalCount = 0; evalAt = now + 1500;
+        if (avg > 30) { // < ~33 fps стабильно
+          if (tier < TIERS.length - 1) {
+            tier++; frameInterval = 1000 / TIERS[tier].fps; resize();
+          } else {
+            cancelAnimationFrame(animationFrameId); // дно — оставляем статичный кадр
+            return;
+          }
+        }
+      }
+
+      if (now - lastFrame < frameInterval) return;
+      lastFrame = now;
+      draw();
+    };
+
+    if (tier >= TIERS.length - 1) draw(); // на дне сначала гарантированно рисуем кадр
     animationFrameId = requestAnimationFrame(render);
 
     return () => { window.removeEventListener('resize', resize); cancelAnimationFrame(animationFrameId); };
