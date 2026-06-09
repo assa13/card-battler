@@ -1077,15 +1077,10 @@ const ShaderBackground = ({ intensity = 0 }) => {
 };
 
 const BG_MASK_URL = './bg/mask.png';
-// Сжатые JPEG локации (1280px, q72) — ~50–120 KB каждая
+// Сжатые JPEG локации (1280px, q80)
 const BG_LOCATIONS = [
   './bg/locations/loc_01.jpg',
   './bg/locations/loc_02.jpg',
-  './bg/locations/loc_03.jpg',
-  './bg/locations/loc_04.jpg',
-  './bg/locations/loc_05.jpg',
-  './bg/locations/loc_06.jpg',
-  './bg/locations/loc_07.jpg',
 ];
 const pickRandomBgLocation = () => BG_LOCATIONS[Math.floor(Math.random() * BG_LOCATIONS.length)];
 
