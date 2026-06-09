@@ -1076,12 +1076,22 @@ const ShaderBackground = ({ intensity = 0 }) => {
   return <canvas ref={canvasRef} className="fixed inset-0 w-full h-full z-[-2] pointer-events-none" />;
 };
 
-const BG_IMAGE_URL = './bg/catacombs.png';
 const BG_MASK_URL = './bg/mask.png';
+// Сжатые JPEG локации (1280px, q72) — ~50–120 KB каждая
+const BG_LOCATIONS = [
+  './bg/locations/loc_01.jpg',
+  './bg/locations/loc_02.jpg',
+  './bg/locations/loc_03.jpg',
+  './bg/locations/loc_04.jpg',
+  './bg/locations/loc_05.jpg',
+  './bg/locations/loc_06.jpg',
+  './bg/locations/loc_07.jpg',
+];
+const pickRandomBgLocation = () => BG_LOCATIONS[Math.floor(Math.random() * BG_LOCATIONS.length)];
 
 // Картинка поверх шейдера: масштаб от ширины экрана, градиентная маска (якорь сверху, 100% ширины).
 // Маска 100%×100% элемента картинки. PNG-маска + CSS-градиент (intersect) — гарантированный fade.
-const ImageBackground = () => {
+const ImageBackground = ({ imageUrl }) => {
   const maskStyle = {
     WebkitMaskImage: `url('${BG_MASK_URL}'), linear-gradient(to bottom, #000 0%, #000 25%, transparent 100%)`,
     maskImage: `url('${BG_MASK_URL}'), linear-gradient(to bottom, #000 0%, #000 25%, transparent 100%)`,
@@ -1098,7 +1108,8 @@ const ImageBackground = () => {
   return (
     <div className="fixed inset-0 z-[-1] pointer-events-none overflow-hidden">
       <img
-        src={BG_IMAGE_URL}
+        src={imageUrl}
+        key={imageUrl}
         alt=""
         className="absolute top-0 left-0 block w-full h-auto select-none"
         style={maskStyle}
@@ -1498,6 +1509,7 @@ export default function App() {
   const [currentStage, setCurrentStage] = useState(0); 
   const [sector, setSector] = useState(1);
   const [sectorSplash, setSectorSplash] = useState(null);
+  const [bgLocation, setBgLocation] = useState(() => pickRandomBgLocation());
 
   const [flyingXps, setFlyingXps] = useState([]);
   const [flyingItems, setFlyingItems] = useState([]);
@@ -1750,6 +1762,7 @@ export default function App() {
     playSound('./assets/sfx/map/node_click.wav');
     setCurrentMapNodeId(node.id);
     setCurrentStage(node.stage);
+    setBgLocation(pickRandomBgLocation());
 
     if (node.type === 'event') {
       playSound('./assets/sfx/events/event_start.wav');
@@ -2561,7 +2574,7 @@ export default function App() {
         </div>
       )}
       <ShaderBackground intensity={bgIntensity} />
-      <ImageBackground />
+      <ImageBackground imageUrl={bgLocation} />
 
       {/* Декоративные уголки сцены боя: слой над фоном, но под HUD; не пересекают верхний прогрессбар */}
       <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
