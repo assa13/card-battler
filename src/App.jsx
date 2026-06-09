@@ -1079,20 +1079,19 @@ const BG_IMAGE_URL = './bg/catacombs.png';
 const BG_MASK_URL = './bg/mask.png';
 
 // Картинка поверх шейдера: масштаб от ширины экрана, градиентная маска (якорь сверху, 100% ширины).
-// Маска растягивается на 100%×100% элемента картинки — иначе при mask-size:100% auto
-// градиент (24×1024) оказывается в ~43× выше картинки и fade не попадает на неё.
+// Маска 100%×100% элемента картинки. PNG-маска + CSS-градиент (intersect) — гарантированный fade.
 const ImageBackground = () => {
   const maskStyle = {
-    WebkitMaskImage: `url('${BG_MASK_URL}')`,
-    maskImage: `url('${BG_MASK_URL}')`,
-    WebkitMaskSize: '100% 100%',
-    maskSize: '100% 100%',
-    WebkitMaskPosition: 'top center',
-    maskPosition: 'top center',
-    WebkitMaskRepeat: 'no-repeat',
-    maskRepeat: 'no-repeat',
-    WebkitMaskMode: 'alpha',
-    maskMode: 'alpha',
+    WebkitMaskImage: `url('${BG_MASK_URL}'), linear-gradient(to bottom, #000 0%, #000 25%, transparent 100%)`,
+    maskImage: `url('${BG_MASK_URL}'), linear-gradient(to bottom, #000 0%, #000 25%, transparent 100%)`,
+    WebkitMaskSize: '100% 100%, 100% 100%',
+    maskSize: '100% 100%, 100% 100%',
+    WebkitMaskPosition: 'top center, top center',
+    maskPosition: 'top center, top center',
+    WebkitMaskRepeat: 'no-repeat, no-repeat',
+    maskRepeat: 'no-repeat, no-repeat',
+    WebkitMaskComposite: 'source-in',
+    maskComposite: 'intersect',
   };
 
   return (
