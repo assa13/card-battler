@@ -950,17 +950,18 @@ const ShaderBackground = ({ intensity = 0 }) => {
       mat2 rot(float a) { float s = sin(a); float c = cos(a); return mat2(c, -s, s, c); }
 
       float complexFBM(vec2 p) {
-          float speed = mix(0.35, 1.1, clamp(iIntensity, 0.0, 1.0)) * 0.5;
+          #define MOTION_BOOST 1.25
+          float speed = mix(0.35, 1.1, clamp(iIntensity, 0.0, 1.0)) * 0.5 * MOTION_BOOST;
           float t = iTime * speed;
 
           vec2 c = p - 1.75;
-          float ang = t * (0.02 + 0.06 * iIntensity);
+          float ang = t * (0.02 + 0.06 * iIntensity) * MOTION_BOOST;
           c = rot(ang) * c;
           p = c + 1.75;
 
-          float slow = t / 3.0;
-          vec2 offset1 = vec2(sin(slow * 0.7), cos(slow * 0.9)) * (0.25 + 0.35 * iIntensity);
-          vec2 offset2 = vec2(sin(t * 1.3), cos(t * 1.1)) * 0.4;
+          float slow = t / (3.0 / MOTION_BOOST);
+          vec2 offset1 = vec2(sin(slow * 0.7 * MOTION_BOOST), cos(slow * 0.9 * MOTION_BOOST)) * (0.25 + 0.35 * iIntensity);
+          vec2 offset2 = vec2(sin(t * 1.3 * MOTION_BOOST), cos(t * 1.1 * MOTION_BOOST)) * (0.4 * MOTION_BOOST);
           float warp = 1.0 + iIntensity * 0.55;
           return fractalNoise( p + offset1 + warp * fractalNoise( p + 1.5 * fractalNoise( p - offset2 ) ) );
       }
