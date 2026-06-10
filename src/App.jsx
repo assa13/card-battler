@@ -143,12 +143,12 @@ const ENEMY_ATLASES = {
   'Бандит': { url: './chars/bandit_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 12 },
 };
 
-// Зеркальная формация врагов: right/top вместо left/top (индекс = порядок в массиве enemies)
-const ENEMY_FORMATION = [
-  { right: 25, top: -46 },   // враг 0 — верхний правый
-  { right: 191, top: 42 },   // враг 1 — по центру, шаг вперёд к центру
-  { right: 25, top: 121 },   // враг 2 — нижний правый
-];
+// Зеркальная формация врагов (right/top вместо left/top), адаптивная под количество врагов
+const ENEMY_FORMATIONS = {
+  1: [{ right: 105, top: 95 }],                                              // один — по центру
+  2: [{ right: 30, top: 8 }, { right: 160, top: 150 }],                      // двое — по диагонали
+  3: [{ right: 25, top: -46 }, { right: 191, top: 42 }, { right: 25, top: 121 }], // трое — зигзаг
+};
 
 // Анимированный спрайт из атласа: проигрывает кадры по сетке через background-position
 const CharSprite = ({ atlas, size = 110, className = '', style = {} }) => {
@@ -636,23 +636,31 @@ const spawnEnemies = (type, stage, sector = 1) => {
       xpReward: Math.round(xp * mult),
     };
   };
+  // Враги: только три типа со спрайтами — Гоблин, Волк, Бандит. Сложность тира задаётся статами и количеством.
   if (type === 'boss') {
-    return [ mk('boss', 'Лорд Демонов', 300, 50, '🐲', 400) ];
+    return [
+      mk('b1', 'Бандит', 110, 28, '🥷', 170),
+      mk('b2', 'Волк', 90, 24, '🐺', 130),
+      mk('b3', 'Гоблин', 90, 24, '👺', 130),
+    ];
   } else if (type === 'combat_hard') {
     return [
-      mk('h1', 'Орк-Чемпион', 120, 30, '👹', 150),
-      mk('h2', 'Темный Маг', 80, 20, '🧙‍♂️', 120),
-      mk('h3', 'Голем', 70, 20, '🪨', 100),
+      mk('h1', 'Бандит', 80, 22, '🥷', 130),
+      mk('h2', 'Волк', 70, 20, '🐺', 110),
+      mk('h3', 'Гоблин', 70, 20, '👺', 110),
     ];
   } else if (type === 'combat_medium') {
-    return [
+    const pool = [
       mk('m1', 'Бандит', 60, 15, '🥷', 90),
-      mk('m2', 'Арбалетчик', 40, 15, '🏹', 70),
+      mk('m2', 'Волк', 50, 13, '🐺', 75),
+      mk('m3', 'Гоблин', 55, 14, '👺', 80),
     ];
+    return shuffleArray(pool).slice(0, 2);
   } else {
     const enemies = [
       mk('e1', 'Гоблин', 45, 15, '👺', 60),
       mk('e2', 'Волк', 35, 10, '🐺', 45),
+      mk('e3', 'Бандит', 50, 13, '🥷', 65),
     ];
     return shuffleArray(enemies).slice(0, 1 + Math.floor(Math.random() * 2));
   }
@@ -2749,7 +2757,8 @@ export default function App() {
                 const isAttacking = animatingEnemyId === enemy.id;
                 const isSpeaking = speakingEnemy && speakingEnemy.id === enemy.id && !enemy.isDead;
                 const enemyAtlas = ENEMY_ATLASES[enemy.name] || null;
-                const pos = ENEMY_FORMATION[eIdx] || { right: 25, top: eIdx * 110 };
+                const formation = ENEMY_FORMATIONS[enemies.length] || ENEMY_FORMATIONS[3];
+                const pos = formation[eIdx] || formation[formation.length - 1];
                 
                 let enemyTransform = 'scaleX(-1)';
                 let transitionClass = 'transition-all duration-300 ease-out';
