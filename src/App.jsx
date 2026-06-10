@@ -181,6 +181,35 @@ const CharSprite = ({ atlas, size = 110, className = '', style = {} }) => {
   );
 };
 
+// Пузырь речи врага: рядом со спрайтом, с поджатием если упирается в край экрана
+const EnemySpeechBubble = ({ text }) => {
+  const ref = useRef(null);
+  const [offset, setOffset] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const pad = 10;
+    const r = el.getBoundingClientRect();
+    let dx = 0, dy = 0;
+    if (r.top < pad) dy = pad - r.top;
+    if (r.bottom > window.innerHeight - pad) dy = window.innerHeight - pad - r.bottom;
+    if (r.left < pad) dx = pad - r.left;
+    if (r.right > window.innerWidth - pad) dx = window.innerWidth - pad - r.right;
+    setOffset({ x: dx, y: dy });
+  }, [text]);
+
+  return (
+    <div
+      ref={ref}
+      className="absolute right-full mr-2 top-[42%] w-max max-w-[150px] bg-white/92 text-slate-900 text-[10px] font-bold px-3 py-1.5 rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.55)] z-[100] animate-in fade-in zoom-in-75 duration-300 leading-tight pointer-events-none"
+      style={{ transform: `translate(calc(-0% + ${offset.x}px), calc(-50% + ${offset.y}px))` }}
+    >
+      {text}
+    </div>
+  );
+};
+
 const rollItemRarity = () => {
   const total = Object.values(ITEM_RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
   let roll = Math.random() * total;
@@ -741,7 +770,7 @@ const FlyingCard = ({ startX, startY, endX, endY, isDiscard = false, isReshuffle
         left: `${endX}px`, top: `${endY}px`,
         transform: `translate(-50%, -50%) scale(${isDiscard || isReshuffle ? 0.3 : 1.0}) rotate(${isReshuffle ? -360 : isDiscard ? 720 : 0}deg)`,
         opacity: 1,
-        transition: `all 1700ms ${isDiscard || isReshuffle ? 'cubic-bezier(0.5, -0.5, 0.5, 1.5)' : 'cubic-bezier(0.34, 1.56, 0.64, 1)'}`
+        transition: `all 850ms ${isDiscard || isReshuffle ? 'cubic-bezier(0.5, -0.5, 0.5, 1.5)' : 'cubic-bezier(0.34, 1.56, 0.64, 1)'}`
       });
     }, 20);
     return () => clearTimeout(t);
@@ -792,13 +821,13 @@ const FlyingXp = ({ id, amount, startX, startY, endX, endY, onComplete }) => {
 
   useEffect(() => {
     const t = setTimeout(() => setPos({ x: endX, y: endY, opacity: 0, scale: 0.5 }), 50);
-    const c = setTimeout(() => onCompleteRef.current(id, amount), 1500);
+    const c = setTimeout(() => onCompleteRef.current(id, amount), 750);
     return () => { clearTimeout(t); clearTimeout(c); };
   }, [id, amount, endX, endY]);
   
   return (
     <div className="fixed z-[800] font-black text-yellow-400 text-2xl pointer-events-none drop-shadow-lg"
-      style={{ left: 0, top: 0, transform: `translate(${pos.x - 20}px, ${pos.y - 20}px) scale(${pos.scale})`, opacity: pos.opacity, transition: 'all 1400ms ease-in' }}>
+      style={{ left: 0, top: 0, transform: `translate(${pos.x - 20}px, ${pos.y - 20}px) scale(${pos.scale})`, opacity: pos.opacity, transition: 'all 700ms ease-in' }}>
       +{String(amount)}
     </div>
   );
@@ -813,19 +842,19 @@ const FlyingItem = ({ id, item, startX, startY, endX, endY, onComplete }) => {
 
   useEffect(() => {
     const t = setTimeout(() => setPos({ x: endX, y: endY, scale: 0.7, rotate: 360 }), 50);
-    const f1 = setTimeout(() => setFlash(1), 1280);
-    const f2 = setTimeout(() => { setFlash(0); setFade(0); }, 1540);
-    const c = setTimeout(() => onCompleteRef.current(id, item), 1660);
+    const f1 = setTimeout(() => setFlash(1), 640);
+    const f2 = setTimeout(() => { setFlash(0); setFade(0); }, 770);
+    const c = setTimeout(() => onCompleteRef.current(id, item), 830);
     return () => { [t, f1, f2, c].forEach(clearTimeout); };
   }, [id, item, endX, endY]);
 
   const rarity = RARITIES[item.rarity] || RARITIES.COMMON;
   return (
     <div className="fixed z-[810] pointer-events-none"
-      style={{ left: 0, top: 0, transform: `translate(${pos.x - 24}px, ${pos.y - 24}px) scale(${pos.scale}) rotate(${pos.rotate}deg)`, opacity: fade, transition: 'transform 1200ms cubic-bezier(0.22, 1, 0.36, 1), opacity 240ms ease-out' }}>
+      style={{ left: 0, top: 0, transform: `translate(${pos.x - 24}px, ${pos.y - 24}px) scale(${pos.scale}) rotate(${pos.rotate}deg)`, opacity: fade, transition: 'transform 600ms cubic-bezier(0.22, 1, 0.36, 1), opacity 120ms ease-out' }}>
       <div className={`w-12 h-12 rounded-lg border-2 ${rarity.border} bg-slate-900 shadow-[0_0_20px_rgba(250,204,21,0.5)] overflow-hidden relative`}>
         <ItemIcon item={item} className="w-full h-full" />
-        <div className="absolute inset-0 bg-white rounded-md" style={{ opacity: flash, transform: `scale(${1 + flash * 0.6})`, boxShadow: flash ? '0 0 25px 8px rgba(255,255,255,0.9)' : 'none', transition: 'opacity 260ms ease-out, transform 260ms ease-out' }} />
+        <div className="absolute inset-0 bg-white rounded-md" style={{ opacity: flash, transform: `scale(${1 + flash * 0.6})`, boxShadow: flash ? '0 0 25px 8px rgba(255,255,255,0.9)' : 'none', transition: 'opacity 130ms ease-out, transform 130ms ease-out' }} />
       </div>
     </div>
   );
@@ -910,11 +939,11 @@ const BloodParticle = ({ id, x, y, onComplete }) => {
         top: destY,
         opacity: 0,
         transform: `translate(-50%, -50%) scale(${1 + Math.random() * 1.5}) rotate(${Math.random() * 360}deg)`,
-        transition: 'all 1000ms cubic-bezier(0.17, 0.84, 0.44, 1)'
+        transition: 'all 500ms cubic-bezier(0.17, 0.84, 0.44, 1)'
       });
     }, 20);
 
-    const c = setTimeout(() => onCompleteRef.current(id), 1000);
+    const c = setTimeout(() => onCompleteRef.current(id), 500);
     return () => { clearTimeout(t); clearTimeout(c); };
   }, [x, y, id]);
 
@@ -930,12 +959,12 @@ const CombatVfx = ({ vfx }) => {
         if (['magic_spark', 'fireball', 'ice_spike', 'lightning', 'dark_void', 'enemy'].includes(vfx.type)) {
            setStyle({ left: vfx.startX, top: vfx.startY, opacity: 1, transform: 'translate(-50%, -50%) scale(0.5)' });
            t1 = setTimeout(() => {
-             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: 'translate(-50%, -50%) scale(1.5)', transition: 'all 900ms ease-out' });
+             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: 'translate(-50%, -50%) scale(1.5)', transition: 'all 450ms ease-out' });
            }, 20);
         } else if (['slash', 'smash', 'dark_strike'].includes(vfx.type)) {
            setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: 'translate(-50%, -50%) scale(0.2) rotate(-45deg)' });
            t1 = setTimeout(() => {
-             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 0, transform: 'translate(-50%, -50%) scale(2) rotate(45deg)', transition: 'all 900ms ease-out' });
+             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 0, transform: 'translate(-50%, -50%) scale(2) rotate(45deg)', transition: 'all 450ms ease-out' });
            }, 20);
         } else if (['daggers', 'poison', 'dagger_single'].includes(vfx.type)) {
            const angle = Math.atan2(vfx.endY - vfx.startY, vfx.endX - vfx.startX) * 180 / Math.PI;
@@ -943,7 +972,7 @@ const CombatVfx = ({ vfx }) => {
            const scatterY = vfx.type === 'dagger_single' ? 0 : (Math.random() - 0.5) * 80;
            setStyle({ left: vfx.startX + scatterX, top: vfx.startY + scatterY, opacity: 1, transform: `translate(-50%, -50%) rotate(${angle + 90}deg)` });
            t1 = setTimeout(() => {
-             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: `translate(-50%, -50%) rotate(${angle + 90 + 1080}deg)`, transition: 'all 900ms ease-out' });
+             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: `translate(-50%, -50%) rotate(${angle + 90 + 1080}deg)`, transition: 'all 450ms ease-out' });
            }, 20);
         }
     }, vfx.delay || 0);
@@ -1977,7 +2006,7 @@ export default function App() {
   }, []);
 
   const triggerImpact = (damageValue) => {
-    setFlash(true); setTimeout(() => setFlash(false), 200);
+    setFlash(true); setTimeout(() => setFlash(false), 100);
     const intensity = Math.min(Math.max(damageValue, 15), 150) * 0.8; 
     
     const shakeInterval = setInterval(() => {
@@ -1988,7 +2017,7 @@ export default function App() {
       });
     }, 20);
     
-    setTimeout(() => { clearInterval(shakeInterval); setShake({ x: 0, y: 0, rot: 0 }); }, 700);
+    setTimeout(() => { clearInterval(shakeInterval); setShake({ x: 0, y: 0, rot: 0 }); }, 350);
   };
 
   const gainXp = useCallback((amount) => {
@@ -2302,7 +2331,7 @@ export default function App() {
              setTimeout(() => {
                 const flyId = `reshuffle_${Date.now()}_${i}`;
                 setFlyingCards(prev => [...prev, { id: flyId, startX: discRect.left + discRect.width/2, startY: discRect.top + discRect.height/2, endX: deckRect.left + deckRect.width/2, endY: deckRect.top + deckRect.height/2, isReshuffle: true }]);
-                setTimeout(() => setFlyingCards(p => p.filter(f => f.id !== flyId)), 1700);
+                setTimeout(() => setFlyingCards(p => p.filter(f => f.id !== flyId)), 850);
              }, i * 100);
           }
         }
@@ -2327,11 +2356,11 @@ export default function App() {
       if (deckRect && slotRect) {
         const flyId = `deal_${p.id}_${Date.now()}`;
         setTimeout(() => { playSound('./assets/sfx/ui/card_deal.wav', 0.5); setFlyingCards(prev => [...prev, { id: flyId, startX: deckRect.left + deckRect.width/2, startY: deckRect.top + deckRect.height/2, endX: slotRect.left + slotRect.width/2, endY: slotRect.top + slotRect.height * 0.75 }]); }, delay);
-        setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setPlayers(prev => prev.map(hero => hero.id === p.id ? { ...hero, currentCard: cardToDeal, justDealt: true } : hero)); }, delay + 1700); 
+        setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setPlayers(prev => prev.map(hero => hero.id === p.id ? { ...hero, currentCard: cardToDeal, justDealt: true } : hero)); }, delay + 850); 
       }
       delay += 300; 
     });
-    setTimeout(() => { playSound('./assets/sfx/game/mana_restore.wav', 0.5); setDrawPile(tempDraw); setDiscardPile(currentDiscard); setPlayers(prev => prev.map(p => ({ ...p, hasActed: false, justDealt: false }))); setMana(maxMana); setTurnState('player'); }, delay + 2000); 
+    setTimeout(() => { playSound('./assets/sfx/game/mana_restore.wav', 0.5); setDrawPile(tempDraw); setDiscardPile(currentDiscard); setPlayers(prev => prev.map(p => ({ ...p, hasActed: false, justDealt: false }))); setMana(maxMana); setTurnState('player'); }, delay + 1000); 
   }, [turnState, showLevelUp, maxMana]);
 
   const playCard = (playerIndex, card) => {
@@ -2384,7 +2413,7 @@ export default function App() {
 
       const hitEnemyIds = targetIndices.map(idx => enemies[idx].id);
       setFlashingTargets(prev => [...prev, ...hitEnemyIds]);
-      setTimeout(() => setFlashingTargets(prev => prev.filter(id => !hitEnemyIds.includes(id))), 500);
+      setTimeout(() => setFlashingTargets(prev => prev.filter(id => !hitEnemyIds.includes(id))), 250);
 
       const newBlood = [];
       targetIndices.forEach(idx => {
@@ -2407,7 +2436,7 @@ export default function App() {
       setBloodParticles(prev => [...prev, ...newBlood]);
 
       setEnemies(newEnemies); setAnimatingPlayerId(null); 
-            setTimeout(() => setAnimatingTargetIds([]), 700);
+            setTimeout(() => setAnimatingTargetIds([]), 350);
       setHoveredPlayerId(null); setHoveredTargetIds([]);
       
       xpToSpawn.forEach(xpData => {
@@ -2454,7 +2483,7 @@ export default function App() {
           const flyId = `disc_${Date.now()}`;
           playSound('./assets/sfx/ui/card_discard.wav', 0.4);
           setFlyingCards(prev => [...prev, { id: flyId, startX: slotRect.left + slotRect.width/2, startY: slotRect.top + slotRect.height * 0.75, endX: discardRect.left + discardRect.width/2, endY: discardRect.top + discardRect.height/2, isDiscard: true }]);
-          setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setDiscardPile(prev => [...prev, card]); finish(); }, 1700);
+          setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setDiscardPile(prev => [...prev, card]); finish(); }, 850);
         } else { setDiscardPile(prev => [...prev, card]); finish(); }
       } else { setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, currentCard: null, hasActed: true } : p)); finish(); }
     }, 300); 
@@ -2499,7 +2528,7 @@ export default function App() {
             triggerImpact(dmg);
             
             setFlashingTargets(prev => [...prev, target.id]);
-            setTimeout(() => setFlashingTargets(prev => prev.filter(id => id !== target.id)), 500);
+            setTimeout(() => setFlashingTargets(prev => prev.filter(id => id !== target.id)), 250);
 
             if (pRect) {
                setDamagePopups(dp => [...dp, { id: Math.random(), value: dmg, x: pRect.left + pRect.width / 2, y: pRect.top + pRect.height / 2 }]);
@@ -2522,7 +2551,7 @@ export default function App() {
             }));
 
             setAnimatingEnemyId(null);
-            setTimeout(() => setAnimatingTargetIds([]), 700);
+            setTimeout(() => setAnimatingTargetIds([]), 350);
             setIsAnimating(false);
          }, 300);
       }, delay); 
@@ -2771,21 +2800,17 @@ export default function App() {
                 else if (isBeingAttacked) enemyTransform = 'scaleX(-1) scale(1.1)';
 
                 return (
-                  <div key={String(enemy.id)} ref={(el) => setEnemyRef(enemy.id, el)} className={`absolute flex items-center ${transitionClass} ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: enemyTransform, right: pos.right, top: pos.top }}>
-                    <div className="relative flex items-center justify-center">
-                       {isSpeaking && (
-                         <div className="absolute -top-10 right-0 w-max max-w-[140px] bg-white/90 text-slate-900 text-[10px] font-bold px-3 py-1.5 rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.5)] z-[100] animate-in fade-in zoom-in-75 duration-300 leading-tight pointer-events-none" style={{ transform: 'scaleX(-1)' }}>
-                            {speakingEnemy.text}
-                         </div>
-                       )}
-                       <div
-                         className={`relative ${enemyAtlas ? '' : 'text-6xl'} ${isHoveredTarget || isBeingAttacked ? 'drop-shadow-[0_0_25px_rgba(239,68,68,0.4)]' : ''} ${flashingTargets.includes(enemy.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`}
-                         style={{ animation: isSpeaking && !isBeingAttacked && !isAttacking ? 'speechWobble 0.8s ease-in-out infinite' : 'none', transition: 'all 0.3s ease-out' }}
-                       >
-                         {enemyAtlas ? <CharSprite atlas={enemyAtlas} size={CHAR_SPRITE_SIZE} /> : String(enemy.icon)}
-                         {isHoveredTarget && !isAnimating && <div className="absolute -inset-2 border-2 border-red-500 rounded-full animate-ping opacity-40"></div>}
-                         {isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}
-                       </div>
+                  <div key={String(enemy.id)} ref={(el) => setEnemyRef(enemy.id, el)} className={`absolute relative ${transitionClass} ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ right: pos.right, top: pos.top }}>
+                    {isSpeaking && <EnemySpeechBubble text={speakingEnemy.text} />}
+                    <div className="relative" style={{ transform: enemyTransform }}>
+                      <div
+                        className={`relative ${enemyAtlas ? '' : 'text-6xl'} ${isHoveredTarget || isBeingAttacked ? 'drop-shadow-[0_0_25px_rgba(239,68,68,0.4)]' : ''} ${flashingTargets.includes(enemy.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`}
+                        style={{ animation: isSpeaking && !isBeingAttacked && !isAttacking ? 'speechWobble 0.4s ease-in-out infinite' : 'none', transition: 'all 0.15s ease-out' }}
+                      >
+                        {enemyAtlas ? <CharSprite atlas={enemyAtlas} size={CHAR_SPRITE_SIZE} /> : String(enemy.icon)}
+                        {isHoveredTarget && !isAnimating && <div className="absolute -inset-2 border-2 border-red-500 rounded-full animate-ping opacity-40"></div>}
+                        {isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}
+                      </div>
                     </div>
                   </div>
                 );
