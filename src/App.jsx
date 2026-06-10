@@ -127,6 +127,15 @@ const CHAR_ATLASES = {
   p3: { url: './chars/priest_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 12 },
 };
 
+// Зигзаг-формация бойцов игрока. Координаты из макета (контейнер 545px высотой, спрайт 254px)
+// отмасштабированы под высоту арены 355px (коэф. ≈0.651).
+const CHAR_SPRITE_SIZE = 166;
+const CHAR_FORMATION = {
+  p1: { left: 55, top: 4 },    // воин — сверху слева
+  p2: { left: 221, top: 92 },  // разбойник — по центру, шаг вперёд
+  p3: { left: 55, top: 171 },  // маг — снизу слева
+};
+
 // Анимированный спрайт из атласа: проигрывает кадры по сетке через background-position
 const CharSprite = ({ atlas, size = 110, className = '', style = {} }) => {
   const [frame, setFrame] = useState(0);
@@ -2693,7 +2702,7 @@ export default function App() {
                <div className="bg-slate-700 text-white px-6 py-1 rounded-full font-black text-sm shadow-[0_0_20px_rgba(0,0,0,0.5)] border-2 border-slate-500 uppercase italic tracking-tighter flex items-center gap-2"><span className="not-italic">{currentNodeInfo.icon}</span>{currentNodeInfo.label}</div>
                <div className="w-[120px] h-[2px] bg-gradient-to-r from-transparent via-slate-500/50 to-transparent mt-2"></div>
             </div>
-            <div className="relative w-1/3 z-20 h-full overflow-visible">
+            <div className="relative w-1/2 z-20 h-full overflow-visible">
               {players.map((player, pIdx) => {
                 const isHovered = hoveredPlayerId === player.id; const isAttacking = animatingPlayerId === player.id; const isBeingAttacked = animatingTargetIds.includes(player.id);
                 
@@ -2710,14 +2719,10 @@ export default function App() {
                 }
                 else if (isBeingAttacked) avatarTransform = 'scale(1.1)';
 
-                const SPRITE_H = 220;
-                const ARENA_H = 355;
-                const slotH = ARENA_H / players.length;
-                const topPx = pIdx * slotH + slotH / 2 - SPRITE_H / 2;
+                const pos = CHAR_FORMATION[player.id] || { left: 0, top: pIdx * 110 };
                 return (
-                  <div key={`field-${player.id}`} ref={el => setAvatarRef(player.id, el)} className={`absolute flex items-center gap-6 ${transitionClass} ${player.hp <= 0 ? 'opacity-30 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(59,130,246,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: avatarTransform, top: topPx }}>
-                    <div className={`relative ${CHAR_ATLASES[player.id] ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`} style={{ transition: 'all 0.15s ease-out' }}>{CHAR_ATLASES[player.id] ? <CharSprite atlas={CHAR_ATLASES[player.id]} size={220} /> : String(player.icon)}{isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}</div>
-                    <div className={`flex flex-col transition-opacity duration-300 ${(isAttacking || isBeingAttacked) ? 'opacity-0' : 'opacity-100'}`}><span className={`font-black transition-colors ${isHovered ? 'text-white' : 'text-blue-400'} text-xl uppercase tracking-tighter`}>{String(player.name)}</span></div>
+                  <div key={`field-${player.id}`} ref={el => setAvatarRef(player.id, el)} className={`absolute flex items-center ${transitionClass} ${player.hp <= 0 ? 'opacity-30 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(59,130,246,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: avatarTransform, left: pos.left, top: pos.top }}>
+                    <div className={`relative ${CHAR_ATLASES[player.id] ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`} style={{ transition: 'all 0.15s ease-out' }}>{CHAR_ATLASES[player.id] ? <CharSprite atlas={CHAR_ATLASES[player.id]} size={CHAR_SPRITE_SIZE} /> : String(player.icon)}{isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}</div>
                   </div>
                 );
               })}
