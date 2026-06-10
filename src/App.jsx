@@ -122,9 +122,9 @@ const ItemIcon = ({ item, className = '', imgClassName = 'w-full h-full object-c
 
 // Атласы idle-анимаций персонажей игрока: спрайт-лист 1280x1280, кадр 320x320, сетка 4x4
 const CHAR_ATLASES = {
-  p1: { url: './chars/warrior_atlas.png', cols: 4, rows: 4, frameCount: 15, fps: 6 },
-  p2: { url: './chars/rogue_atlas.png',   cols: 4, rows: 4, frameCount: 16, fps: 6 },
-  p3: { url: './chars/priest_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 6 },
+  p1: { url: './chars/warrior_atlas.png', cols: 4, rows: 4, frameCount: 15, fps: 7.5 },
+  p2: { url: './chars/rogue_atlas.png',   cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  p3: { url: './chars/priest_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
 };
 
 // Зигзаг-формация бойцов игрока. Координаты из макета (контейнер 545px высотой, спрайт 254px)
@@ -138,9 +138,9 @@ const CHAR_FORMATION = {
 
 // Атласы врагов (спрайты зеркалятся через scaleX(-1))
 const ENEMY_ATLASES = {
-  'Гоблин': { url: './chars/goblin_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 6 },
-  'Волк':   { url: './chars/wolf_atlas.png',    cols: 4, rows: 4, frameCount: 16, fps: 6 },
-  'Бандит': { url: './chars/bandit_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 6 },
+  'Гоблин': { url: './chars/goblin_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Волк':   { url: './chars/wolf_atlas.png',    cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Бандит': { url: './chars/bandit_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
 };
 
 // Зеркальная формация врагов — точное зеркало CHAR_FORMATION (left→right, top одинаковые)
