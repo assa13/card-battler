@@ -2688,13 +2688,13 @@ export default function App() {
       {/* --- ИНТЕРФЕЙС БОЯ (ВСЕГДА РЕНДЕРИТСЯ НА ФОНЕ) --- */}
       <div className="flex w-full max-w-5xl justify-center relative z-0 p-1 py-4 my-auto">
         <div className="flex-1 flex flex-col justify-start w-full relative">
-          <div className="bg-slate-950/60 py-10 px-16 rounded-[40px] border border-slate-800/60 shadow-[0_0_30px_rgba(0,0,0,0.5)] flex justify-between items-center relative min-h-[355px] overflow-visible backdrop-blur-md">
+          <div className="bg-slate-950/60 py-10 px-16 rounded-[40px] border border-slate-800/60 shadow-[0_0_30px_rgba(0,0,0,0.5)] flex justify-between items-center relative h-[355px] overflow-visible backdrop-blur-md">
             <div className="absolute top-2 left-1/2 -translate-x-1/2 flex flex-col items-center">
                <div className="bg-slate-700 text-white px-6 py-1 rounded-full font-black text-sm shadow-[0_0_20px_rgba(0,0,0,0.5)] border-2 border-slate-500 uppercase italic tracking-tighter flex items-center gap-2"><span className="not-italic">{currentNodeInfo.icon}</span>{currentNodeInfo.label}</div>
                <div className="w-[120px] h-[2px] bg-gradient-to-r from-transparent via-slate-500/50 to-transparent mt-2"></div>
             </div>
-            <div className="flex flex-col gap-14 w-1/3 relative z-20">
-              {players.map((player) => {
+            <div className="relative w-1/3 z-20 h-full overflow-visible">
+              {players.map((player, pIdx) => {
                 const isHovered = hoveredPlayerId === player.id; const isAttacking = animatingPlayerId === player.id; const isBeingAttacked = animatingTargetIds.includes(player.id);
                 
                 let avatarTransform = '';
@@ -2710,9 +2710,13 @@ export default function App() {
                 }
                 else if (isBeingAttacked) avatarTransform = 'scale(1.1)';
 
+                const SPRITE_H = 220;
+                const ARENA_H = 355;
+                const slotH = ARENA_H / players.length;
+                const topPx = pIdx * slotH + slotH / 2 - SPRITE_H / 2;
                 return (
-                  <div key={`field-${player.id}`} ref={el => setAvatarRef(player.id, el)} className={`flex items-center gap-6 ${transitionClass} ${player.hp <= 0 ? 'opacity-30 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(59,130,246,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: avatarTransform }}>
-                    <div className={`relative ${CHAR_ATLASES[player.id] ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`} style={{ transition: 'all 0.15s ease-out' }}>{CHAR_ATLASES[player.id] ? <CharSprite atlas={CHAR_ATLASES[player.id]} /> : String(player.icon)}{isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}</div>
+                  <div key={`field-${player.id}`} ref={el => setAvatarRef(player.id, el)} className={`absolute flex items-center gap-6 ${transitionClass} ${player.hp <= 0 ? 'opacity-30 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(59,130,246,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: avatarTransform, top: topPx }}>
+                    <div className={`relative ${CHAR_ATLASES[player.id] ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`} style={{ transition: 'all 0.15s ease-out' }}>{CHAR_ATLASES[player.id] ? <CharSprite atlas={CHAR_ATLASES[player.id]} size={220} /> : String(player.icon)}{isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}</div>
                     <div className={`flex flex-col transition-opacity duration-300 ${(isAttacking || isBeingAttacked) ? 'opacity-0' : 'opacity-100'}`}><span className={`font-black transition-colors ${isHovered ? 'text-white' : 'text-blue-400'} text-xl uppercase tracking-tighter`}>{String(player.name)}</span></div>
                   </div>
                 );
