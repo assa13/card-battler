@@ -122,9 +122,9 @@ const ItemIcon = ({ item, className = '', imgClassName = 'w-full h-full object-c
 
 // Атласы idle-анимаций персонажей игрока: спрайт-лист 1280x1280, кадр 320x320, сетка 4x4
 const CHAR_ATLASES = {
-  p1: { url: './chars/warrior_atlas.png', cols: 4, rows: 4, frameCount: 15, fps: 12 },
-  p2: { url: './chars/rogue_atlas.png',   cols: 4, rows: 4, frameCount: 16, fps: 12 },
-  p3: { url: './chars/priest_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 12 },
+  p1: { url: './chars/warrior_atlas.png', cols: 4, rows: 4, frameCount: 15, fps: 6 },
+  p2: { url: './chars/rogue_atlas.png',   cols: 4, rows: 4, frameCount: 16, fps: 6 },
+  p3: { url: './chars/priest_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 6 },
 };
 
 // Зигзаг-формация бойцов игрока. Координаты из макета (контейнер 545px высотой, спрайт 254px)
@@ -138,9 +138,9 @@ const CHAR_FORMATION = {
 
 // Атласы врагов (спрайты зеркалятся через scaleX(-1))
 const ENEMY_ATLASES = {
-  'Гоблин': { url: './chars/goblin_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 12 },
-  'Волк':   { url: './chars/wolf_atlas.png',    cols: 4, rows: 4, frameCount: 16, fps: 12 },
-  'Бандит': { url: './chars/bandit_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 12 },
+  'Гоблин': { url: './chars/goblin_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 6 },
+  'Волк':   { url: './chars/wolf_atlas.png',    cols: 4, rows: 4, frameCount: 16, fps: 6 },
+  'Бандит': { url: './chars/bandit_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 6 },
 };
 
 // Зеркальная формация врагов — точное зеркало CHAR_FORMATION (left→right, top одинаковые)
@@ -2800,7 +2800,7 @@ export default function App() {
                 else if (isBeingAttacked) enemyTransform = 'scaleX(-1) scale(1.1)';
 
                 return (
-                  <div key={String(enemy.id)} ref={(el) => setEnemyRef(enemy.id, el)} className={`absolute relative ${transitionClass} ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ right: pos.right, top: pos.top }}>
+                  <div key={String(enemy.id)} ref={(el) => setEnemyRef(enemy.id, el)} className={`absolute ${transitionClass} ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ right: pos.right, top: pos.top }}>
                     {isSpeaking && <EnemySpeechBubble text={speakingEnemy.text} />}
                     <div className="relative" style={{ transform: enemyTransform }}>
                       <div
