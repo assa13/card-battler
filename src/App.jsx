@@ -131,10 +131,24 @@ const CHAR_ATLASES = {
 // отмасштабированы под высоту арены 355px (коэф. ≈0.651).
 const CHAR_SPRITE_SIZE = 166;
 const CHAR_FORMATION = {
-  p1: { left: 25, top: -66 },   // воин — сверху слева
-  p2: { left: 191, top: 22 },   // разбойник — по центру, шаг вперёд
-  p3: { left: 25, top: 101 },   // маг — снизу слева
+  p1: { left: 25, top: -46 },   // воин — сверху слева
+  p2: { left: 191, top: 42 },   // разбойник — по центру, шаг вперёд
+  p3: { left: 25, top: 121 },   // маг — снизу слева
 };
+
+// Атласы врагов (спрайты зеркалятся через scaleX(-1))
+const ENEMY_ATLASES = {
+  'Гоблин': { url: './chars/goblin_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 12 },
+  'Волк':   { url: './chars/wolf_atlas.png',    cols: 4, rows: 4, frameCount: 16, fps: 12 },
+  'Бандит': { url: './chars/bandit_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 12 },
+};
+
+// Зеркальная формация врагов: right/top вместо left/top (индекс = порядок в массиве enemies)
+const ENEMY_FORMATION = [
+  { right: 25, top: -46 },   // враг 0 — верхний правый
+  { right: 191, top: 42 },   // враг 1 — по центру, шаг вперёд к центру
+  { right: 25, top: 121 },   // враг 2 — нижний правый
+];
 
 // Анимированный спрайт из атласа: проигрывает кадры по сетке через background-position
 const CharSprite = ({ atlas, size = 110, className = '', style = {} }) => {
@@ -2728,43 +2742,39 @@ export default function App() {
               })}
             </div>
             <div className="absolute left-1/2 top-16 bottom-16 w-px bg-gradient-to-b from-transparent via-slate-700 to-transparent opacity-50"></div>
-            <div className="flex flex-col gap-14 w-1/3 relative z-10">
-              {enemies.map((enemy) => {
+            <div className="relative w-1/2 z-10 h-full overflow-visible">
+              {enemies.map((enemy, eIdx) => {
                 const isHoveredTarget = hoveredTargetIds.includes(enemy.id); 
                 const isBeingAttacked = animatingTargetIds.includes(enemy.id); 
                 const isAttacking = animatingEnemyId === enemy.id;
-                
-                // Проверяем, говорит ли сейчас этот враг
                 const isSpeaking = speakingEnemy && speakingEnemy.id === enemy.id && !enemy.isDead;
+                const enemyAtlas = ENEMY_ATLASES[enemy.name] || null;
+                const pos = ENEMY_FORMATION[eIdx] || { right: 25, top: eIdx * 110 };
                 
-                let enemyTransform = '';
+                let enemyTransform = 'scaleX(-1)';
                 let transitionClass = 'transition-all duration-300 ease-out';
-                if (isAttacking) enemyTransform = 'translate(-250px, 0) scale(1.25)';
-                else if (isHoveredTarget && !isAnimating) enemyTransform = 'translate(-16px, 0)';
+                if (isAttacking) enemyTransform = 'scaleX(-1) translate(250px, 0) scale(1.25)';
+                else if (isHoveredTarget && !isAnimating) enemyTransform = 'scaleX(-1) translate(16px, 0)';
                 else if (isBeingAttacked && shake.x !== 0) {
-                   enemyTransform = `translate(${shake.x * 0.5}px, ${shake.y * 0.5}px) rotate(${shake.rot * 0.5}deg) scale(1.1)`;
+                   enemyTransform = `scaleX(-1) translate(${shake.x * 0.5}px, ${shake.y * 0.5}px) rotate(${shake.rot * 0.5}deg) scale(1.1)`;
                    transitionClass = 'transition-none'; 
                 }
-                else if (isBeingAttacked) enemyTransform = 'scale(1.1)';
+                else if (isBeingAttacked) enemyTransform = 'scaleX(-1) scale(1.1)';
 
                 return (
-                  <div key={String(enemy.id)} ref={(el) => setEnemyRef(enemy.id, el)} className={`flex items-center justify-end gap-6 ${transitionClass} ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: enemyTransform }}>
-                    <div className={`flex flex-col items-end transition-opacity duration-300 ${(isAttacking || isBeingAttacked) ? 'opacity-0' : 'opacity-100'}`}><span className={`font-black transition-colors ${isHoveredTarget || isBeingAttacked ? 'text-white' : 'text-red-500'} text-xl uppercase tracking-tighter`}>{String(enemy.name)}</span>{!enemy.isDead && <span className="text-xs font-mono text-red-400 font-bold drop-shadow-sm">{String(enemy.hp)} HP</span>}</div>
-                    
-                    {/* Контейнер для баббла речи и иконки */}
+                  <div key={String(enemy.id)} ref={(el) => setEnemyRef(enemy.id, el)} className={`absolute flex items-center ${transitionClass} ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: enemyTransform, right: pos.right, top: pos.top }}>
                     <div className="relative flex items-center justify-center">
                        {isSpeaking && (
-                         <div className="absolute bottom-full right-[70%] mb-2 w-max max-w-[160px] bg-white text-red-900 text-[11px] font-black px-4 py-2 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-[100] animate-in fade-in zoom-in-75 duration-300 leading-tight uppercase border-[3px] border-red-500 pointer-events-none">
+                         <div className="absolute bottom-full right-[70%] mb-2 w-max max-w-[160px] bg-white text-red-900 text-[11px] font-black px-4 py-2 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-[100] animate-in fade-in zoom-in-75 duration-300 leading-tight uppercase border-[3px] border-red-500 pointer-events-none" style={{ transform: 'scaleX(-1)' }}>
                             {speakingEnemy.text}
-                            {/* Хвостик для баббла, указывающий на врага */}
                             <div className="absolute -bottom-[7px] right-6 w-3 h-3 bg-white border-b-[3px] border-r-[3px] border-red-500 transform rotate-45"></div>
                          </div>
                        )}
-                       <div 
-                         className={`text-6xl relative ${isHoveredTarget || isBeingAttacked ? 'drop-shadow-[0_0_25px_rgba(239,68,68,0.4)]' : ''} ${flashingTargets.includes(enemy.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`}
+                       <div
+                         className={`relative ${enemyAtlas ? '' : 'text-6xl'} ${isHoveredTarget || isBeingAttacked ? 'drop-shadow-[0_0_25px_rgba(239,68,68,0.4)]' : ''} ${flashingTargets.includes(enemy.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`}
                          style={{ animation: isSpeaking && !isBeingAttacked && !isAttacking ? 'speechWobble 0.4s ease-in-out infinite' : 'none', transition: 'all 0.15s ease-out' }}
                        >
-                         {String(enemy.icon)}
+                         {enemyAtlas ? <CharSprite atlas={enemyAtlas} size={CHAR_SPRITE_SIZE} /> : String(enemy.icon)}
                          {isHoveredTarget && !isAnimating && <div className="absolute -inset-2 border-2 border-red-500 rounded-full animate-ping opacity-40"></div>}
                          {isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}
                        </div>
