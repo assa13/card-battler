@@ -143,11 +143,11 @@ const ENEMY_ATLASES = {
   'Бандит': { url: './chars/bandit_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 12 },
 };
 
-// Зеркальная формация врагов (right/top вместо left/top), адаптивная под количество врагов
+// Зеркальная формация врагов — точное зеркало CHAR_FORMATION (left→right, top одинаковые)
 const ENEMY_FORMATIONS = {
-  1: [{ right: 105, top: 95 }],                                              // один — по центру
-  2: [{ right: 30, top: 8 }, { right: 160, top: 150 }],                      // двое — по диагонали
-  3: [{ right: 25, top: -46 }, { right: 191, top: 42 }, { right: 25, top: 121 }], // трое — зигзаг
+  1: [{ right: 191, top: 42  }],                          // зеркало p2 — шаг вперёд
+  2: [{ right: 25,  top: -46 }, { right: 25, top: 121 }], // зеркала p1 и p3
+  3: [{ right: 25,  top: -46 }, { right: 191, top: 42 }, { right: 25, top: 121 }], // зеркала p1, p2, p3
 };
 
 // Анимированный спрайт из атласа: проигрывает кадры по сетке через background-position
