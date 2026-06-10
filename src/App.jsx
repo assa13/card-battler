@@ -120,6 +120,44 @@ const ItemIcon = ({ item, className = '', imgClassName = 'w-full h-full object-c
   );
 };
 
+// Атласы idle-анимаций персонажей игрока: спрайт-лист 1280x1280, кадр 320x320, сетка 4x4
+const CHAR_ATLASES = {
+  p1: { url: './chars/warrior_atlas.png', cols: 4, rows: 4, frameCount: 15, fps: 12 },
+  p2: { url: './chars/rogue_atlas.png',   cols: 4, rows: 4, frameCount: 16, fps: 12 },
+  p3: { url: './chars/priest_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 12 },
+};
+
+// Анимированный спрайт из атласа: проигрывает кадры по сетке через background-position
+const CharSprite = ({ atlas, size = 110, className = '', style = {} }) => {
+  const [frame, setFrame] = useState(0);
+  useEffect(() => {
+    if (!atlas) return;
+    const interval = 1000 / (atlas.fps || 12);
+    const id = setInterval(() => {
+      setFrame((f) => (f + 1) % atlas.frameCount);
+    }, interval);
+    return () => clearInterval(id);
+  }, [atlas]);
+  if (!atlas) return null;
+  const col = frame % atlas.cols;
+  const row = Math.floor(frame / atlas.cols);
+  return (
+    <div
+      className={className}
+      style={{
+        width: size,
+        height: size,
+        backgroundImage: `url(${atlas.url})`,
+        backgroundSize: `${atlas.cols * size}px ${atlas.rows * size}px`,
+        backgroundPosition: `-${col * size}px -${row * size}px`,
+        backgroundRepeat: 'no-repeat',
+        imageRendering: 'pixelated',
+        ...style,
+      }}
+    />
+  );
+};
+
 const rollItemRarity = () => {
   const total = Object.values(ITEM_RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
   let roll = Math.random() * total;
@@ -2674,7 +2712,7 @@ export default function App() {
 
                 return (
                   <div key={`field-${player.id}`} ref={el => setAvatarRef(player.id, el)} className={`flex items-center gap-6 ${transitionClass} ${player.hp <= 0 ? 'opacity-30 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(59,130,246,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: avatarTransform }}>
-                    <div className={`text-6xl relative ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`} style={{ transition: 'all 0.15s ease-out' }}>{String(player.icon)}{isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}</div>
+                    <div className={`relative ${CHAR_ATLASES[player.id] ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`} style={{ transition: 'all 0.15s ease-out' }}>{CHAR_ATLASES[player.id] ? <CharSprite atlas={CHAR_ATLASES[player.id]} /> : String(player.icon)}{isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}</div>
                     <div className={`flex flex-col transition-opacity duration-300 ${(isAttacking || isBeingAttacked) ? 'opacity-0' : 'opacity-100'}`}><span className={`font-black transition-colors ${isHovered ? 'text-white' : 'text-blue-400'} text-xl uppercase tracking-tighter`}>{String(player.name)}</span></div>
                   </div>
                 );
