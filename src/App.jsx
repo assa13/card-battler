@@ -350,7 +350,7 @@ const EVENT_NARRATIVES = [
 
 const POWERUPS = [
   { id: 'mana', title: 'Осколок Эфира', desc: 'Максимальная мана увеличивается на +1.', icon: '🔵' },
-  { id: 'stats', title: 'Эликсир Мощи', desc: 'Основная характеристика каждого бойца удваивается (x2).', icon: '💪' },
+  { id: 'stats', title: 'Эликсир Мощи', desc: 'Основная характеристика каждого бойца увеличивается на +2%.', icon: '💪' },
   { id: 'hp', title: 'Семя Жизни', desc: 'Максимальное здоровье всех героев увеличивается на +50%.', icon: '❤️' },
   { id: 'cards', title: 'Древний Фолиант', desc: 'Получить 1 легендарную и 2 эпические карты в резерв.', icon: '📜' }
 ];
@@ -405,6 +405,16 @@ const formatCardScale = (card) => {
   if (s.dex) parts.push(`DEX×${Math.round(s.dex * 100)}%`);
   if (s.int) parts.push(`INT×${Math.round(s.int * 100)}%`);
   return parts.join(' ');
+};
+
+// Цвет урона карты по доминирующей характеристике (как в панели статов):
+// сила → красный, ловкость → зелёный, интеллект → синий
+const getCardStatColor = (card) => {
+  const s = getCardScale(card);
+  const str = s.str || 0, dex = s.dex || 0, int = s.int || 0;
+  if (int > str && int >= dex) return 'text-blue-400';
+  if (dex > str && dex >= int) return 'text-green-400';
+  return 'text-red-400';
 };
 
 const computeCardDamage = (owner, card, bonus = 1) => {
@@ -1230,7 +1240,7 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
   let dmg = owner ? getCardDamage(owner, card) : 0;
   if (willGiveBonus) dmg = Math.floor(dmg * 1.5);
   const critPct = owner ? Math.round(getCritChance(owner) * 100) : 0;
-  const scaleLine = formatCardScale(card);
+  const statColor = getCardStatColor(card);
 
   const displayRarityName = showOwnerLabel && owner ? `${rarity.name} - ${owner.name}` : rarity.name;
 
@@ -1250,10 +1260,10 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
         </div>
         <p className="text-[10px] text-slate-200 font-medium">
           Наносит <span
-            className={`font-bold transition-all duration-500 ${grow ? 'text-green-400' : (willGiveBonus ? 'text-yellow-400 text-sm' : 'text-amber-400')}`}
+            className={`font-bold transition-all duration-500 ${grow ? 'text-green-400' : (willGiveBonus ? 'text-yellow-400 text-sm' : statColor)}`}
             style={{ display: 'inline-block', transform: grow ? 'scale(1.9)' : 'scale(1)', textShadow: grow ? '0 0 14px rgba(34,197,94,0.95)' : 'none' }}
           >{String(dmg)}</span> урона.<br/>
-          <span className="text-[7px] text-slate-400 mt-0.5 block leading-tight">{scaleLine}{critPct > 0 && ` · Крит ${critPct}%`}</span>
+          {critPct > 0 && <span className="text-[7px] text-slate-400 mt-0.5 block leading-tight">Крит {critPct}%</span>}
           <span className="text-[8px] text-slate-300 mt-1 block">Приоритет {String(getTargetText(card.type, card.priority))}</span>
         </p>
       </div>
@@ -1892,9 +1902,9 @@ export default function App() {
      } else if (powerupId === 'stats') {
         setPlayers(prev => prev.map(p => {
            let updated = { ...p };
-           if (p.id === 'p1') updated.str *= 2;
-           if (p.id === 'p2') updated.agi *= 2;
-           if (p.id === 'p3') updated.int *= 2;
+           if (p.id === 'p1') updated.str = Math.round(updated.str * 1.02);
+           if (p.id === 'p2') updated.agi = Math.round(updated.agi * 1.02);
+           if (p.id === 'p3') updated.int = Math.round(updated.int * 1.02);
            const maxHp = getMaxHpFromStats(updated);
            const hpGain = maxHp - p.maxHp;
            return syncPlayerMaxHp({ ...updated, hp: p.hp + Math.max(0, hpGain) });
