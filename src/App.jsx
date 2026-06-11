@@ -26,6 +26,18 @@ const STAT_EFFECTS = {
   int: { magicDmg: 1, splashPower: 0.05 },
 };
 
+// Вторичные эффекты абилок. Каждый масштабируется от ВТОРОСТЕПЕННОГО стата владельца.
+// duration — в ХОДАХ врага (тикает, когда враги ходят). mark — без длительности (до первого удара).
+const SECONDARY_EFFECTS = {
+  stun:   { stat: 'dex', icon: '💫', color: 'text-amber-300', label: 'Оглушение',      duration: 1 },
+  vuln:   { stat: 'int', icon: '🛡️', color: 'text-blue-400',  label: 'Пробитие брони', duration: 2 },
+  bleed:  { stat: 'str', icon: '🩸', color: 'text-red-400',   label: 'Кровотечение',   duration: 3 },
+  blind:  { stat: 'int', icon: '🌀', color: 'text-blue-400',  label: 'Ослепление',     duration: 2 },
+  weaken: { stat: 'str', icon: '⬇️', color: 'text-red-400',   label: 'Ослабление',     duration: 2 },
+  mark:   { stat: 'dex', icon: '🎯', color: 'text-green-400', label: 'Метка',          duration: 0 },
+};
+const STAT_TEXT_COLOR = { str: 'text-red-400', dex: 'text-green-400', int: 'text-blue-400' };
+
 // Классовые веса (для справки / будущей экипировки)
 const CLASS_WEIGHTS = {
   p1: { str: 1.0, dex: 0.35, int: 0.2 },
@@ -323,18 +335,18 @@ const HERO_ABILITIES = {
   p1: { 
     basic: { id: 'b1', name: 'Удар мечом', cost: 0, mult: 1.5, scale: { str: 1.0, dex: 0.2 }, dmgType: 'melee', icon: '⚔️', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'slash' },
     skills: [
-      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.5, scale: { str: 1.0, dex: 0.15 }, dmgType: 'melee', icon: '🔨', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'smash' },
+      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.5, scale: { str: 1.0, dex: 0.15 }, dmgType: 'melee', icon: '🔨', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' } },
       { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.2, scale: { str: 0.9, dex: 0.25 }, dmgType: 'melee', icon: '🌪️', type: 'splash', rarity: 'COMMON', vfxType: 'slash' },
       { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, mult: 1.3, scale: { str: 1.0, dex: 0.35 }, dmgType: 'melee', icon: '🏃', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'slash' },
-      { id: 's1_4', ownerId: 'p1', name: 'Землетрясение', cost: 4, mult: 1.8, scale: { str: 0.4, int: 0.8 }, dmgType: 'magic', icon: '🌋', type: 'splash', rarity: 'EPIC', vfxType: 'smash' }
+      { id: 's1_4', ownerId: 'p1', name: 'Землетрясение', cost: 4, mult: 1.8, scale: { str: 0.4, int: 0.8 }, dmgType: 'magic', icon: '🌋', type: 'splash', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'vuln' } }
     ]
   },
   p2: { 
     basic: { id: 'b2', name: 'Кинжал', cost: 0, mult: 1.2, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🗡️', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'dagger_single' },
     skills: [
-      { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.0, scale: { dex: 1.0, int: 0.25 }, dmgType: 'ranged', icon: '🧪', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'poison' },
+      { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.0, scale: { dex: 1.0, int: 0.25 }, dmgType: 'ranged', icon: '🧪', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'poison', secondary: { effect: 'bleed' } },
       { id: 's2_2', ownerId: 'p2', name: 'Танец стали', cost: 3, mult: 1.4, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '⚔️', type: 'splash', rarity: 'RARE', vfxType: 'daggers' },
-      { id: 's2_3', ownerId: 'p2', name: 'Теневой шаг', cost: 2, mult: 1.8, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🥷', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'dark_strike' },
+      { id: 's2_3', ownerId: 'p2', name: 'Теневой шаг', cost: 2, mult: 1.8, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🥷', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'dark_strike', secondary: { effect: 'blind' } },
       { id: 's2_4', ownerId: 'p2', name: 'Шквал ножей', cost: 3, mult: 1.6, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '🗡️', type: 'splash', rarity: 'EPIC', vfxType: 'daggers' }
     ]
   },
@@ -342,9 +354,9 @@ const HERO_ABILITIES = {
     basic: { id: 'b3', name: 'Искра', cost: 0, mult: 1.0, scale: { int: 1.0, dex: 0.2 }, dmgType: 'magic', icon: '✨', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'magic_spark' },
     skills: [
       { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 1.5, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '☄️', type: 'splash', rarity: 'RARE', vfxType: 'fireball' },
-      { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, scale: { int: 1.0, dex: 0.25 }, dmgType: 'magic', icon: '❄️', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'ice_spike' },
+      { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, scale: { int: 1.0, dex: 0.25 }, dmgType: 'magic', icon: '❄️', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'ice_spike', secondary: { effect: 'mark' } },
       { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, mult: 1.4, scale: { dex: 0.8, int: 0.4 }, dmgType: 'magic', icon: '⚡', type: 'splash', rarity: 'RARE', vfxType: 'lightning' },
-      { id: 's3_4', ownerId: 'p3', name: 'Черная дыра', cost: 5, mult: 2.2, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '🌌', type: 'splash', rarity: 'LEGENDARY', vfxType: 'dark_void' }
+      { id: 's3_4', ownerId: 'p3', name: 'Черная дыра', cost: 5, mult: 2.2, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '🌌', type: 'splash', rarity: 'LEGENDARY', vfxType: 'dark_void', secondary: { effect: 'weaken' } }
     ]
   }
 };
@@ -475,6 +487,108 @@ const rollCardDamage = (owner, card, bonus = 1) => {
   const { damage, critChance } = computeCardDamage(owner, card, bonus);
   const isCrit = Math.random() < critChance;
   return { damage: isCrit ? Math.floor(damage * 2) : damage, isCrit, critChance };
+};
+
+// --- ВТОРИЧНЫЕ ЭФФЕКТЫ АБИЛОК ---
+
+// «Сила» эффекта = значение второстепенного стата владельца
+const getSecondaryStatValue = (owner, effect) => {
+  const stat = SECONDARY_EFFECTS[effect]?.stat;
+  if (stat === 'str') return owner?.str ?? 0;
+  if (stat === 'dex') return getPlayerDex(owner);
+  if (stat === 'int') return owner?.int ?? 0;
+  return 0;
+};
+
+// Краткое описание эффекта с подсчитанной величиной (для тултипа карточки)
+const getSecondaryDesc = (owner, card) => {
+  if (!card?.secondary) return null;
+  const effect = card.secondary.effect;
+  const def = SECONDARY_EFFECTS[effect];
+  if (!def) return null;
+  const v = owner ? getSecondaryStatValue(owner, effect) : 0;
+  let valueText = '';
+  switch (effect) {
+    case 'stun':   valueText = `${Math.round(Math.min(0.75, v * 0.02) * 100)}% шанс`; break;
+    case 'vuln':   valueText = `+${Math.round(Math.min(0.50, v * 0.01) * 100)}% урона`; break;
+    case 'bleed':  valueText = `${Math.max(1, Math.round(v * 0.5))}/ход ×${def.duration}`; break;
+    case 'blind':  valueText = `${Math.round(Math.min(0.75, v * 0.02) * 100)}% пром.`; break;
+    case 'weaken': valueText = `−${Math.round(Math.min(0.50, v * 0.01) * 100)}% атк`; break;
+    case 'mark':   valueText = `крит +${Math.round(v * 1)}%`; break;
+    default: break;
+  }
+  return { effect, def, valueText };
+};
+
+// Готовит payload эффекта для наложения на врага (величины посчитаны от владельца)
+const buildSecondaryPayload = (owner, card) => {
+  if (!card?.secondary) return null;
+  const effect = card.secondary.effect;
+  const def = SECONDARY_EFFECTS[effect];
+  if (!def) return null;
+  const v = getSecondaryStatValue(owner, effect);
+  switch (effect) {
+    case 'stun':   return { effect, chance: Math.min(0.75, v * 0.02), duration: def.duration };
+    case 'vuln':   return { effect, amount: Math.min(0.50, v * 0.01), duration: def.duration };
+    case 'bleed':  return { effect, dmg: Math.max(1, Math.round(v * 0.5)), duration: def.duration };
+    case 'blind':  return { effect, chance: Math.min(0.75, v * 0.02), duration: def.duration };
+    case 'weaken': return { effect, atk: Math.min(0.50, v * 0.01), hpLoss: Math.max(1, Math.round(v * 0.5)), duration: def.duration };
+    case 'mark':   return { effect, mult: 1 + v * 0.01 };
+    default: return null;
+  }
+};
+
+// Накладывает эффект на копию statuses врага (возвращает новый объект statuses).
+// Возвращает { statuses, immediateHpLoss, applied } — immediateHpLoss для weaken.
+const applyStatusToEnemy = (enemyStatuses, payload) => {
+  const statuses = { ...(enemyStatuses || {}) };
+  let immediateHpLoss = 0;
+  let applied = true;
+  switch (payload.effect) {
+    case 'stun':
+      if (Math.random() < payload.chance) statuses.stun = { remaining: payload.duration };
+      else applied = false;
+      break;
+    case 'vuln': {
+      const prev = statuses.vuln;
+      statuses.vuln = { remaining: Math.max(payload.duration, prev?.remaining || 0), amount: Math.max(payload.amount, prev?.amount || 0) };
+      break;
+    }
+    case 'bleed': {
+      const prev = statuses.bleed;
+      statuses.bleed = { remaining: payload.duration, dmg: Math.max(payload.dmg, prev?.dmg || 0) };
+      break;
+    }
+    case 'blind': {
+      const prev = statuses.blind;
+      statuses.blind = { remaining: Math.max(payload.duration, prev?.remaining || 0), chance: Math.max(payload.chance, prev?.chance || 0) };
+      break;
+    }
+    case 'weaken': {
+      const prev = statuses.weaken;
+      statuses.weaken = { remaining: Math.max(payload.duration, prev?.remaining || 0), atk: Math.max(payload.atk, prev?.atk || 0) };
+      immediateHpLoss = payload.hpLoss;
+      break;
+    }
+    case 'mark':
+      statuses.mark = { mult: payload.mult };
+      break;
+    default:
+      applied = false;
+  }
+  return { statuses, immediateHpLoss, applied };
+};
+
+// Уменьшает длительность всех временных статусов на 1; убирает истёкшие. mark не трогаем.
+const decrementStatuses = (enemy) => {
+  const s = enemy.statuses;
+  if (!s) return enemy;
+  const next = {};
+  ['stun', 'vuln', 'bleed', 'blind', 'weaken'].forEach(k => {
+    if (s[k] && s[k].remaining > 1) next[k] = { ...s[k], remaining: s[k].remaining - 1 };
+  });
+  if (s.mark) next.mark = s.mark;
+  return { ...enemy, statuses: next };
 };
 
 // Сливает пары одинаковых карт (имя + редкость + уровень), повышая уровень. Рарность не меняется,
@@ -695,6 +809,7 @@ const spawnEnemies = (type, stage, sector = 1) => {
       name, hp, maxHp: hp, icon, isDead: false,
       xpReward: Math.round(xp * mult),
       dmgMult, attackStyle, vfxType,
+      statuses: {},
     };
   };
 
@@ -813,19 +928,30 @@ const FlyingCard = ({ startX, startY, endX, endY, isDiscard = false, isReshuffle
   );
 };
 
-const DamagePopup = ({ id, value, x, y, isCrit, onComplete }) => {
+const DamagePopup = ({ id, value, x, y, isCrit, text, color, onComplete }) => {
+  const isStatus = !!text;
   const [offset, setOffset] = useState(0);
   const [opacity, setOpacity] = useState(1);
-  const [scale, setScale] = useState(isCrit ? 3.2 : 2.5);
+  const [scale, setScale] = useState(isStatus ? 1.4 : (isCrit ? 3.2 : 2.5));
   
   const onCompleteRef = useRef(onComplete);
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
 
   useEffect(() => {
-    const t = setTimeout(() => { setOffset(-120); setOpacity(0); setScale(0.8); }, 50);
-    const c = setTimeout(() => onCompleteRef.current(id), 2000);
+    const t = setTimeout(() => { setOffset(isStatus ? -70 : -120); setOpacity(0); setScale(isStatus ? 1.1 : 0.8); }, 50);
+    const c = setTimeout(() => onCompleteRef.current(id), isStatus ? 1400 : 2000);
     return () => { clearTimeout(t); clearTimeout(c); };
-  }, [id]);
+  }, [id, isStatus]);
+
+  // Текстовый статус-попап (оглушён, кровотечение, промах и т.п.)
+  if (isStatus) {
+    return (
+      <div className={`fixed z-[905] font-black pointer-events-none uppercase tracking-tight ${color || 'text-white'}`}
+        style={{ left: x, top: y, fontSize: '15px', opacity, transform: `translate(-50%, ${offset}px) scale(${scale})`, transition: 'all 1400ms cubic-bezier(0.18, 0.89, 0.32, 1.28)', WebkitTextStroke: '1px rgba(0,0,0,0.9)', textShadow: '2px 2px 0 rgba(0,0,0,0.9)' }}>
+        {String(text)}
+      </div>
+    );
+  }
 
   const fontSize = Math.min(32 + (value / 1.5), 100);
   const colorClass = isCrit ? 'text-yellow-300' : 'text-red-500';
@@ -1257,6 +1383,8 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
   if (willGiveBonus) dmg = Math.floor(dmg * 1.5);
   const critPct = owner ? Math.round(getCritChance(owner) * 100) : 0;
   const statColor = getCardStatColor(card);
+  const secondary = getSecondaryDesc(owner, card);
+  const secondaryColor = secondary ? STAT_TEXT_COLOR[secondary.def.stat] : '';
 
   const displayRarityName = showOwnerLabel && owner ? `${rarity.name} - ${owner.name}` : rarity.name;
 
@@ -1279,6 +1407,12 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
             className={`font-bold transition-all duration-500 ${grow ? 'text-green-400' : (willGiveBonus ? 'text-yellow-400 text-sm' : statColor)}`}
             style={{ display: 'inline-block', transform: grow ? 'scale(1.9)' : 'scale(1)', textShadow: grow ? '0 0 14px rgba(34,197,94,0.95)' : 'none' }}
           >{String(dmg)}</span> урона.<br/>
+          {secondary && (
+            <span className={`text-[8px] mt-0.5 font-black flex items-center justify-center gap-0.5 leading-tight ${secondaryColor}`}>
+              <span className="not-italic">{secondary.def.icon}</span>
+              {secondary.def.label}{secondary.valueText ? ` · ${secondary.valueText}` : ''}
+            </span>
+          )}
           {critPct > 0 && <span className="text-[7px] text-slate-400 mt-0.5 block leading-tight">Крит {critPct}%</span>}
           <span className="text-[8px] text-slate-300 mt-1 block">Приоритет {String(getTargetText(card.type, card.priority))}</span>
         </p>
@@ -2451,27 +2585,59 @@ export default function App() {
 
     setTimeout(() => {
       setVfxList([]); 
-      const { damage, isCrit } = rollCardDamage(effectivePlayer, card, multiplier);
+      const { damage: baseDamage, critChance } = computeCardDamage(effectivePlayer, card, multiplier);
       const newEnemies = enemies.map(e => ({...e})); let xpToSpawn = []; let lootToSpawn = [];
-      
+
       playSound(getCombatHitSound(card.vfxType || 'slash'));
-      if (isCrit) playSound('./assets/sfx/combat/hit_heavy.wav', 0.7);
-      triggerImpact(damage);
 
       const hitEnemyIds = targetIndices.map(idx => enemies[idx].id);
       setFlashingTargets(prev => [...prev, ...hitEnemyIds]);
       setTimeout(() => setFlashingTargets(prev => prev.filter(id => !hitEnemyIds.includes(id))), 250);
 
       const newBlood = [];
+      let anyCrit = false;
+      let maxDealt = 0;
+      const statusPopups = [];
       targetIndices.forEach(idx => {
-        const target = newEnemies[idx]; target.hp -= damage;
+        const target = newEnemies[idx];
+        target.statuses = { ...(target.statuses || {}) };
+
+        // Урон с учётом метки (гарант. крит + бонус) и пробития брони (vuln)
+        let dmg = baseDamage;
+        let isCrit = Math.random() < critChance;
+        const mark = target.statuses.mark;
+        if (mark) { isCrit = true; }
+        if (isCrit) dmg = Math.floor(dmg * 2);
+        if (mark) { dmg = Math.floor(dmg * (mark.mult || 1)); delete target.statuses.mark; }
+        const vuln = target.statuses.vuln;
+        if (vuln) dmg = Math.floor(dmg * (1 + vuln.amount));
+        if (isCrit) anyCrit = true;
+        maxDealt = Math.max(maxDealt, dmg);
+
+        target.hp -= dmg;
+
         const eRect = enemyRefs.current[target.id]?.getBoundingClientRect();
         if (eRect) {
-           setDamagePopups(prev => [...prev, { id: Math.random(), value: damage, isCrit, x: eRect.left + eRect.width / 2, y: eRect.top + eRect.height / 2 }]);
+           setDamagePopups(prev => [...prev, { id: Math.random(), value: dmg, isCrit, x: eRect.left + eRect.width / 2, y: eRect.top + eRect.height / 2 }]);
            for(let i=0; i<30; i++) {
               newBlood.push({ id: Math.random(), x: eRect.left + eRect.width/2, y: eRect.top + eRect.height/2 });
            }
         }
+
+        // Наложение вторичного эффекта карты
+        if (card.secondary && !target.isDead) {
+          const payload = buildSecondaryPayload(effectivePlayer, card);
+          if (payload) {
+            const { statuses, immediateHpLoss, applied } = applyStatusToEnemy(target.statuses, payload);
+            target.statuses = statuses;
+            if (immediateHpLoss) target.hp -= immediateHpLoss;
+            if (applied && eRect) {
+              const def = SECONDARY_EFFECTS[payload.effect];
+              statusPopups.push({ id: Math.random(), text: `${def.icon} ${def.label}`, color: def.color, x: eRect.left + eRect.width / 2, y: eRect.top - 10 });
+            }
+          }
+        }
+
         if (target.hp <= 0 && !target.isDead) {
           target.hp = 0; target.isDead = true;
           xpToSpawn.push({ id: target.id, amount: target.xpReward });
@@ -2480,7 +2646,10 @@ export default function App() {
           playSound('./assets/sfx/combat/death.wav', 0.7);
         }
       });
+      if (anyCrit) playSound('./assets/sfx/combat/hit_heavy.wav', 0.7);
+      triggerImpact(maxDealt);
       setBloodParticles(prev => [...prev, ...newBlood]);
+      if (statusPopups.length) setTimeout(() => setDamagePopups(prev => [...prev, ...statusPopups]), 260);
 
       setEnemies(newEnemies); setAnimatingPlayerId(null); 
             setTimeout(() => setAnimatingTargetIds([]), 350);
@@ -2538,6 +2707,8 @@ export default function App() {
 
   const playersRef = useRef(players);
   useEffect(() => { playersRef.current = players; }, [players]);
+  const enemiesRef = useRef(enemies);
+  useEffect(() => { enemiesRef.current = enemies; }, [enemies]);
   useEffect(() => { showLevelUpRef.current = showLevelUp; }, [showLevelUp]);
 
   // Слияние происходит всегда: как только в колоде (резерв+сброс+руки) есть пара —
@@ -2551,16 +2722,75 @@ export default function App() {
 
   useEffect(() => {
     if (turnState !== 'enemy' || showLevelUp) return;
-    let delay = 0; const aliveEnemies = enemies.filter(e => !e.isDead);
+
+    // === Тик кровотечения в начале фазы врага ===
+    const startEnemies = enemiesRef.current.map(e => ({ ...e, statuses: { ...(e.statuses || {}) } }));
+    const bleedXp = []; const bleedLoot = []; let bleedHappened = false;
+    startEnemies.forEach(e => {
+      if (e.isDead) return;
+      const bl = e.statuses.bleed;
+      if (bl && bl.remaining > 0 && bl.dmg > 0) {
+        bleedHappened = true;
+        e.hp = Math.max(0, e.hp - bl.dmg);
+        const eRect = enemyRefs.current[e.id]?.getBoundingClientRect();
+        if (eRect) {
+          setDamagePopups(dp => [...dp, { id: Math.random(), value: bl.dmg, x: eRect.left + eRect.width/2, y: eRect.top + eRect.height/2 }]);
+          setDamagePopups(dp => [...dp, { id: Math.random(), text: '🩸', color: 'text-red-400', x: eRect.left + eRect.width/2, y: eRect.top - 10 }]);
+        }
+        if (e.hp <= 0 && !e.isDead) {
+          e.isDead = true; e.hp = 0;
+          bleedXp.push({ id: e.id, amount: e.xpReward });
+          const loot = rollLootDrop(); if (loot) bleedLoot.push({ id: e.id, item: loot });
+          playSound('./assets/sfx/combat/death.wav', 0.7);
+        }
+      }
+    });
+    if (bleedHappened) {
+      setEnemies(startEnemies);
+      bleedXp.forEach(xd => {
+        const eRect = enemyRefs.current[xd.id]?.getBoundingClientRect(); const bRect = xpBarRef.current?.getBoundingClientRect();
+        if (eRect && bRect) setFlyingXps(prev => [...prev, { id: Math.random(), amount: xd.amount, startX: eRect.left + eRect.width/2, startY: eRect.top, endX: bRect.left + bRect.width/2, endY: bRect.top + bRect.height/2 }]);
+      });
+      bleedLoot.forEach(ld => {
+        const eRect = enemyRefs.current[ld.id]?.getBoundingClientRect(); const iRect = inventoryRef.current?.getBoundingClientRect();
+        if (eRect && iRect) setFlyingItems(prev => [...prev, { id: Math.random(), item: ld.item, startX: eRect.left + eRect.width/2, startY: eRect.top + eRect.height/2, endX: iRect.left + iRect.width/2, endY: iRect.top + iRect.height/2 }]);
+        else addItemToInventory(ld.item);
+      });
+    }
+
+    // === Победа, если кровотечение добило всех ===
+    if (startEnemies.every(e => e.isDead)) {
+      setCompletedNodes(prev => [...prev, currentMapNodeId]);
+      setTimeout(() => {
+        if (showLevelUpRef.current) pendingTransitionRef.current = currentStage === 5 ? 'victory' : 'map';
+        else if (currentStage === 5) { playSound('./assets/sfx/game/victory.wav'); setTurnState('victory'); }
+        else setTurnState('map');
+      }, 1200);
+      return;
+    }
+
+    let delay = bleedHappened ? 450 : 0;
+    const aliveEnemies = startEnemies.filter(e => !e.isDead);
     aliveEnemies.forEach((enemy) => {
       setTimeout(() => {
          const alivePlayers = playersRef.current.filter(p => p.hp > 0);
          if (alivePlayers.length === 0) return;
 
+         const st = enemy.statuses || {};
+
+         // Оглушение — пропуск хода
+         if (st.stun && st.stun.remaining > 0) {
+            const eR = enemyRefs.current[enemy.id]?.getBoundingClientRect();
+            if (eR) setDamagePopups(dp => [...dp, { id: Math.random(), text: '💫 ОГЛУШЁН', color: 'text-amber-300', x: eR.left + eR.width/2, y: eR.top - 10 }]);
+            return;
+         }
+
          const base = Math.floor(Math.random() * 8) + 8 + (currentStage * 3);
-         const dmg = Math.round(base * (enemy.dmgMult || 1.0));
+         const weakenAtk = st.weaken?.atk || 0;
+         const dmg = Math.max(1, Math.round(base * (enemy.dmgMult || 1.0) * (1 - weakenAtk)));
          const style = enemy.attackStyle || 'melee';
          const vfxType = enemy.vfxType || 'enemy';
+         const blindChance = st.blind?.chance || 0;
 
          // AoE (Глаз): бьёт всех живых игроков одновременно
          if (style === 'aoe') {
@@ -2583,6 +2813,12 @@ export default function App() {
             setTimeout(() => {
                setVfxList([]);
                playSound('./assets/sfx/combat/enemy_attack.wav');
+               const missed = Math.random() < blindChance;
+               if (missed) {
+                  targets.forEach(t => { const pr = avatarRefs.current[t.id]?.getBoundingClientRect(); if (pr) setDamagePopups(dp => [...dp, { id: Math.random(), text: 'ПРОМАХ', color: 'text-slate-200', x: pr.left + pr.width/2, y: pr.top - 10 }]); });
+                  setAnimatingEnemyId(null); setTimeout(() => setAnimatingTargetIds([]), 350); setIsAnimating(false);
+                  return;
+               }
                triggerImpact(dmg * 1.4);
                setFlashingTargets(prev => [...prev, ...targets.map(t => t.id)]);
                setTimeout(() => setFlashingTargets(prev => prev.filter(id => !targets.some(t => t.id === id))), 250);
@@ -2620,26 +2856,17 @@ export default function App() {
          const eRect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
          const pRect = avatarRefs.current[target.id]?.getBoundingClientRect();
 
-         // Сначала сбрасываем translate в 0 (враг стоит на месте),
-         // потом через rAF устанавливаем целевой translate — браузер видит смену
-         // и запускает CSS transition плавно.
          setEnemyAttackTranslate({ dx: 0, dy: 0 });
 
          if (style === 'ranged') {
-            // Ranged — снаряд летит, сам враг не двигается
             if (eRect && pRect) {
                setVfxList([{ id: Math.random(), type: vfxType, delay: 0,
                   startX: eRect.left + eRect.width/2, startY: eRect.top + eRect.height/2,
                   endX: pRect.left + pRect.width/2,   endY: pRect.top + pRect.height/2 }]);
             }
          } else {
-            // Melee — прыжок: ждём 2 rAF чтобы гарантировать отдельный paint-кадр
-            const leapDx = eRect && pRect
-               ? (pRect.left + pRect.width/2) - (eRect.left + eRect.width/2)
-               : -200;
-            const leapDy = eRect && pRect
-               ? (pRect.top  + pRect.height/2) - (eRect.top  + eRect.height/2)
-               : 0;
+            const leapDx = eRect && pRect ? (pRect.left + pRect.width/2) - (eRect.left + eRect.width/2) : -200;
+            const leapDy = eRect && pRect ? (pRect.top  + pRect.height/2) - (eRect.top  + eRect.height/2) : 0;
             requestAnimationFrame(() => requestAnimationFrame(() => {
                setEnemyAttackTranslate({ dx: leapDx * 0.75, dy: leapDy * 0.75 });
             }));
@@ -2648,8 +2875,14 @@ export default function App() {
          setTimeout(() => {
             setVfxList([]);
             playSound('./assets/sfx/combat/enemy_attack.wav');
+            const missed = Math.random() < blindChance;
+            if (missed) {
+               if (pRect) setDamagePopups(dp => [...dp, { id: Math.random(), text: 'ПРОМАХ', color: 'text-slate-200', x: pRect.left + pRect.width/2, y: pRect.top - 10 }]);
+               setAnimatingEnemyId(null); setTimeout(() => setAnimatingTargetIds([]), 350); setIsAnimating(false);
+               return;
+            }
             triggerImpact(dmg);
-            
+
             setFlashingTargets(prev => [...prev, target.id]);
             setTimeout(() => setFlashingTargets(prev => prev.filter(id => id !== target.id)), 250);
 
@@ -2678,6 +2911,8 @@ export default function App() {
     });
     
     setTimeout(() => { 
+        // Конец фазы: уменьшаем длительность всех статусов
+        setEnemies(prev => prev.map(e => e.isDead ? e : decrementStatuses(e)));
         if (playersRef.current.every(p => p.hp <= 0)) {
             playSound('./assets/sfx/game/gameover.wav');
             setTurnState('gameover');
@@ -2685,7 +2920,8 @@ export default function App() {
             setTurnState(ts => ts === 'enemy' ? 'dealing' : ts);
         }
     }, delay + 1000);
-  }, [turnState, showLevelUp, currentStage, enemies]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turnState, showLevelUp, currentStage]);
 
   const getCardComboStatus = (pId, card) => {
     if (!card) return { isCandidate: false, willGiveBonus: false };
@@ -2934,6 +3170,19 @@ export default function App() {
                 return (
                   <div key={String(enemy.id)} ref={(el) => setEnemyRef(enemy.id, el)} className={`absolute ${transitionClass} ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: moveTransform, right: pos.right, top: pos.top }}>
                     {isSpeaking && <EnemySpeechBubble text={speakingEnemy.text} />}
+                    {!enemy.isDead && enemy.statuses && Object.keys(enemy.statuses).length > 0 && (
+                      <div className="absolute left-1/2 -translate-x-1/2 -top-3 flex gap-1 z-[80] pointer-events-none">
+                        {Object.entries(enemy.statuses).map(([key, val]) => {
+                          const def = SECONDARY_EFFECTS[key]; if (!def) return null;
+                          return (
+                            <div key={key} title={def.label} className="flex items-center bg-slate-900/85 border border-slate-600 rounded-md px-1 py-0.5 text-[11px] leading-none shadow-lg">
+                              <span>{def.icon}</span>
+                              {val.remaining ? <span className="ml-0.5 font-black text-white text-[9px]">{val.remaining}</span> : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                     <div className="relative" style={{ transform: 'scaleX(-1)' }}>
                       <div
                         className={`relative ${enemyAtlas ? '' : 'text-6xl'} ${isHoveredTarget || isBeingAttacked ? 'drop-shadow-[0_0_25px_rgba(239,68,68,0.4)]' : ''} ${flashingTargets.includes(enemy.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`}
