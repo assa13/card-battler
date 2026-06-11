@@ -13,18 +13,15 @@ const RARITIES = {
   LEGENDARY: { name: 'Легендарная', border: 'border-amber-400', header: 'bg-[#8a6b3b]', text: 'text-amber-400', badgeBg: 'bg-amber-500' }
 };
 
+// HP больше НЕ зависит от статов: базовое значение + рост за уровень + события + предметы
 const INITIAL_PLAYERS_DATA = [
-  { id: 'p1', name: 'Воин', baseMaxHp: 35, hp: 50, maxHp: 50, str: 15, agi: 5, int: 2, icon: '🛡️', bg: 'bg-blue-900', currentCard: null, hasActed: false },
-  { id: 'p2', name: 'Разбойник', baseMaxHp: 29, hp: 35, maxHp: 35, str: 6, agi: 18, int: 4, icon: '🗡️', bg: 'bg-green-900', currentCard: null, hasActed: false },
-  { id: 'p3', name: 'Маг', baseMaxHp: 23, hp: 25, maxHp: 25, str: 2, agi: 6, int: 20, icon: '🔮', bg: 'bg-purple-900', currentCard: null, hasActed: false },
+  { id: 'p1', name: 'Воин', baseMaxHp: 50, hp: 50, maxHp: 50, str: 15, agi: 5, int: 2, icon: '🛡️', bg: 'bg-blue-900', currentCard: null, hasActed: false },
+  { id: 'p2', name: 'Разбойник', baseMaxHp: 35, hp: 35, maxHp: 35, str: 6, agi: 18, int: 4, icon: '🗡️', bg: 'bg-green-900', currentCard: null, hasActed: false },
+  { id: 'p3', name: 'Маг', baseMaxHp: 25, hp: 25, maxHp: 25, str: 2, agi: 6, int: 20, icon: '🔮', bg: 'bg-purple-900', currentCard: null, hasActed: false },
 ];
 
-// Базовые эффекты характеристик (за 1 очко)
-const STAT_EFFECTS = {
-  str: { hp: 1, universalDmg: 0.35 },
-  dex: { rangedDmg: 1, critChance: 0.01 },
-  int: { magicDmg: 1, splashPower: 0.05 },
-};
+// Рост максимального HP за уровень отряда (воин — танк, растёт быстрее)
+const HP_PER_LEVEL = { p1: 8, p2: 6, p3: 4 };
 
 // Вторичные эффекты абилок. Каждый масштабируется от ВТОРОСТЕПЕННОГО стата владельца.
 // duration — в ХОДАХ врага (тикает, когда враги ходят). mark — без длительности (до первого удара).
@@ -77,8 +74,8 @@ const ITEM_RARITY_PREFIX = {
 const ITEM_TEMPLATES = [
   // COMMON (11)
   { name: 'Инструменты палача', icon: 'item_11.png', focus: 'str', rarity: 'COMMON' },
-  { name: 'Запас зелий', icon: 'item_13.png', focus: 'dex', rarity: 'COMMON' },
-  { name: 'Статуя горгульи', icon: 'item_14.png', focus: 'str', rarity: 'COMMON' },
+  { name: 'Запас зелий', icon: 'item_13.png', focus: 'hp', rarity: 'COMMON' },
+  { name: 'Статуя горгульи', icon: 'item_14.png', focus: 'hp', rarity: 'COMMON' },
   { name: 'Зловещий кинжал', icon: 'item_20.png', focus: 'dex', rarity: 'COMMON' },
   { name: 'Ступка алхимика', icon: 'item_31.png', focus: 'int', rarity: 'COMMON' },
   { name: 'Кожаная перчатка', icon: 'item_34.png', focus: 'dex', rarity: 'COMMON' },
@@ -89,7 +86,7 @@ const ITEM_TEMPLATES = [
   { name: 'Свиток нетопыря', icon: 'item_45.png', focus: 'int', rarity: 'COMMON' },
   // RARE (7)
   { name: 'Астролябия', icon: 'item_15.png', focus: 'int', rarity: 'RARE' },
-  { name: 'Кости предков', icon: 'item_30.png', focus: 'str', rarity: 'RARE' },
+  { name: 'Кости предков', icon: 'item_30.png', focus: 'hp', rarity: 'RARE' },
   { name: 'Букет аконита', icon: 'item_32.png', focus: 'int', rarity: 'RARE' },
   { name: 'Рунические камни', icon: 'item_33.png', focus: 'int', rarity: 'RARE' },
   { name: 'Фляга с ядом', icon: 'item_38.png', focus: 'dex', rarity: 'RARE' },
@@ -98,12 +95,12 @@ const ITEM_TEMPLATES = [
   // EPIC (5)
   { name: 'Древний гримуар', icon: 'item_10.png', focus: 'int', rarity: 'EPIC' },
   { name: 'Череп ворона', icon: 'item_12.png', focus: 'int', rarity: 'EPIC' },
-  { name: 'Терновый венец', icon: 'item_25.png', focus: 'int', rarity: 'EPIC' },
+  { name: 'Терновый венец', icon: 'item_25.png', focus: 'hp', rarity: 'EPIC' },
   { name: 'Рутиловый кристалл', icon: 'item_35.png', focus: 'int', rarity: 'EPIC' },
   { name: 'Крылатый череп', icon: 'item_37.png', focus: 'str', rarity: 'EPIC' },
   // LEGENDARY (2)
   { name: 'Зеркало скорби', icon: 'item_40.png', focus: 'int', rarity: 'LEGENDARY' },
-  { name: 'Проклятый гроб', icon: 'item_46.png', focus: 'str', rarity: 'LEGENDARY' },
+  { name: 'Проклятый гроб', icon: 'item_46.png', focus: 'hp', rarity: 'LEGENDARY' },
 ];
 
 // Цвет тинта по рарности — позволяет «перекрашивать» базовую иконку под новую рарность
@@ -288,13 +285,15 @@ const pickTemplateForRarity = (rarity) => {
 const generateItemOfRarity = (rarity) => {
   const { template, tinted } = pickTemplateForRarity(rarity);
   const range = ITEM_STAT_RANGES[rarity];
-  const mainVal = Math.floor(Math.random() * (range.max - range.min + 1)) + range.min;
+  const roll = Math.floor(Math.random() * (range.max - range.min + 1)) + range.min;
+  // HP-предметы дают ×3 от обычного стата (HP — отдельный ресурс, статы его не качают)
+  const mainVal = template.focus === 'hp' ? roll * 3 : roll;
   const stats = { [template.focus]: mainVal };
   const sec = ITEM_SECONDARY[rarity];
   if (sec.chance > 0 && Math.random() < sec.chance) {
     const secondary = ['str', 'dex', 'int'].filter(s => s !== template.focus);
     const pick = secondary[Math.floor(Math.random() * secondary.length)];
-    stats[pick] = Math.max(1, Math.round(mainVal * sec.ratio));
+    stats[pick] = Math.max(1, Math.round(roll * sec.ratio));
   }
   // Перекрашенный предмет получает префикс новой рарности, родной — своё базовое имя
   const prefix = ITEM_RARITY_PREFIX[rarity];
@@ -319,7 +318,7 @@ const getEffectivePlayer = (player, equippedItem) => {
   const str = player.str + (bonus.str || 0);
   const agi = player.agi + (bonus.dex || bonus.agi || 0);
   const int = player.int + (bonus.int || 0);
-  const maxHp = (player.baseMaxHp ?? 20) + str * STAT_EFFECTS.str.hp;
+  const maxHp = (player.baseMaxHp ?? 20) + (bonus.hp || 0);
   return { ...player, str, agi, int, maxHp };
 };
 
@@ -328,35 +327,36 @@ const formatItemStats = (stats = {}) => {
   if (stats.str) parts.push(`Сила +${stats.str}`);
   if (stats.dex || stats.agi) parts.push(`Ловкость +${stats.dex || stats.agi}`);
   if (stats.int) parts.push(`Инт +${stats.int}`);
+  if (stats.hp) parts.push(`HP +${stats.hp}`);
   return parts.length ? parts.join(' · ') : 'Без бонусов';
 };
 
 const HERO_ABILITIES = {
   p1: { 
-    basic: { id: 'b1', name: 'Удар мечом', cost: 0, mult: 1.5, scale: { str: 1.0, dex: 0.2 }, dmgType: 'melee', icon: '⚔️', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'slash' },
+    basic: { id: 'b1', name: 'Удар мечом', cost: 0, mult: 1.8, scale: { str: 1.0, dex: 0.2 }, dmgType: 'melee', icon: '⚔️', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'slash' },
     skills: [
-      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.5, scale: { str: 1.0, dex: 0.15 }, dmgType: 'melee', icon: '🔨', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' } },
-      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.2, scale: { str: 0.9, dex: 0.25 }, dmgType: 'melee', icon: '🌪️', type: 'splash', rarity: 'COMMON', vfxType: 'slash' },
-      { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, mult: 1.3, scale: { str: 1.0, dex: 0.35 }, dmgType: 'melee', icon: '🏃', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'slash' },
-      { id: 's1_4', ownerId: 'p1', name: 'Землетрясение', cost: 4, mult: 1.8, scale: { str: 0.4, int: 0.8 }, dmgType: 'magic', icon: '🌋', type: 'splash', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'vuln' } }
+      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.8, scale: { str: 1.0, dex: 0.15 }, dmgType: 'melee', icon: '🔨', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' } },
+      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.7, scale: { str: 0.9, dex: 0.25 }, dmgType: 'melee', icon: '🌪️', type: 'splash', rarity: 'COMMON', vfxType: 'slash' },
+      { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, mult: 1.6, scale: { str: 1.0, dex: 0.35 }, dmgType: 'melee', icon: '🏃', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'slash' },
+      { id: 's1_4', ownerId: 'p1', name: 'Землетрясение', cost: 4, mult: 1.8, scale: { str: 0.8, int: 0.4 }, dmgType: 'magic', icon: '🌋', type: 'splash', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'vuln' } }
     ]
   },
   p2: { 
-    basic: { id: 'b2', name: 'Кинжал', cost: 0, mult: 1.2, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🗡️', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'dagger_single' },
+    basic: { id: 'b2', name: 'Кинжал', cost: 0, mult: 2.0, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🗡️', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'dagger_single' },
     skills: [
-      { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.0, scale: { dex: 1.0, int: 0.25 }, dmgType: 'ranged', icon: '🧪', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'poison', secondary: { effect: 'bleed' } },
-      { id: 's2_2', ownerId: 'p2', name: 'Танец стали', cost: 3, mult: 1.4, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '⚔️', type: 'splash', rarity: 'RARE', vfxType: 'daggers' },
-      { id: 's2_3', ownerId: 'p2', name: 'Теневой шаг', cost: 2, mult: 1.8, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🥷', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'dark_strike', secondary: { effect: 'blind' } },
-      { id: 's2_4', ownerId: 'p2', name: 'Шквал ножей', cost: 3, mult: 1.6, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '🗡️', type: 'splash', rarity: 'EPIC', vfxType: 'daggers' }
+      { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.8, scale: { dex: 1.0, int: 0.25 }, dmgType: 'ranged', icon: '🧪', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'poison', secondary: { effect: 'bleed' } },
+      { id: 's2_2', ownerId: 'p2', name: 'Танец стали', cost: 3, mult: 2.4, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '⚔️', type: 'splash', rarity: 'RARE', vfxType: 'daggers' },
+      { id: 's2_3', ownerId: 'p2', name: 'Теневой шаг', cost: 2, mult: 2.6, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🥷', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'dark_strike', secondary: { effect: 'blind' } },
+      { id: 's2_4', ownerId: 'p2', name: 'Шквал ножей', cost: 3, mult: 2.6, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '🗡️', type: 'splash', rarity: 'EPIC', vfxType: 'daggers' }
     ]
   },
   p3: { 
     basic: { id: 'b3', name: 'Искра', cost: 0, mult: 1.0, scale: { int: 1.0, dex: 0.2 }, dmgType: 'magic', icon: '✨', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'magic_spark' },
     skills: [
-      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 1.5, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '☄️', type: 'splash', rarity: 'RARE', vfxType: 'fireball' },
+      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 2.5, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '☄️', type: 'splash', rarity: 'RARE', vfxType: 'fireball' },
       { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, scale: { int: 1.0, dex: 0.25 }, dmgType: 'magic', icon: '❄️', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'ice_spike', secondary: { effect: 'mark' } },
-      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, mult: 1.4, scale: { dex: 0.8, int: 0.4 }, dmgType: 'magic', icon: '⚡', type: 'splash', rarity: 'RARE', vfxType: 'lightning' },
-      { id: 's3_4', ownerId: 'p3', name: 'Черная дыра', cost: 5, mult: 2.2, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '🌌', type: 'splash', rarity: 'LEGENDARY', vfxType: 'dark_void', secondary: { effect: 'weaken' } }
+      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, mult: 2.0, scale: { int: 0.8, dex: 0.4 }, dmgType: 'magic', icon: '⚡', type: 'splash', rarity: 'RARE', vfxType: 'lightning' },
+      { id: 's3_4', ownerId: 'p3', name: 'Черная дыра', cost: 5, mult: 3.2, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '🌌', type: 'splash', rarity: 'LEGENDARY', vfxType: 'dark_void', secondary: { effect: 'weaken' } }
     ]
   }
 };
@@ -412,8 +412,7 @@ const getLevelMultiplier = (card) => Math.pow(2, getCardLevel(card) - 1);
 const getPlayerDex = (player) => player?.agi ?? 0;
 
 const getMaxHpFromStats = (player, equippedItem = null) => {
-  const str = player.str + (equippedItem?.stats?.str || 0);
-  return (player.baseMaxHp ?? 20) + str * STAT_EFFECTS.str.hp;
+  return (player.baseMaxHp ?? 20) + (equippedItem?.stats?.hp || 0);
 };
 
 const syncPlayerMaxHp = (player, equippedItem = null) => {
@@ -430,7 +429,8 @@ const getCardScale = (card) => {
 
 const getCardDmgType = (card) => card?.dmgType || 'melee';
 
-const getCritChance = (player) => Math.min(0.75, getPlayerDex(player) * STAT_EFFECTS.dex.critChance);
+// Случайного крита больше нет: крит существует только через 🎯 Метку мага
+const getCritChance = () => 0;
 
 const formatCardScale = (card) => {
   const s = getCardScale(card);
@@ -451,34 +451,23 @@ const getCardStatColor = (card) => {
   return 'text-red-400';
 };
 
+// ЕДИНАЯ формула урона: mult × (статы по скейлу карты) × уровень карты × бонус.
+// Никаких глобальных добавок от статов — статы качают только урон карт и их вторичные эффекты.
 const computeCardDamage = (owner, card, bonus = 1) => {
   if (!owner || !card) return { damage: 0, critChance: 0 };
   const scale = getCardScale(card);
   const str = owner.str ?? 0;
   const dex = getPlayerDex(owner);
   const int = owner.int ?? 0;
-  const dmgType = getCardDmgType(card);
 
   const scaledStats =
     str * (scale.str || 0) +
     dex * (scale.dex || 0) +
     int * (scale.int || 0);
 
-  let total = card.mult * scaledStats;
-  total += str * STAT_EFFECTS.str.universalDmg;
-  if (dmgType === 'ranged') total += dex * STAT_EFFECTS.dex.rangedDmg;
-  if (dmgType === 'magic') total += int * STAT_EFFECTS.int.magicDmg;
+  const total = card.mult * scaledStats * getLevelMultiplier(card) * bonus;
 
-  total *= getLevelMultiplier(card) * bonus;
-
-  if (card.type === 'splash') {
-    total *= 1 + int * STAT_EFFECTS.int.splashPower;
-  }
-
-  // Баланс: маг (p3) слишком доминировал и ваншотил — урезаем все его коэффициенты вдвое
-  if (owner.id === 'p3') total *= 0.5;
-
-  return { damage: Math.max(0, Math.floor(total)), critChance: getCritChance(owner) };
+  return { damage: Math.max(0, Math.floor(total)), critChance: 0 };
 };
 
 const getCardDamage = (owner, card, bonus = 1) => computeCardDamage(owner, card, bonus).damage;
@@ -2065,7 +2054,7 @@ export default function App() {
      } else if (powerupId === 'hp') {
         setPlayers(prev => prev.map(p => {
            const bonus = Math.floor(p.maxHp * 0.5);
-           return syncPlayerMaxHp({ ...p, baseMaxHp: (p.baseMaxHp ?? p.maxHp - p.str) + bonus, hp: p.hp + bonus });
+           return syncPlayerMaxHp({ ...p, baseMaxHp: (p.baseMaxHp ?? p.maxHp) + bonus, hp: p.hp + bonus });
         }));
      } else if (powerupId === 'cards') {
         const legendaries = REWARD_POOL.filter(c => c.rarity === 'LEGENDARY');
@@ -2195,6 +2184,11 @@ export default function App() {
       if (total >= cur) {
         setRewardOptions(shuffleArray([...REWARD_POOL]).slice(0, 3));
         setShowLevelUp(true); setPlayerLevel(l => l + 1); setMaxMana(m => m + 1);
+        // Рост HP за уровень отряда (вместо отвязанного от статов str→hp)
+        setPlayers(prev => prev.map(p => {
+          const grow = HP_PER_LEVEL[p.id] || 5;
+          return { ...p, baseMaxHp: (p.baseMaxHp ?? p.maxHp) + grow, maxHp: p.maxHp + grow, hp: p.hp > 0 ? p.hp + grow : p.hp };
+        }));
         setXpToNext(cur + 50); xpToNextRef.current = cur + 50;
         return total - cur;
       }
