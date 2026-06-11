@@ -2406,18 +2406,18 @@ export default function App() {
     playSound('./assets/sfx/ui/click.wav', 0.6);
     setIsAnimating(true); setMana(m => m - card.cost); setAnimatingPlayerId(player.id); setAnimatingTargetIds(targetIndices.map(idx => enemies[idx].id));
 
-    // Вычисляем реальный вектор смещения: от центра спрайта игрока до центра первого врага-цели
+    // Вычисляем вектор прыжка игрока. Сначала сбрасываем translate в 0,
+    // затем через rAF устанавливаем цель — браузер animates transition плавно.
+    setAttackTranslate({ dx: 0, dy: 0 });
     {
       const aRect = avatarRefs.current[player.id]?.getBoundingClientRect();
       const firstTargetId = targetIndices.length > 0 ? enemies[targetIndices[0]].id : null;
       const tRect = firstTargetId ? enemyRefs.current[firstTargetId]?.getBoundingClientRect() : null;
-      if (aRect && tRect) {
-        const dx = (tRect.left + tRect.width / 2) - (aRect.left + aRect.width / 2);
-        const dy = (tRect.top + tRect.height / 2) - (aRect.top + aRect.height / 2);
-        setAttackTranslate({ dx: dx * 0.75, dy: dy * 0.75 });
-      } else {
-        setAttackTranslate({ dx: 200, dy: 0 });
-      }
+      const leapDx = aRect && tRect ? (tRect.left + tRect.width/2) - (aRect.left + aRect.width/2) : 200;
+      const leapDy = aRect && tRect ? (tRect.top  + tRect.height/2) - (aRect.top  + aRect.height/2) : 0;
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        setAttackTranslate({ dx: leapDx * 0.75, dy: leapDy * 0.75 });
+      }));
     }
 
     const isContinuing = lastPlayedCost !== null && card.cost === lastPlayedCost + 1;
@@ -2619,20 +2619,30 @@ export default function App() {
 
          const eRect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
          const pRect = avatarRefs.current[target.id]?.getBoundingClientRect();
-         if (eRect && pRect) {
-            // VFX только для ranged — melee атакует прыжком, без снаряда
-            if (style === 'ranged') {
+
+         // Сначала сбрасываем translate в 0 (враг стоит на месте),
+         // потом через rAF устанавливаем целевой translate — браузер видит смену
+         // и запускает CSS transition плавно.
+         setEnemyAttackTranslate({ dx: 0, dy: 0 });
+
+         if (style === 'ranged') {
+            // Ranged — снаряд летит, сам враг не двигается
+            if (eRect && pRect) {
                setVfxList([{ id: Math.random(), type: vfxType, delay: 0,
                   startX: eRect.left + eRect.width/2, startY: eRect.top + eRect.height/2,
                   endX: pRect.left + pRect.width/2,   endY: pRect.top + pRect.height/2 }]);
-               setEnemyAttackTranslate({ dx: 0, dy: 0 });
-            } else {
-               const dx = (pRect.left + pRect.width/2) - (eRect.left + eRect.width/2);
-               const dy = (pRect.top  + pRect.height/2) - (eRect.top  + eRect.height/2);
-               setEnemyAttackTranslate({ dx: -dx * 0.75, dy: dy * 0.75 });
             }
          } else {
-            setEnemyAttackTranslate(style === 'melee' ? { dx: 200, dy: 0 } : { dx: 0, dy: 0 });
+            // Melee — прыжок: ждём 2 rAF чтобы гарантировать отдельный paint-кадр
+            const leapDx = eRect && pRect
+               ? (pRect.left + pRect.width/2) - (eRect.left + eRect.width/2)
+               : -200;
+            const leapDy = eRect && pRect
+               ? (pRect.top  + pRect.height/2) - (eRect.top  + eRect.height/2)
+               : 0;
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+               setEnemyAttackTranslate({ dx: -leapDx * 0.75, dy: leapDy * 0.75 });
+            }));
          }
 
          setTimeout(() => {
