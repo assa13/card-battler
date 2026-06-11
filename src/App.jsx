@@ -138,9 +138,31 @@ const CHAR_FORMATION = {
 
 // Атласы врагов (спрайты зеркалятся через scaleX(-1))
 const ENEMY_ATLASES = {
-  'Гоблин': { url: './chars/goblin_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
-  'Волк':   { url: './chars/wolf_atlas.png',    cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
-  'Бандит': { url: './chars/bandit_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Гоблин':     { url: './chars/goblin_atlas.png',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Волк':       { url: './chars/wolf_atlas.png',       cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Бандит':     { url: './chars/bandit_atlas.png',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Орк':        { url: './chars/orc_atlas.png',        cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Зомби':      { url: './chars/zombie_atlas.png',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Слизень':    { url: './chars/squish_atlas.png',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Стрелок':    { url: './chars/shooter_atlas.png',    cols: 6, rows: 3, frameCount: 18, fps: 7.5 },
+  'Тёмный маг': { url: './chars/dark_mage_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Глаз':       { url: './chars/eye_atlas.png',        cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+};
+
+// Роли врагов: стиль атаки и множитель урона
+// melee  — прыгает к цели, бьёт одного
+// ranged — не прыгает, снаряд к цели, бьёт одного
+// aoe    — не прыгает, бьёт ВСЕХ игроков одновременно
+const ENEMY_TYPES = {
+  'Гоблин':     { dmgMult: 0.80, attackStyle: 'melee',  vfxType: 'enemy'       },
+  'Волк':       { dmgMult: 1.00, attackStyle: 'melee',  vfxType: 'enemy'       },
+  'Бандит':     { dmgMult: 1.10, attackStyle: 'melee',  vfxType: 'enemy'       },
+  'Орк':        { dmgMult: 1.40, attackStyle: 'melee',  vfxType: 'smash'       },
+  'Зомби':      { dmgMult: 0.85, attackStyle: 'melee',  vfxType: 'enemy'       },
+  'Слизень':    { dmgMult: 0.65, attackStyle: 'melee',  vfxType: 'enemy'       },
+  'Стрелок':    { dmgMult: 1.10, attackStyle: 'ranged', vfxType: 'slash'       },
+  'Тёмный маг': { dmgMult: 1.45, attackStyle: 'ranged', vfxType: 'dark_void'   },
+  'Глаз':       { dmgMult: 1.70, attackStyle: 'aoe',    vfxType: 'dark_void'   },
 };
 
 // Зеркальная формация врагов — точное зеркало CHAR_FORMATION (left→right, top одинаковые)
@@ -662,47 +684,41 @@ const generateMap = () => {
 };
 
 const spawnEnemies = (type, stage, sector = 1) => {
-  // Сложность задаётся в первую очередь СЕКТОРОМ: чем дальше прошёл — тем сильнее враги.
-  // Множитель растёт экспоненциально по секторам, чтобы успевать за ростом силы отряда (слияние карт ×2).
-  // Не дорос до сектора — проигрываешь и начинаешь заново (ресурсы сохраняются).
   const s = (stage || 1) + (sector - 1) * 6;
   const mult = Math.pow(1.55, sector - 1);
   let counter = 0;
   const mk = (prefix, name, baseHp, perStage, icon, xp) => {
+    const { dmgMult, attackStyle, vfxType } = ENEMY_TYPES[name] || { dmgMult: 1, attackStyle: 'melee', vfxType: 'enemy' };
     const hp = Math.round((baseHp + s * perStage) * mult);
     return {
       id: `${prefix}_${Date.now()}_${counter++}`,
       name, hp, maxHp: hp, icon, isDead: false,
       xpReward: Math.round(xp * mult),
+      dmgMult, attackStyle, vfxType,
     };
   };
-  // Враги: только три типа со спрайтами — Гоблин, Волк, Бандит. Сложность тира задаётся статами и количеством.
+
   if (type === 'boss') {
-    return shuffleArray([
-      mk('b1', 'Бандит', 110, 28, '🥷', 170),
-      mk('b2', 'Волк', 90, 24, '🐺', 130),
-      mk('b3', 'Гоблин', 90, 24, '👺', 130),
-    ]);
+    // Глаз — единственный босс, AoE, очень толстый
+    return [mk('boss', 'Глаз', 280, 65, '👁️', 400)];
   } else if (type === 'combat_hard') {
     return shuffleArray([
-      mk('h1', 'Бандит', 80, 22, '🥷', 130),
-      mk('h2', 'Волк', 70, 20, '🐺', 110),
-      mk('h3', 'Гоблин', 70, 20, '👺', 110),
+      mk('h1', 'Орк',        100, 28, '🪓', 150),
+      mk('h2', 'Тёмный маг',  60, 18, '🧙', 140),
+      mk('h3', 'Зомби',       95, 26, '🧟', 130),
     ]);
   } else if (type === 'combat_medium') {
-    const pool = [
-      mk('m1', 'Бандит', 60, 15, '🥷', 90),
-      mk('m2', 'Волк', 50, 13, '🐺', 75),
-      mk('m3', 'Гоблин', 55, 14, '👺', 80),
-    ];
-    return shuffleArray(pool).slice(0, 2);
+    return shuffleArray([
+      mk('m1', 'Зомби',    70, 18, '🧟', 90),
+      mk('m2', 'Стрелок',  55, 14, '🏹', 85),
+      mk('m3', 'Слизень',  45, 11, '🟢', 65),
+    ]).slice(0, 2);
   } else {
-    const enemies = [
-      mk('e1', 'Гоблин', 45, 15, '👺', 60),
-      mk('e2', 'Волк', 35, 10, '🐺', 45),
-      mk('e3', 'Бандит', 50, 13, '🥷', 65),
-    ];
-    return shuffleArray(enemies).slice(0, 1 + Math.floor(Math.random() * 2));
+    return shuffleArray([
+      mk('e1', 'Слизень', 35, 10, '🟢', 50),
+      mk('e2', 'Гоблин',  45, 12, '👺', 55),
+      mk('e3', 'Волк',    40, 11, '🐺', 50),
+    ]).slice(0, 1 + Math.floor(Math.random() * 2));
   }
 };
 
@@ -2537,23 +2553,82 @@ export default function App() {
       setTimeout(() => {
          const alivePlayers = playersRef.current.filter(p => p.hp > 0);
          if (alivePlayers.length === 0) return;
-         const target = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
-         const dmg = Math.floor(Math.random() * 8) + 8 + (currentStage * 3);
 
-         setAnimatingEnemyId(enemy.id); 
-         setAnimatingTargetIds([target.id]); 
+         const base = Math.floor(Math.random() * 8) + 8 + (currentStage * 3);
+         const dmg = Math.round(base * (enemy.dmgMult || 1.0));
+         const style = enemy.attackStyle || 'melee';
+         const vfxType = enemy.vfxType || 'enemy';
+
+         // AoE (Глаз): бьёт всех живых игроков одновременно
+         if (style === 'aoe') {
+            const targets = alivePlayers;
+            setAnimatingEnemyId(enemy.id);
+            setAnimatingTargetIds(targets.map(t => t.id));
+            setIsAnimating(true);
+            setEnemyAttackTranslate({ dx: 0, dy: 0 }); // не прыгает
+
+            const eRect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
+            const newVfx = targets.flatMap(t => {
+               const pRect = avatarRefs.current[t.id]?.getBoundingClientRect();
+               if (!eRect || !pRect) return [];
+               return [{ id: Math.random(), type: vfxType, delay: 0,
+                  startX: eRect.left + eRect.width/2, startY: eRect.top + eRect.height/2,
+                  endX: pRect.left + pRect.width/2,   endY: pRect.top + pRect.height/2 }];
+            });
+            setVfxList(newVfx);
+
+            setTimeout(() => {
+               setVfxList([]);
+               playSound('./assets/sfx/combat/enemy_attack.wav');
+               triggerImpact(dmg * 1.4);
+               setFlashingTargets(prev => [...prev, ...targets.map(t => t.id)]);
+               setTimeout(() => setFlashingTargets(prev => prev.filter(id => !targets.some(t => t.id === id))), 250);
+
+               targets.forEach(t => {
+                  const pRect = avatarRefs.current[t.id]?.getBoundingClientRect();
+                  if (pRect) {
+                     setDamagePopups(dp => [...dp, { id: Math.random(), value: dmg, x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 }]);
+                     const nb = []; for (let i=0; i<20; i++) nb.push({ id: Math.random(), x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 });
+                     setBloodParticles(prev => [...prev, ...nb]);
+                  }
+               });
+
+               setPlayers(currentPs => currentPs.map(p => {
+                  if (!targets.some(t => t.id === p.id)) return p;
+                  const newHp = Math.max(0, p.hp - dmg);
+                  if (newHp === 0 && p.currentCard && !p.currentCard.id.startsWith('b')) setDiscardPile(dp => [...dp, p.currentCard]);
+                  return { ...p, hp: newHp, currentCard: null };
+               }));
+
+               setAnimatingEnemyId(null);
+               setTimeout(() => setAnimatingTargetIds([]), 350);
+               setIsAnimating(false);
+            }, 300);
+            return;
+         }
+
+         // Одиночная атака (melee / ranged)
+         const target = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
+
+         setAnimatingEnemyId(enemy.id);
+         setAnimatingTargetIds([target.id]);
          setIsAnimating(true);
 
          const eRect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
          const pRect = avatarRefs.current[target.id]?.getBoundingClientRect();
          if (eRect && pRect) {
-            setVfxList([{ id: Math.random(), type: 'enemy', delay: 0, startX: eRect.left + eRect.width/2, startY: eRect.top + eRect.height/2, endX: pRect.left + pRect.width/2, endY: pRect.top + pRect.height/2 }]);
-            // Вектор движения врага к игроку (враг смотрит влево, scaleX(-1), поэтому dx инвертируем)
-            const dx = (pRect.left + pRect.width / 2) - (eRect.left + eRect.width / 2);
-            const dy = (pRect.top + pRect.height / 2) - (eRect.top + eRect.height / 2);
-            setEnemyAttackTranslate({ dx: -dx * 0.75, dy: dy * 0.75 });
+            setVfxList([{ id: Math.random(), type: vfxType, delay: 0,
+               startX: eRect.left + eRect.width/2, startY: eRect.top + eRect.height/2,
+               endX: pRect.left + pRect.width/2,   endY: pRect.top + pRect.height/2 }]);
+            if (style === 'melee') {
+               const dx = (pRect.left + pRect.width/2) - (eRect.left + eRect.width/2);
+               const dy = (pRect.top  + pRect.height/2) - (eRect.top  + eRect.height/2);
+               setEnemyAttackTranslate({ dx: -dx * 0.75, dy: dy * 0.75 });
+            } else {
+               setEnemyAttackTranslate({ dx: 0, dy: 0 }); // ranged не двигается
+            }
          } else {
-            setEnemyAttackTranslate({ dx: 200, dy: 0 });
+            setEnemyAttackTranslate(style === 'melee' ? { dx: 200, dy: 0 } : { dx: 0, dy: 0 });
          }
 
          setTimeout(() => {
@@ -2567,18 +2642,14 @@ export default function App() {
             if (pRect) {
                setDamagePopups(dp => [...dp, { id: Math.random(), value: dmg, x: pRect.left + pRect.width / 2, y: pRect.top + pRect.height / 2 }]);
                const newBlood = [];
-               for(let i=0; i<30; i++) {
-                  newBlood.push({ id: Math.random(), x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 });
-               }
+               for(let i=0; i<30; i++) newBlood.push({ id: Math.random(), x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 });
                setBloodParticles(prev => [...prev, ...newBlood]);
             }
 
             setPlayers(currentPs => currentPs.map(p => {
                if (p.id === target.id) {
                   const newHp = Math.max(0, p.hp - dmg);
-                  if (newHp === 0 && p.currentCard && !p.currentCard.id.startsWith('b')) {
-                     setDiscardPile(dp => [...dp, p.currentCard]);
-                  }
+                  if (newHp === 0 && p.currentCard && !p.currentCard.id.startsWith('b')) setDiscardPile(dp => [...dp, p.currentCard]);
                   return { ...p, hp: newHp, currentCard: null };
                }
                return p;
@@ -2824,7 +2895,10 @@ export default function App() {
                 
                 let enemyTransform = 'scaleX(-1)';
                 let transitionClass = 'transition-all duration-600 ease-out';
-                if (isAttacking) enemyTransform = `scaleX(-1) translate(${enemyAttackTranslate.dx}px, ${enemyAttackTranslate.dy}px) scale(1.15)`;
+                if (isAttacking) {
+                  const doesLeap = enemy.attackStyle === 'melee' || !enemy.attackStyle;
+                  enemyTransform = `scaleX(-1) ${doesLeap ? `translate(${enemyAttackTranslate.dx}px, ${enemyAttackTranslate.dy}px)` : ''} scale(1.15)`;
+                }
                 else if (isHoveredTarget && !isAnimating) enemyTransform = 'scaleX(-1) translate(16px, 0)';
                 else if (isBeingAttacked && shake.x !== 0) {
                    enemyTransform = `scaleX(-1) translate(${shake.x * 0.5}px, ${shake.y * 0.5}px) rotate(${shake.rot * 0.5}deg) scale(1.1)`;
