@@ -2913,25 +2913,28 @@ export default function App() {
                 // Босс крупнее; right уменьшается = сдвиг вправо, top увеличивается = ниже
                 const pos = isBoss ? { right: basePos.right - 95, top: basePos.top - 10 } : basePos;
                 
-                let enemyTransform = 'scaleX(-1)';
+                // moveTransform — движение (прыжок/hover/shake) на ВНЕШНЕМ div с transition
+                // mirrorTransform — зеркало scaleX(-1) всегда на ВНУТРЕННЕМ div (без transition)
+                let moveTransform = '';
                 let transitionClass = 'transition-all duration-600 ease-out';
                 if (isAttacking) {
                   const doesLeap = enemy.attackStyle === 'melee' || !enemy.attackStyle;
-                  enemyTransform = `scaleX(-1) ${doesLeap ? `translate(${enemyAttackTranslate.dx}px, ${enemyAttackTranslate.dy}px)` : ''} scale(1.15)`;
-                  // duration-300 совпадает с setTimeout 300ms — враг долетает до цели точно в момент удара
+                  moveTransform = doesLeap
+                    ? `translate(${enemyAttackTranslate.dx}px, ${enemyAttackTranslate.dy}px) scale(1.15)`
+                    : 'scale(1.15)';
                   transitionClass = 'transition-all duration-300 ease-out';
                 }
-                else if (isHoveredTarget && !isAnimating) enemyTransform = 'scaleX(-1) translate(16px, 0)';
+                else if (isHoveredTarget && !isAnimating) moveTransform = 'translate(-16px, 0)';
                 else if (isBeingAttacked && shake.x !== 0) {
-                   enemyTransform = `scaleX(-1) translate(${shake.x * 0.5}px, ${shake.y * 0.5}px) rotate(${shake.rot * 0.5}deg) scale(1.1)`;
-                   transitionClass = 'transition-none'; 
+                   moveTransform = `translate(${shake.x * 0.5}px, ${shake.y * 0.5}px) rotate(${shake.rot * 0.5}deg) scale(1.1)`;
+                   transitionClass = 'transition-none';
                 }
-                else if (isBeingAttacked) enemyTransform = 'scaleX(-1) scale(1.1)';
+                else if (isBeingAttacked) moveTransform = 'scale(1.1)';
 
                 return (
-                  <div key={String(enemy.id)} ref={(el) => setEnemyRef(enemy.id, el)} className={`absolute ${transitionClass} ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ right: pos.right, top: pos.top }}>
+                  <div key={String(enemy.id)} ref={(el) => setEnemyRef(enemy.id, el)} className={`absolute ${transitionClass} ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: moveTransform, right: pos.right, top: pos.top }}>
                     {isSpeaking && <EnemySpeechBubble text={speakingEnemy.text} />}
-                    <div className="relative" style={{ transform: enemyTransform }}>
+                    <div className="relative" style={{ transform: 'scaleX(-1)' }}>
                       <div
                         className={`relative ${enemyAtlas ? '' : 'text-6xl'} ${isHoveredTarget || isBeingAttacked ? 'drop-shadow-[0_0_25px_rgba(239,68,68,0.4)]' : ''} ${flashingTargets.includes(enemy.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`}
                         style={{ animation: isSpeaking && !isBeingAttacked && !isAttacking ? 'speechWobble 0.4s ease-in-out infinite' : 'none', transition: 'all 0.15s ease-out' }}
