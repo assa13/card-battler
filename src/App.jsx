@@ -2620,15 +2620,16 @@ export default function App() {
          const eRect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
          const pRect = avatarRefs.current[target.id]?.getBoundingClientRect();
          if (eRect && pRect) {
-            setVfxList([{ id: Math.random(), type: vfxType, delay: 0,
-               startX: eRect.left + eRect.width/2, startY: eRect.top + eRect.height/2,
-               endX: pRect.left + pRect.width/2,   endY: pRect.top + pRect.height/2 }]);
-            if (style === 'melee') {
+            // VFX только для ranged — melee атакует прыжком, без снаряда
+            if (style === 'ranged') {
+               setVfxList([{ id: Math.random(), type: vfxType, delay: 0,
+                  startX: eRect.left + eRect.width/2, startY: eRect.top + eRect.height/2,
+                  endX: pRect.left + pRect.width/2,   endY: pRect.top + pRect.height/2 }]);
+               setEnemyAttackTranslate({ dx: 0, dy: 0 });
+            } else {
                const dx = (pRect.left + pRect.width/2) - (eRect.left + eRect.width/2);
                const dy = (pRect.top  + pRect.height/2) - (eRect.top  + eRect.height/2);
                setEnemyAttackTranslate({ dx: -dx * 0.75, dy: dy * 0.75 });
-            } else {
-               setEnemyAttackTranslate({ dx: 0, dy: 0 }); // ranged не двигается
             }
          } else {
             setEnemyAttackTranslate(style === 'melee' ? { dx: 200, dy: 0 } : { dx: 0, dy: 0 });
@@ -2869,6 +2870,8 @@ export default function App() {
                 let transitionClass = 'transition-all duration-600 ease-out';
                 if (isAttacking) {
                    avatarTransform = `translate(${attackTranslate.dx}px, ${attackTranslate.dy}px) scale(1.15)`;
+                   // duration-300 совпадает с animDuration — игрок долетает до цели точно в момент удара
+                   transitionClass = 'transition-all duration-300 ease-out';
                 }
                 else if (isHovered && !isAnimating) avatarTransform = 'translate(16px, 0)';
                 else if (isBeingAttacked && shake.x !== 0) {
@@ -2898,13 +2901,15 @@ export default function App() {
                 const isBoss = enemy.attackStyle === 'aoe';
                 const enemySize = isBoss ? Math.round(CHAR_SPRITE_SIZE * 1.5625) : CHAR_SPRITE_SIZE;
                 // Босс крупнее; right уменьшается = сдвиг вправо, top увеличивается = ниже
-                const pos = isBoss ? { right: basePos.right - 75, top: basePos.top + 0 } : basePos;
+                const pos = isBoss ? { right: basePos.right - 95, top: basePos.top - 10 } : basePos;
                 
                 let enemyTransform = 'scaleX(-1)';
                 let transitionClass = 'transition-all duration-600 ease-out';
                 if (isAttacking) {
                   const doesLeap = enemy.attackStyle === 'melee' || !enemy.attackStyle;
                   enemyTransform = `scaleX(-1) ${doesLeap ? `translate(${enemyAttackTranslate.dx}px, ${enemyAttackTranslate.dy}px)` : ''} scale(1.15)`;
+                  // duration-300 совпадает с setTimeout 300ms — враг долетает до цели точно в момент удара
+                  transitionClass = 'transition-all duration-300 ease-out';
                 }
                 else if (isHoveredTarget && !isAnimating) enemyTransform = 'scaleX(-1) translate(16px, 0)';
                 else if (isBeingAttacked && shake.x !== 0) {
