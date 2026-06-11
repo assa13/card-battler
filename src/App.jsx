@@ -2641,7 +2641,7 @@ export default function App() {
                ? (pRect.top  + pRect.height/2) - (eRect.top  + eRect.height/2)
                : 0;
             requestAnimationFrame(() => requestAnimationFrame(() => {
-               setEnemyAttackTranslate({ dx: -leapDx * 0.75, dy: leapDy * 0.75 });
+               setEnemyAttackTranslate({ dx: leapDx * 0.75, dy: leapDy * 0.75 });
             }));
          }
 
