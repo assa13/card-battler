@@ -1315,6 +1315,9 @@ const PRELOAD_ASSETS = [
   './assets/sfx/ui/click.wav',
   './assets/sfx/ui/hover.wav',
   './corner.png',
+  // Атласы спрайтов: прогреваем заранее, чтобы враги/бойцы не подгружались рывками в бою
+  ...Object.values(CHAR_ATLASES).map(a => a.url),
+  ...Object.values(ENEMY_ATLASES).map(a => a.url),
 ];
 
 const MUSIC_URL = './file.mp3';
@@ -2891,7 +2894,11 @@ export default function App() {
                 const isSpeaking = speakingEnemy && speakingEnemy.id === enemy.id && !enemy.isDead;
                 const enemyAtlas = ENEMY_ATLASES[enemy.name] || null;
                 const formation = ENEMY_FORMATIONS[enemies.length] || ENEMY_FORMATIONS[3];
-                const pos = formation[eIdx] || formation[formation.length - 1];
+                const basePos = formation[eIdx] || formation[formation.length - 1];
+                const isBoss = enemy.attackStyle === 'aoe';
+                const enemySize = isBoss ? Math.round(CHAR_SPRITE_SIZE * 1.25) : CHAR_SPRITE_SIZE;
+                // Босс крупнее и стоит чуть правее (меньше right = ближе к правому краю)
+                const pos = isBoss ? { right: basePos.right - 45, top: basePos.top - 20 } : basePos;
                 
                 let enemyTransform = 'scaleX(-1)';
                 let transitionClass = 'transition-all duration-600 ease-out';
@@ -2914,7 +2921,7 @@ export default function App() {
                         className={`relative ${enemyAtlas ? '' : 'text-6xl'} ${isHoveredTarget || isBeingAttacked ? 'drop-shadow-[0_0_25px_rgba(239,68,68,0.4)]' : ''} ${flashingTargets.includes(enemy.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`}
                         style={{ animation: isSpeaking && !isBeingAttacked && !isAttacking ? 'speechWobble 0.4s ease-in-out infinite' : 'none', transition: 'all 0.15s ease-out' }}
                       >
-                        {enemyAtlas ? <CharSprite atlas={enemyAtlas} size={CHAR_SPRITE_SIZE} /> : String(enemy.icon)}
+                        {enemyAtlas ? <CharSprite atlas={enemyAtlas} size={enemySize} /> : String(enemy.icon)}
                         {isHoveredTarget && !isAnimating && <div className="absolute -inset-2 border-2 border-red-500 rounded-full animate-ping opacity-40"></div>}
                         {isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}
                       </div>
