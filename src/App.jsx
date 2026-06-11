@@ -144,7 +144,7 @@ const ENEMY_ATLASES = {
   'Орк':        { url: './chars/orc_atlas.png',        cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
   'Зомби':      { url: './chars/zombie_atlas.png',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
   'Слизень':    { url: './chars/squish_atlas.png',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
-  'Стрелок':    { url: './chars/shooter_atlas.png',    cols: 6, rows: 3, frameCount: 18, fps: 7.5 },
+  'Стрелок':    { url: './chars/shooter_atlas.png',    cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
   'Тёмный маг': { url: './chars/dark_mage_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
   'Глаз':       { url: './chars/eye_atlas.png',        cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
 };
