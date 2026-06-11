@@ -1394,29 +1394,29 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
 
   return (
     <div className={`w-full h-full border ${rarity.border} rounded-2xl flex flex-col overflow-hidden transition-all duration-300 relative shadow-inner bg-[#45475a] ${isCandidate && !isDisabled ? 'ring-2 ring-yellow-400 shadow-[0_0_30px_rgba(250,204,21,0.6)]' : ''} ${!isDisabled ? 'group-hover:brightness-110' : ''}`}>
-      <div className={`${rarity.header} py-2 px-3 border-b border-black/20 flex items-center justify-between shadow-md`}>
-        <span className={`font-bold text-[12px] ${rarity.text} uppercase tracking-wider truncate drop-shadow-md`}>{String(card.name)}{level > 1 && <span className="text-amber-300"> ур.{String(level)}</span>}</span>
-        <div className={`w-6 h-6 rounded-full flex items-center justify-center font-black text-[11px] border-2 border-white/20 shadow-lg text-white ${mana < card.cost ? 'bg-red-500' : 'bg-[#1E88E5]'}`}>{String(card.cost)}</div>
+      <div className={`${rarity.header} py-1.5 px-2.5 border-b border-black/20 flex items-center justify-between shadow-md`}>
+        <span className={`font-bold text-[11px] ${rarity.text} uppercase tracking-wider truncate drop-shadow-md`}>{String(card.name)}{level > 1 && <span className="text-amber-300"> ур.{String(level)}</span>}</span>
+        <div className={`w-[22px] h-[22px] rounded-full flex items-center justify-center font-black text-[10px] border-2 border-white/20 shadow-lg text-white ${mana < card.cost ? 'bg-red-500' : 'bg-[#1E88E5]'}`}>{String(card.cost)}</div>
       </div>
-      <div className="flex-1 flex flex-col items-center justify-center relative p-1 bg-[#373945] min-h-[44px]">
-        {isCandidate && (<div className="absolute top-1 left-1 bg-yellow-400 text-black text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">COMBO!</div>)}
-        <span className="text-2xl drop-shadow-2xl group-hover:scale-110 transition-transform duration-500">{String(card.icon)}</span>
+      <div className="flex-1 flex flex-col items-center justify-center relative p-1 bg-[#373945] min-h-[40px]">
+        {isCandidate && (<div className="absolute top-1 left-1 bg-yellow-400 text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">COMBO!</div>)}
+        <span className="text-[1.35rem] drop-shadow-2xl group-hover:scale-110 transition-transform duration-500">{String(card.icon)}</span>
       </div>
-      <div className="text-center leading-snug bg-[#50546d] border-t border-slate-600/30 px-2 pt-5 pb-3 flex flex-col justify-center min-h-[88px] relative">
-        <div className={`absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-0.5 rounded-full ${rarity.badgeBg} shadow-md z-10 whitespace-nowrap`}>
-          <span className="text-[11px] font-black italic text-[#FFFFE0] uppercase tracking-wide drop-shadow-sm">{displayRarityName}</span>
+      <div className="text-center leading-none bg-[#50546d] border-t border-slate-600/30 px-2 pt-4 pb-2 flex flex-col justify-center gap-0.5 min-h-[76px] relative">
+        <div className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full ${rarity.badgeBg} shadow-md z-10 whitespace-nowrap`}>
+          <span className="text-[10px] font-black italic text-[#FFFFE0] uppercase tracking-wide drop-shadow-sm">{displayRarityName}</span>
         </div>
-        <p className="text-[12px] text-slate-100 font-semibold leading-snug">
+        <p className="text-[11px] text-slate-100 font-semibold leading-none">
           Наносит{' '}
           <span
-            className={`font-black text-[14px] transition-all duration-500 ${grow ? 'text-green-400' : (willGiveBonus ? 'text-yellow-400' : statColor)}`}
-            style={{ display: 'inline-block', transform: grow ? 'scale(1.5)' : 'scale(1)', textShadow: grow ? '0 0 14px rgba(34,197,94,0.95)' : 'none' }}
+            className={`font-black text-[13px] transition-all duration-500 ${grow ? 'text-green-400' : (willGiveBonus ? 'text-yellow-400' : statColor)}`}
+            style={{ display: 'inline-block', transform: grow ? 'scale(1.4)' : 'scale(1)', textShadow: grow ? '0 0 14px rgba(34,197,94,0.95)' : 'none' }}
           >{String(dmg)}</span>{' '}
           урона
         </p>
-        <p className="text-[11px] text-slate-300 mt-1 leading-tight">{targetLine}</p>
+        <p className="text-[8px] text-slate-500 leading-none">{targetLine}</p>
         {effectLine && (
-          <p className={`text-[11px] mt-1.5 font-bold leading-tight ${effectLine.color}`}>
+          <p className={`text-[10px] font-bold leading-none ${effectLine.color}`}>
             {effectLine.icon} {effectLine.label}{effectLine.value ? `: ${effectLine.value}` : ''}
           </p>
         )}
