@@ -1414,12 +1414,12 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
           >{String(dmg)}</span>{' '}
           урона
         </p>
-        <p className="text-[8px] text-slate-500 leading-none">{targetLine}</p>
         {effectLine && (
           <p className={`text-[10px] font-bold leading-none ${effectLine.color}`}>
             {effectLine.icon} {effectLine.label}{effectLine.value ? `: ${effectLine.value}` : ''}
           </p>
         )}
+        <p className="text-[10px] text-slate-400 leading-none mt-0.5">{targetLine}</p>
       </div>
     </div>
   );
