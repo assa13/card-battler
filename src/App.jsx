@@ -54,12 +54,25 @@ const ITEM_STAT_RANGES = {
   EPIC: { min: 17, max: 25 },
   LEGENDARY: { min: 30, max: 45 },
 };
-// Вторичный стат: шанс появления и доля от главного
-const ITEM_SECONDARY = {
-  COMMON: { chance: 0, ratio: 0 },
-  RARE: { chance: 0.4, ratio: 0.35 },
-  EPIC: { chance: 0.7, ratio: 0.45 },
-  LEGENDARY: { chance: 1.0, ratio: 0.55 },
+// Кол-во случайных бонусов на предмет по рарности
+const ITEM_BONUS_COUNTS = { COMMON: [1, 1], RARE: [1, 2], EPIC: [2, 3], LEGENDARY: [2, 4] };
+const ITEM_HP_MULT = 2.5;
+
+const rollItemStatBundle = (rarity) => {
+  const range = ITEM_STAT_RANGES[rarity];
+  const roll = () => Math.floor(Math.random() * (range.max - range.min + 1)) + range.min;
+  const [minC, maxC] = ITEM_BONUS_COUNTS[rarity] || [1, 1];
+  const count = minC + Math.floor(Math.random() * (maxC - minC + 1));
+  const picked = shuffleArray(ITEM_STAT_TYPES).slice(0, count);
+  const stats = {};
+  picked.forEach((stat, idx) => {
+    const base = roll();
+    const mult = idx === 0 ? 1 : 0.32 + Math.random() * 0.18;
+    let val = Math.max(1, Math.round(base * mult));
+    if (stat === 'hp') val = Math.max(4, Math.round(val * ITEM_HP_MULT));
+    stats[stat] = val;
+  });
+  return stats;
 };
 // Префикс названия отражает редкость
 const ITEM_RARITY_PREFIX = {
@@ -74,8 +87,8 @@ const ITEM_RARITY_PREFIX = {
 const ITEM_TEMPLATES = [
   // COMMON (11)
   { name: 'Инструменты палача', icon: 'item_11.png', focus: 'str', rarity: 'COMMON' },
-  { name: 'Запас зелий', icon: 'item_13.png', focus: 'hp', rarity: 'COMMON' },
-  { name: 'Статуя горгульи', icon: 'item_14.png', focus: 'hp', rarity: 'COMMON' },
+  { name: 'Запас зелий', icon: 'item_13.png', focus: 'dex', rarity: 'COMMON' },
+  { name: 'Статуя горгульи', icon: 'item_14.png', focus: 'str', rarity: 'COMMON' },
   { name: 'Зловещий кинжал', icon: 'item_20.png', focus: 'dex', rarity: 'COMMON' },
   { name: 'Ступка алхимика', icon: 'item_31.png', focus: 'int', rarity: 'COMMON' },
   { name: 'Кожаная перчатка', icon: 'item_34.png', focus: 'dex', rarity: 'COMMON' },
@@ -86,7 +99,7 @@ const ITEM_TEMPLATES = [
   { name: 'Свиток нетопыря', icon: 'item_45.png', focus: 'int', rarity: 'COMMON' },
   // RARE (7)
   { name: 'Астролябия', icon: 'item_15.png', focus: 'int', rarity: 'RARE' },
-  { name: 'Кости предков', icon: 'item_30.png', focus: 'hp', rarity: 'RARE' },
+  { name: 'Кости предков', icon: 'item_30.png', focus: 'str', rarity: 'RARE' },
   { name: 'Букет аконита', icon: 'item_32.png', focus: 'int', rarity: 'RARE' },
   { name: 'Рунические камни', icon: 'item_33.png', focus: 'int', rarity: 'RARE' },
   { name: 'Фляга с ядом', icon: 'item_38.png', focus: 'dex', rarity: 'RARE' },
@@ -95,12 +108,12 @@ const ITEM_TEMPLATES = [
   // EPIC (5)
   { name: 'Древний гримуар', icon: 'item_10.png', focus: 'int', rarity: 'EPIC' },
   { name: 'Череп ворона', icon: 'item_12.png', focus: 'int', rarity: 'EPIC' },
-  { name: 'Терновый венец', icon: 'item_25.png', focus: 'hp', rarity: 'EPIC' },
+  { name: 'Терновый венец', icon: 'item_25.png', focus: 'int', rarity: 'EPIC' },
   { name: 'Рутиловый кристалл', icon: 'item_35.png', focus: 'int', rarity: 'EPIC' },
   { name: 'Крылатый череп', icon: 'item_37.png', focus: 'str', rarity: 'EPIC' },
   // LEGENDARY (2)
   { name: 'Зеркало скорби', icon: 'item_40.png', focus: 'int', rarity: 'LEGENDARY' },
-  { name: 'Проклятый гроб', icon: 'item_46.png', focus: 'hp', rarity: 'LEGENDARY' },
+  { name: 'Проклятый гроб', icon: 'item_46.png', focus: 'str', rarity: 'LEGENDARY' },
 ];
 
 // Цвет тинта по рарности — позволяет «перекрашивать» базовую иконку под новую рарность
@@ -284,18 +297,7 @@ const pickTemplateForRarity = (rarity) => {
 
 const generateItemOfRarity = (rarity) => {
   const { template, tinted } = pickTemplateForRarity(rarity);
-  const range = ITEM_STAT_RANGES[rarity];
-  const roll = Math.floor(Math.random() * (range.max - range.min + 1)) + range.min;
-  // HP-предметы дают ×3 от обычного стата (HP — отдельный ресурс, статы его не качают)
-  const mainVal = template.focus === 'hp' ? roll * 3 : roll;
-  const stats = { [template.focus]: mainVal };
-  const sec = ITEM_SECONDARY[rarity];
-  if (sec.chance > 0 && Math.random() < sec.chance) {
-    const secondary = ['str', 'dex', 'int'].filter(s => s !== template.focus);
-    const pick = secondary[Math.floor(Math.random() * secondary.length)];
-    stats[pick] = Math.max(1, Math.round(roll * sec.ratio));
-  }
-  // Перекрашенный предмет получает префикс новой рарности, родной — своё базовое имя
+  const stats = rollItemStatBundle(rarity);
   const prefix = ITEM_RARITY_PREFIX[rarity];
   const name = tinted && prefix ? `${prefix} ${template.name.toLowerCase()}` : template.name;
   return {
@@ -507,6 +509,21 @@ const getSecondaryDesc = (owner, card) => {
     default: break;
   }
   return { effect, def, valueText };
+};
+
+// Полное описание карты для UI
+const getCardDescription = (owner, card) => {
+  if (!card) return { targetLine: '', effectLine: null };
+  const targetLine = card.type === 'splash'
+    ? 'Бьёт всех врагов'
+    : card.priority === 'lowestHp' ? 'Бьёт самого слабого'
+    : card.priority === 'highestHp' ? 'Бьёт самого живучего'
+    : 'Одиночная цель';
+  const secondary = getSecondaryDesc(owner, card);
+  const effectLine = secondary
+    ? { icon: secondary.def.icon, label: secondary.def.label, value: secondary.valueText, color: STAT_TEXT_COLOR[secondary.def.stat] }
+    : null;
+  return { targetLine, effectLine };
 };
 
 // Готовит payload эффекта для наложения на врага (величины посчитаны от владельца)
@@ -1022,7 +1039,7 @@ const ItemTooltip = ({ item, x, y }) => {
           <div className={`text-[9px] font-bold uppercase ${rarity.text}`}>{rarity.name}</div>
         </div>
       </div>
-      <div className="text-[10px] text-slate-300 leading-relaxed">{formatItemStats(item.stats)}</div>
+      <div className="text-[12px] text-slate-200 leading-relaxed font-medium">{formatItemStats(item.stats)}</div>
     </div>
   );
 };
@@ -1370,41 +1387,39 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
   
   let dmg = owner ? getCardDamage(owner, card) : 0;
   if (willGiveBonus) dmg = Math.floor(dmg * 1.5);
-  const critPct = owner ? Math.round(getCritChance(owner) * 100) : 0;
   const statColor = getCardStatColor(card);
-  const secondary = getSecondaryDesc(owner, card);
-  const secondaryColor = secondary ? STAT_TEXT_COLOR[secondary.def.stat] : '';
+  const { targetLine, effectLine } = getCardDescription(owner, card);
 
   const displayRarityName = showOwnerLabel && owner ? `${rarity.name} - ${owner.name}` : rarity.name;
 
   return (
     <div className={`w-full h-full border ${rarity.border} rounded-2xl flex flex-col overflow-hidden transition-all duration-300 relative shadow-inner bg-[#45475a] ${isCandidate && !isDisabled ? 'ring-2 ring-yellow-400 shadow-[0_0_30px_rgba(250,204,21,0.6)]' : ''} ${!isDisabled ? 'group-hover:brightness-110' : ''}`}>
-      <div className={`${rarity.header} py-1.5 px-3 border-b border-black/20 flex items-center justify-between shadow-md`}>
-        <span className={`font-bold text-[10px] ${rarity.text} uppercase tracking-wider truncate drop-shadow-md`}>{String(card.name)}{level > 1 && <span className="text-amber-300"> ур.{String(level)}</span>}</span>
-        <div className={`w-5 h-5 rounded-full flex items-center justify-center font-black text-[10px] border-2 border-white/20 shadow-lg text-white ${mana < card.cost ? 'bg-red-500' : 'bg-[#1E88E5]'}`}>{String(card.cost)}</div>
+      <div className={`${rarity.header} py-2 px-3 border-b border-black/20 flex items-center justify-between shadow-md`}>
+        <span className={`font-bold text-[12px] ${rarity.text} uppercase tracking-wider truncate drop-shadow-md`}>{String(card.name)}{level > 1 && <span className="text-amber-300"> ур.{String(level)}</span>}</span>
+        <div className={`w-6 h-6 rounded-full flex items-center justify-center font-black text-[11px] border-2 border-white/20 shadow-lg text-white ${mana < card.cost ? 'bg-red-500' : 'bg-[#1E88E5]'}`}>{String(card.cost)}</div>
       </div>
-      <div className="flex-1 flex flex-col items-center justify-center relative p-1 bg-[#373945] min-h-[50px]">
-        {isCandidate && (<div className="absolute top-1 left-1 bg-yellow-400 text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">COMBO!</div>)}
-        <span className="text-3xl drop-shadow-2xl group-hover:scale-110 transition-transform duration-500">{String(card.icon)}</span>
+      <div className="flex-1 flex flex-col items-center justify-center relative p-1 bg-[#373945] min-h-[44px]">
+        {isCandidate && (<div className="absolute top-1 left-1 bg-yellow-400 text-black text-[10px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">COMBO!</div>)}
+        <span className="text-2xl drop-shadow-2xl group-hover:scale-110 transition-transform duration-500">{String(card.icon)}</span>
       </div>
-      <div className="text-center leading-none bg-[#50546d] border-t border-slate-600/30 p-2 pt-5 pb-3 flex flex-col justify-center min-h-[60px] relative">
+      <div className="text-center leading-snug bg-[#50546d] border-t border-slate-600/30 px-2 pt-5 pb-3 flex flex-col justify-center min-h-[88px] relative">
         <div className={`absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-0.5 rounded-full ${rarity.badgeBg} shadow-md z-10 whitespace-nowrap`}>
           <span className="text-[11px] font-black italic text-[#FFFFE0] uppercase tracking-wide drop-shadow-sm">{displayRarityName}</span>
         </div>
-        <p className="text-[10px] text-slate-200 font-medium">
-          Наносит <span
-            className={`font-bold transition-all duration-500 ${grow ? 'text-green-400' : (willGiveBonus ? 'text-yellow-400 text-sm' : statColor)}`}
-            style={{ display: 'inline-block', transform: grow ? 'scale(1.9)' : 'scale(1)', textShadow: grow ? '0 0 14px rgba(34,197,94,0.95)' : 'none' }}
-          >{String(dmg)}</span> урона.<br/>
-          {secondary && (
-            <span className={`text-[8px] mt-0.5 font-black flex items-center justify-center gap-0.5 leading-tight ${secondaryColor}`}>
-              <span className="not-italic">{secondary.def.icon}</span>
-              {secondary.def.label}{secondary.valueText ? ` · ${secondary.valueText}` : ''}
-            </span>
-          )}
-          {critPct > 0 && <span className="text-[7px] text-slate-400 mt-0.5 block leading-tight">Крит {critPct}%</span>}
-          <span className="text-[8px] text-slate-300 mt-1 block">Приоритет {String(getTargetText(card.type, card.priority))}</span>
+        <p className="text-[12px] text-slate-100 font-semibold leading-snug">
+          Наносит{' '}
+          <span
+            className={`font-black text-[14px] transition-all duration-500 ${grow ? 'text-green-400' : (willGiveBonus ? 'text-yellow-400' : statColor)}`}
+            style={{ display: 'inline-block', transform: grow ? 'scale(1.5)' : 'scale(1)', textShadow: grow ? '0 0 14px rgba(34,197,94,0.95)' : 'none' }}
+          >{String(dmg)}</span>{' '}
+          урона
         </p>
+        <p className="text-[11px] text-slate-300 mt-1 leading-tight">{targetLine}</p>
+        {effectLine && (
+          <p className={`text-[11px] mt-1.5 font-bold leading-tight ${effectLine.color}`}>
+            {effectLine.icon} {effectLine.label}{effectLine.value ? `: ${effectLine.value}` : ''}
+          </p>
+        )}
       </div>
     </div>
   );
