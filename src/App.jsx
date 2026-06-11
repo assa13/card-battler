@@ -56,6 +56,8 @@ const ITEM_STAT_RANGES = {
 };
 // Кол-во случайных бонусов на предмет по рарности
 const ITEM_BONUS_COUNTS = { COMMON: [1, 1], RARE: [1, 2], EPIC: [2, 3], LEGENDARY: [2, 4] };
+// Возможные типы бонусов предмета
+const ITEM_STAT_TYPES = ['str', 'dex', 'int', 'hp'];
 const ITEM_HP_MULT = 2.5;
 
 const rollItemStatBundle = (rarity) => {
