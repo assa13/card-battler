@@ -181,7 +181,8 @@ const CharSprite = ({ atlas, size = 110, className = '', style = {} }) => {
   );
 };
 
-// Пузырь речи врага: рядом со спрайтом, с поджатием если упирается в край экрана
+// Пузырь речи врага: белый с красной обводкой и хвостиком над спрайтом.
+// Сдвигается внутрь, если упирается в верх/край экрана, чтобы всегда был виден.
 const EnemySpeechBubble = ({ text }) => {
   const ref = useRef(null);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
@@ -189,11 +190,10 @@ const EnemySpeechBubble = ({ text }) => {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const pad = 10;
+    const pad = 12;
     const r = el.getBoundingClientRect();
     let dx = 0, dy = 0;
     if (r.top < pad) dy = pad - r.top;
-    if (r.bottom > window.innerHeight - pad) dy = window.innerHeight - pad - r.bottom;
     if (r.left < pad) dx = pad - r.left;
     if (r.right > window.innerWidth - pad) dx = window.innerWidth - pad - r.right;
     setOffset({ x: dx, y: dy });
@@ -202,10 +202,11 @@ const EnemySpeechBubble = ({ text }) => {
   return (
     <div
       ref={ref}
-      className="absolute right-full mr-2 top-[42%] w-max max-w-[150px] bg-white/92 text-slate-900 text-[10px] font-bold px-3 py-1.5 rounded-xl shadow-[0_4px_16px_rgba(0,0,0,0.55)] z-[100] animate-in fade-in zoom-in-75 duration-300 leading-tight pointer-events-none"
-      style={{ transform: `translate(calc(-0% + ${offset.x}px), calc(-50% + ${offset.y}px))` }}
+      className="absolute bottom-full left-1/2 mb-3 w-max max-w-[180px] bg-white text-red-900 text-[11px] font-black px-4 py-2 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-[100] animate-in fade-in zoom-in-75 duration-300 leading-tight uppercase border-[3px] border-red-500 pointer-events-none"
+      style={{ transform: `translate(calc(-50% + ${offset.x}px), ${offset.y}px)` }}
     >
       {text}
+      <div className="absolute -bottom-[7px] left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-b-[3px] border-r-[3px] border-red-500 rotate-45" style={{ marginLeft: -offset.x }}></div>
     </div>
   );
 };
