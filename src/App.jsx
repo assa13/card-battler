@@ -1760,6 +1760,9 @@ export default function App() {
   const [isAnimating, setIsAnimating] = useState(false);
   const [animatingPlayerId, setAnimatingPlayerId] = useState(null);
   const [animatingEnemyId, setAnimatingEnemyId] = useState(null);
+  // Реальный вектор прыжка атакующего (в px, вычисляется из рефов)
+  const [attackTranslate, setAttackTranslate] = useState({ dx: 0, dy: 0 });
+  const [enemyAttackTranslate, setEnemyAttackTranslate] = useState({ dx: 0, dy: 0 });
   const [animatingTargetIds, setAnimatingTargetIds] = useState([]);
   const [hoveredPlayerId, setHoveredPlayerId] = useState(null);
   const [hoveredTargetIds, setHoveredTargetIds] = useState([]);
@@ -2374,6 +2377,20 @@ export default function App() {
     playSound('./assets/sfx/ui/click.wav', 0.6);
     setIsAnimating(true); setMana(m => m - card.cost); setAnimatingPlayerId(player.id); setAnimatingTargetIds(targetIndices.map(idx => enemies[idx].id));
 
+    // Вычисляем реальный вектор смещения: от центра спрайта игрока до центра первого врага-цели
+    {
+      const aRect = avatarRefs.current[player.id]?.getBoundingClientRect();
+      const firstTargetId = targetIndices.length > 0 ? enemies[targetIndices[0]].id : null;
+      const tRect = firstTargetId ? enemyRefs.current[firstTargetId]?.getBoundingClientRect() : null;
+      if (aRect && tRect) {
+        const dx = (tRect.left + tRect.width / 2) - (aRect.left + aRect.width / 2);
+        const dy = (tRect.top + tRect.height / 2) - (aRect.top + aRect.height / 2);
+        setAttackTranslate({ dx: dx * 0.75, dy: dy * 0.75 });
+      } else {
+        setAttackTranslate({ dx: 200, dy: 0 });
+      }
+    }
+
     const isContinuing = lastPlayedCost !== null && card.cost === lastPlayedCost + 1;
     const multiplier = isContinuing ? 1.5 : 1.0;
     
@@ -2521,6 +2538,12 @@ export default function App() {
          const pRect = avatarRefs.current[target.id]?.getBoundingClientRect();
          if (eRect && pRect) {
             setVfxList([{ id: Math.random(), type: 'enemy', delay: 0, startX: eRect.left + eRect.width/2, startY: eRect.top + eRect.height/2, endX: pRect.left + pRect.width/2, endY: pRect.top + pRect.height/2 }]);
+            // Вектор движения врага к игроку (враг смотрит влево, scaleX(-1), поэтому dx инвертируем)
+            const dx = (pRect.left + pRect.width / 2) - (eRect.left + eRect.width / 2);
+            const dy = (pRect.top + pRect.height / 2) - (eRect.top + eRect.height / 2);
+            setEnemyAttackTranslate({ dx: -dx * 0.75, dy: dy * 0.75 });
+         } else {
+            setEnemyAttackTranslate({ dx: 200, dy: 0 });
          }
 
          setTimeout(() => {
@@ -2761,8 +2784,7 @@ export default function App() {
                 let avatarTransform = '';
                 let transitionClass = 'transition-all duration-600 ease-out';
                 if (isAttacking) {
-                   if (player.id === 'p1') avatarTransform = 'translate(250px, 0) scale(1.25)'; 
-                   else avatarTransform = 'scale(1.25)'; 
+                   avatarTransform = `translate(${attackTranslate.dx}px, ${attackTranslate.dy}px) scale(1.15)`;
                 }
                 else if (isHovered && !isAnimating) avatarTransform = 'translate(16px, 0)';
                 else if (isBeingAttacked && shake.x !== 0) {
@@ -2792,7 +2814,7 @@ export default function App() {
                 
                 let enemyTransform = 'scaleX(-1)';
                 let transitionClass = 'transition-all duration-600 ease-out';
-                if (isAttacking) enemyTransform = 'scaleX(-1) translate(250px, 0) scale(1.25)';
+                if (isAttacking) enemyTransform = `scaleX(-1) translate(${enemyAttackTranslate.dx}px, ${enemyAttackTranslate.dy}px) scale(1.15)`;
                 else if (isHoveredTarget && !isAnimating) enemyTransform = 'scaleX(-1) translate(16px, 0)';
                 else if (isBeingAttacked && shake.x !== 0) {
                    enemyTransform = `scaleX(-1) translate(${shake.x * 0.5}px, ${shake.y * 0.5}px) rotate(${shake.rot * 0.5}deg) scale(1.1)`;
