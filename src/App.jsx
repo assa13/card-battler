@@ -2896,9 +2896,9 @@ export default function App() {
                 const formation = ENEMY_FORMATIONS[enemies.length] || ENEMY_FORMATIONS[3];
                 const basePos = formation[eIdx] || formation[formation.length - 1];
                 const isBoss = enemy.attackStyle === 'aoe';
-                const enemySize = isBoss ? Math.round(CHAR_SPRITE_SIZE * 1.25) : CHAR_SPRITE_SIZE;
-                // Босс крупнее и стоит чуть правее (меньше right = ближе к правому краю)
-                const pos = isBoss ? { right: basePos.right - 45, top: basePos.top - 20 } : basePos;
+                const enemySize = isBoss ? Math.round(CHAR_SPRITE_SIZE * 1.5625) : CHAR_SPRITE_SIZE;
+                // Босс крупнее; right уменьшается = сдвиг вправо, top увеличивается = ниже
+                const pos = isBoss ? { right: basePos.right - 75, top: basePos.top + 0 } : basePos;
                 
                 let enemyTransform = 'scaleX(-1)';
                 let transitionClass = 'transition-all duration-600 ease-out';
