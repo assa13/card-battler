@@ -3384,29 +3384,47 @@ export default function App() {
 
       {showReserve && (() => {
         const closeDeckView = () => setShowReserve(false);
-        // Очередь появления карт = порядок резерва; короткую очередь добиваем «пустыми» картами
-        const queueLen = Math.max(INITIAL_PLAYERS_DATA.length * CARD_POOL_SIZE, drawPile.length);
+        // Очередь ротации в реальном времени: первые 3 позиции — рука (полупрозрачные),
+        // дальше резерв и сброс; недостающие позиции — «пустые» карты (рубашки).
+        const handEntries = players.map(p => ({
+          card: p.currentCard && !p.currentCard.id.startsWith('b') ? p.currentCard : null,
+          inHand: true,
+        }));
+        const queue = [
+          ...handEntries,
+          ...drawPile.map(c => ({ card: c, inHand: false })),
+          ...discardPile.map(c => ({ card: c, inHand: false })),
+        ];
+        const queueLen = Math.max(handEntries.length + INITIAL_PLAYERS_DATA.length * CARD_POOL_SIZE, queue.length);
+        while (queue.length < queueLen) queue.push({ card: null, inHand: false });
         return (
         <div className="absolute inset-0 z-[1100] bg-black/45 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in duration-300 p-10">
           <div className="relative w-full max-w-5xl bg-slate-900/80 border border-slate-700 rounded-[32px] flex flex-col max-h-[85vh] overflow-hidden shadow-2xl">
             <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
                <div>
                  <h2 className="text-3xl font-black text-white uppercase tracking-tighter italic">Колода</h2>
-                 <p className="text-xs text-slate-500 uppercase tracking-widest mt-1">Очередь появления карт · в колоде {String(drawPile.length)} из {String(totalDeckSize)}</p>
+                 <p className="text-xs text-slate-500 uppercase tracking-widest mt-1">Ротация карт · первые {String(handEntries.length)} — в руке · карт {String(totalDeckSize)}</p>
                </div>
                <button onClick={closeDeckView} className="w-12 h-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-white hover:bg-red-900 hover:border-red-500 transition-all group">
                  <span className="text-2xl group-hover:scale-125 transition-transform">✕</span>
                </button>
             </div>
             <div className="flex-1 overflow-y-auto p-8 custom-scrollbar flex flex-col items-center gap-8">
-               <div className="flex gap-3 flex-wrap justify-center">
-                 {Array.from({ length: queueLen }).map((_, i) => {
-                   const card = drawPile[i];
+               <div className="flex gap-3 flex-wrap justify-center items-end">
+                 {queue.map(({ card, inHand }, i) => {
+                   const numBadge = (color, border) => (
+                     <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-900 border text-[9px] font-black flex items-center justify-center z-10" style={{ borderColor: border, color }}>{String(i + 1)}</span>
+                   );
+                   const inHandBadge = inHand && (
+                     <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-slate-700 text-slate-300 text-[7px] font-black px-1.5 py-0.5 rounded-full uppercase whitespace-nowrap z-10">в руке</span>
+                   );
                    if (!card) {
+                     // «Пустая» карта — рубашка без пунктира, символ с прозрачностью 20%
                      return (
-                       <div key={`q-empty-${i}`} className="relative w-16 h-20 rounded-xl border-2 border-dashed border-slate-700/70 bg-slate-800/20 flex items-center justify-center">
-                         <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-800 border border-slate-700 text-slate-600 text-[9px] font-black flex items-center justify-center">{String(i + 1)}</span>
-                         <span className="text-slate-700 text-xl font-black">?</span>
+                       <div key={`q-empty-${i}`} className={`relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center ${inHand ? 'opacity-50' : ''}`}>
+                         {numBadge('#475569', '#334155')}
+                         {inHandBadge}
+                         <span className="text-2xl" style={{ opacity: 0.2 }}>🙨</span>
                        </div>
                      );
                    }
@@ -3414,10 +3432,11 @@ export default function App() {
                    return (
                      <div
                        key={`q-${card.id}-${i}`}
-                       className="relative w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5"
+                       className={`relative w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5 ${inHand ? 'opacity-50' : ''}`}
                        style={{ borderColor: glow, boxShadow: `inset 0 0 12px ${glow}33` }}
                      >
-                       <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-900 border text-[9px] font-black flex items-center justify-center" style={{ borderColor: glow, color: glow }}>{String(i + 1)}</span>
+                       {numBadge(glow, glow)}
+                       {inHandBadge}
                        <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
                        <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
                      </div>
