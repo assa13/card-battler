@@ -3371,18 +3371,24 @@ export default function App() {
 
       {showLevelUp && (
         <div className="absolute inset-0 z-[2500] bg-black/80 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in duration-500">
-          <h2 className="text-6xl font-black text-amber-500 drop-shadow-2xl mb-8 uppercase italic tracking-tighter text-center">УРОВЕНЬ ПОВЫШЕН!</h2>
+          <h2 className="text-6xl font-black text-amber-500 drop-shadow-2xl mb-8 uppercase italic tracking-tighter text-center">{String(rewardTitle)}</h2>
           <div className="relative border-2 border-indigo-500/30 rounded-2xl p-10 pt-12 pb-10 bg-slate-900/60 shadow-[0_0_80px_rgba(99,102,241,0.15)] flex flex-col items-center">
-            <div className="absolute -top-3 px-4 bg-[#1e1f2e] text-slate-400 text-sm tracking-[0.3em] uppercase whitespace-nowrap">ВЫБЕРИТЕ НОВУЮ КАРТУ:</div>
+            <div className="absolute -top-3 px-4 bg-[#1e1f2e] text-slate-400 text-sm tracking-[0.3em] uppercase whitespace-nowrap">ВЫБЕРИТЕ НАГРАДУ:</div>
             <div className="flex gap-6 items-center">
-              {rewardOptions.map((card, idx) => {
-                const willMerge = rewardWouldMerge(card);
+              {rewardOptions.map((option, idx) => {
+                const { card, kind } = option;
+                const isUpgrade = kind === 'upgrade';
+                const preview = isUpgrade ? { ...card, level: getCardLevel(card) + 1 } : card;
                 return (
-                <div key={`${card.id}-${idx}`} className="relative">
-                  {willMerge && (<div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 bg-amber-500 text-black text-[10px] font-black px-3 py-1 rounded-full shadow-[0_0_20px_rgba(245,158,11,0.8)] uppercase tracking-widest animate-bounce whitespace-nowrap">⚗️ Слияние</div>)}
-                  <TiltWrapper className={`w-48 h-[200px] ${willMerge ? 'drop-shadow-[0_0_25px_rgba(245,158,11,0.5)]' : ''}`}>
-                    <div onClick={() => selectReward(card)} className="w-full h-full cursor-pointer hover:-translate-y-2 transition-transform duration-300">
-                      <AbilityCard card={card} owner={players.find(p=>p.id===card.ownerId)} mana={maxMana} isDisabled={false} showOwnerLabel={true} comboState={{isCandidate: false, willGiveBonus: false}} />
+                <div key={`${card.id}-${kind}-${idx}`} className="relative">
+                  {isUpgrade ? (
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 bg-amber-500 text-black text-[10px] font-black px-3 py-1 rounded-full shadow-[0_0_20px_rgba(245,158,11,0.8)] uppercase tracking-widest whitespace-nowrap">▲ Улучшение · ур.{String(getCardLevel(card))} → {String(getCardLevel(card) + 1)}</div>
+                  ) : (
+                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 bg-sky-500 text-white text-[10px] font-black px-3 py-1 rounded-full shadow-[0_0_20px_rgba(14,165,233,0.8)] uppercase tracking-widest whitespace-nowrap">✦ Новая карта</div>
+                  )}
+                  <TiltWrapper className={`w-48 h-[200px] ${isUpgrade ? 'drop-shadow-[0_0_25px_rgba(245,158,11,0.5)]' : 'drop-shadow-[0_0_25px_rgba(14,165,233,0.4)]'}`}>
+                    <div onClick={() => selectReward(option)} className="w-full h-full cursor-pointer hover:-translate-y-2 transition-transform duration-300">
+                      <AbilityCard card={preview} owner={players.find(p=>p.id===card.ownerId)} mana={maxMana} isDisabled={false} showOwnerLabel={true} comboState={{isCandidate: false, willGiveBonus: false}} />
                     </div>
                   </TiltWrapper>
                 </div>
@@ -3393,31 +3399,13 @@ export default function App() {
         </div>
       )}
 
-      {mergeQueue.length > 0 && (
-        <MergeAnimation
-          mergeQueue={mergeQueue}
+      {slotsPopup && (
+        <SquadSlotsPopup
           players={players}
-          maxMana={maxMana}
-          onComplete={handleMergeComplete}
+          pools={getHeroPools()}
+          newCardId={slotsPopup.newCardId}
+          onClose={closeSlotsPopup}
         />
-      )}
-
-      {cardRewardCards.length > 0 && (
-        <div className="absolute inset-0 z-[2400] bg-black/80 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in duration-300 p-10">
-          <h2 className="text-5xl font-black text-amber-500 uppercase italic tracking-widest mb-2 drop-shadow-2xl text-center">Получены карты</h2>
-          <p className="text-slate-400 text-xs uppercase tracking-[0.3em] mb-8 text-center">Новое пополнение резерва</p>
-          <div className="flex gap-6 items-end justify-center flex-wrap">
-            {cardRewardCards.map((card, idx) => (
-              <div key={`reward-${idx}`} className="relative">
-                {card.willMerge && (<div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 bg-amber-500 text-black text-[10px] font-black px-3 py-1 rounded-full shadow-[0_0_20px_rgba(245,158,11,0.8)] uppercase tracking-widest animate-bounce whitespace-nowrap">⚗️ Слияние</div>)}
-                <TiltWrapper className={`w-48 h-[260px] ${card.willMerge ? 'drop-shadow-[0_0_25px_rgba(245,158,11,0.5)]' : ''}`}>
-                  <AbilityCard card={card} owner={players.find(p=>p.id===card.ownerId)} mana={maxMana} maxMana={maxMana} isDisabled={false} showOwnerLabel={true} comboState={{isCandidate: false, willGiveBonus: false}} />
-                </TiltWrapper>
-              </div>
-            ))}
-          </div>
-          <button onClick={finishCardReward} className="mt-10 px-12 py-4 bg-white text-slate-900 rounded-full font-black text-lg hover:scale-105 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.3)] uppercase tracking-widest">Забрать</button>
-        </div>
       )}
 
       {(showReserve || showAllCards) && (() => {
