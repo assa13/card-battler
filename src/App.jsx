@@ -1478,14 +1478,15 @@ const SquadSlotsBoard = ({ players, pools, newCardId = null, hoveredId = null, o
   <div className="flex flex-col gap-4">
     {players.map(p => {
       const cards = pools[p.id] || [];
+      const isDead = p.hp <= 0;
       return (
-        <div key={p.id} className="flex items-center gap-6 bg-slate-900/70 border border-slate-700/60 rounded-3xl px-8 py-3 min-w-[560px] animate-in slide-in-from-bottom-4 fade-in duration-500">
-          <div className="w-[100px] h-[100px] overflow-hidden flex items-end justify-center shrink-0">
+        <div key={p.id} className={`flex items-center gap-6 bg-slate-900/70 border border-slate-700/60 rounded-3xl px-8 py-3 min-w-[560px] animate-in slide-in-from-bottom-4 fade-in duration-500 ${isDead ? 'grayscale' : ''}`}>
+          <div className={`w-[100px] h-[100px] overflow-hidden flex items-end justify-center shrink-0 ${isDead ? 'opacity-50' : ''}`}>
             <CharSprite atlas={CHAR_ATLASES[p.id]} size={100} />
           </div>
           <div className="w-28 shrink-0">
-            <p className="text-white font-black uppercase tracking-tight">{String(p.name)}</p>
-            <p className="text-[10px] text-slate-500 uppercase tracking-widest">{String(cards.length)}/{String(CARD_POOL_SIZE)} карт</p>
+            <p className={`font-black uppercase tracking-tight ${isDead ? 'text-slate-500' : 'text-white'}`}>{String(p.name)}</p>
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest">{isDead ? 'Павший' : `${String(cards.length)}/${String(CARD_POOL_SIZE)} карт`}</p>
           </div>
           <div className="flex gap-3">
             {Array.from({ length: CARD_POOL_SIZE }).map((_, i) => {
@@ -1494,6 +1495,14 @@ const SquadSlotsBoard = ({ players, pools, newCardId = null, hoveredId = null, o
                 return (
                   <div key={i} className="w-16 h-20 rounded-xl border-2 border-dashed border-slate-700 bg-slate-800/30 flex items-center justify-center">
                     <span className="text-slate-700 text-xl font-black">+</span>
+                  </div>
+                );
+              }
+              if (isDead) {
+                // Карты павшего бойца — пустые рубашки с черепом
+                return (
+                  <div key={i} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50">
+                    <span className="text-2xl" style={{ opacity: 0.4 }}>💀</span>
                   </div>
                 );
               }
@@ -1574,6 +1583,8 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
     setTooltip({ card, x: r.left + r.width / 2, top: r.top, bottom: r.bottom });
   };
 
+  const deadIds = new Set(players.filter(p => p.hp <= 0).map(p => p.id));
+
   const handEntries = players.map(p => ({
     card: isRealDeckCard(p.currentCard) ? p.currentCard : (isEmptyCard(p.currentCard) ? p.currentCard : null),
     inHand: true,
@@ -1611,6 +1622,15 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                  const inHandBadge = inHand && (
                    <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-slate-700 text-slate-300 text-[7px] font-black px-1.5 py-0.5 rounded-full uppercase whitespace-nowrap z-10">в руке</span>
                  );
+                 if (card && deadIds.has(card.ownerId)) {
+                   // Карта павшего бойца — пустая рубашка с черепом
+                   return (
+                     <div key={`q-dead-${card.id}-${i}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50" style={{ filter: 'brightness(0.9)' }}>
+                       {numBadge('#475569', '#334155')}
+                       <span className="text-2xl" style={{ opacity: 0.4 }}>💀</span>
+                     </div>
+                   );
+                 }
                  if (played) {
                    // Сыгранная карта (в т.ч. пустая балласт) — рубашка с ⧖
                    return (
