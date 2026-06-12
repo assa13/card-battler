@@ -1433,9 +1433,56 @@ function getCombatHitSound(vfxType) {
   return './assets/sfx/combat/hit_light.wav';
 }
 
-// --- ПОПАП СЛОТОВ ОТРЯДА (показывается при добавлении новой карты) ---
+// --- СХЕМА СЛОТОВ ОТРЯДА (бойцы + пуллы карт) ---
 
 const RARITY_GLOW = { COMMON: '#64748b', RARE: '#0ea5e9', EPIC: '#9333ea', LEGENDARY: '#f59e0b' };
+
+// Переиспользуется в попапе новой карты и в окне колоды
+const SquadSlotsBoard = ({ players, pools, newCardId = null }) => (
+  <div className="flex flex-col gap-4">
+    {players.map(p => {
+      const cards = pools[p.id] || [];
+      return (
+        <div key={p.id} className="flex items-center gap-6 bg-slate-900/70 border border-slate-700/60 rounded-3xl px-8 py-3 min-w-[560px] animate-in slide-in-from-bottom-4 fade-in duration-500">
+          <div className="w-[100px] h-[100px] overflow-hidden flex items-end justify-center shrink-0">
+            <CharSprite atlas={CHAR_ATLASES[p.id]} size={100} />
+          </div>
+          <div className="w-28 shrink-0">
+            <p className="text-white font-black uppercase tracking-tight">{String(p.name)}</p>
+            <p className="text-[10px] text-slate-500 uppercase tracking-widest">{String(cards.length)}/{String(CARD_POOL_SIZE)} карт</p>
+          </div>
+          <div className="flex gap-3">
+            {Array.from({ length: CARD_POOL_SIZE }).map((_, i) => {
+              const card = cards[i];
+              if (!card) {
+                return (
+                  <div key={i} className="w-16 h-20 rounded-xl border-2 border-dashed border-slate-700 bg-slate-800/30 flex items-center justify-center">
+                    <span className="text-slate-700 text-xl font-black">+</span>
+                  </div>
+                );
+              }
+              const glow = RARITY_GLOW[card.rarity] || '#64748b';
+              const isNew = card.id === newCardId;
+              return (
+                <div
+                  key={i}
+                  className={`relative w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5 ${isNew ? 'animate-bounce' : ''}`}
+                  style={{ borderColor: glow, boxShadow: isNew ? `0 0 25px ${glow}` : `inset 0 0 12px ${glow}33` }}
+                >
+                  {isNew && (
+                    <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-amber-500 text-black text-[8px] font-black px-2 py-0.5 rounded-full uppercase whitespace-nowrap shadow-lg">Новая</div>
+                  )}
+                  <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
+                  <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    })}
+  </div>
+);
 
 const SquadSlotsPopup = ({ players, pools, newCardId, onClose }) => {
   const [showPrompt, setShowPrompt] = useState(false);
@@ -1463,49 +1510,7 @@ const SquadSlotsPopup = ({ players, pools, newCardId, onClose }) => {
       <h2 className="text-4xl font-black text-amber-400 uppercase italic tracking-tighter mb-1 text-center drop-shadow-2xl">Новая карта в колоде!</h2>
       <p className="text-slate-500 text-xs uppercase tracking-[0.3em] mb-8 text-center">Пулл карт отряда · {String(CARD_POOL_SIZE)} слота на бойца</p>
 
-      <div className="flex flex-col gap-4">
-        {players.map(p => {
-          const cards = pools[p.id] || [];
-          return (
-            <div key={p.id} className="flex items-center gap-6 bg-slate-900/70 border border-slate-700/60 rounded-3xl px-8 py-3 min-w-[560px] animate-in slide-in-from-bottom-4 fade-in duration-500">
-              <div className="w-[100px] h-[100px] overflow-hidden flex items-end justify-center shrink-0">
-                <CharSprite atlas={CHAR_ATLASES[p.id]} size={100} />
-              </div>
-              <div className="w-28 shrink-0">
-                <p className="text-white font-black uppercase tracking-tight">{String(p.name)}</p>
-                <p className="text-[10px] text-slate-500 uppercase tracking-widest">{String(cards.length)}/{String(CARD_POOL_SIZE)} карт</p>
-              </div>
-              <div className="flex gap-3">
-                {Array.from({ length: CARD_POOL_SIZE }).map((_, i) => {
-                  const card = cards[i];
-                  if (!card) {
-                    return (
-                      <div key={i} className="w-16 h-20 rounded-xl border-2 border-dashed border-slate-700 bg-slate-800/30 flex items-center justify-center">
-                        <span className="text-slate-700 text-xl font-black">+</span>
-                      </div>
-                    );
-                  }
-                  const glow = RARITY_GLOW[card.rarity] || '#64748b';
-                  const isNew = card.id === newCardId;
-                  return (
-                    <div
-                      key={i}
-                      className={`relative w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5 ${isNew ? 'animate-bounce' : ''}`}
-                      style={{ borderColor: glow, boxShadow: isNew ? `0 0 25px ${glow}` : `inset 0 0 12px ${glow}33` }}
-                    >
-                      {isNew && (
-                        <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-amber-500 text-black text-[8px] font-black px-2 py-0.5 rounded-full uppercase whitespace-nowrap shadow-lg">Новая</div>
-                      )}
-                      <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
-                      <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <SquadSlotsBoard players={players} pools={pools} newCardId={newCardId} />
 
       {showPrompt && (
         <div className="absolute bottom-10 left-0 right-0 flex justify-center animate-in fade-in duration-500">
@@ -1705,10 +1710,7 @@ export default function App() {
   // Попап «слоты отряда» после добавления новой карты: { newCardId }
   const [slotsPopup, setSlotsPopup] = useState(null);
   const [showReserve, setShowReserve] = useState(false);
-  const [showAllCards, setShowAllCards] = useState(false);
-  const [burnConfirmId, setBurnConfirmId] = useState(null);
   const [appReady, setAppReady] = useState(false);
-  const [ownedCards, setOwnedCards] = useState([]);
   const [flyingCards, setFlyingCards] = useState([]);
   const [damagePopups, setDamagePopups] = useState([]);
   const [vfxList, setVfxList] = useState([]);
@@ -2056,7 +2058,6 @@ export default function App() {
     setBloodParticles([]);
     setFlashingTargets([]);
     setSectorSplash(null);
-    setBurnConfirmId(null);
     pendingTransitionRef.current = null;
     
     if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
@@ -2280,17 +2281,6 @@ export default function App() {
     setCraftWarning('');
   };
 
-  const collectAllDeckCards = () => {
-    const hand = players.map(p => p.currentCard).filter(c => c && !c.id.startsWith('b'));
-    const seen = new Set();
-    return [...drawPile, ...discardPile, ...hand].filter(c => c && !seen.has(c.id) && seen.add(c.id));
-  };
-
-  const openAllCardsView = () => {
-    setOwnedCards(collectAllDeckCards());
-    setShowAllCards(true);
-  };
-
   // Реальные карты, которые сейчас на руках (без базовых "b*"), включая павших героев
   const getRealHandCards = () => players.map(p => p.currentCard).filter(c => c && !c.id.startsWith('b'));
 
@@ -2343,21 +2333,6 @@ export default function App() {
     setDrawPile(prev => prev.map(bump));
     setDiscardPile(prev => prev.map(bump));
     setPlayers(prev => prev.map(p => p.currentCard ? { ...p, currentCard: bump(p.currentCard) } : p));
-  };
-
-  // Сжечь карту из колоды за -1 к максимальной мане (удаляет её из любой части ротации)
-  const burnCard = (card) => {
-    if (maxMana <= 1) return;
-    setBurnConfirmId(null);
-    setDrawPile(prev => prev.filter(c => c.id !== card.id));
-    setDiscardPile(prev => prev.filter(c => c.id !== card.id));
-    setPlayers(prev => prev.map(p => (p.currentCard && p.currentCard.id === card.id) ? { ...p, currentCard: null } : p));
-    setMaxMana(prev => {
-      const nm = Math.max(1, prev - 1);
-      setMana(m => Math.min(m, nm));
-      return nm;
-    });
-    playSound('./assets/sfx/game/enemy_turn.wav', 0.5);
   };
 
   // Выбор награды на level-up: новая карта в пулл бойца или +1 уровень существующей
@@ -3108,9 +3083,8 @@ export default function App() {
               <div className="flex flex-col items-center gap-1.5">
                 <div ref={deckRef} onClick={() => turnState !== 'map' && setShowReserve(true)} className={`w-20 h-28 bg-slate-800 rounded-xl border-2 border-[#1E88E5]/40 flex flex-col items-center justify-center font-black shadow-[0_0_15px_rgba(30,136,229,0.3)] transition-all ${turnState !== 'map' ? 'hover:scale-105 hover:border-[#1E88E5] cursor-help' : 'opacity-50 grayscale'} ${turnState === 'dealing' ? 'border-[#1E88E5] animate-pulse' : ''}`}>
                    <span className="text-slate-300 drop-shadow-md text-3xl">{String(drawPile.length)}<span className="text-[#1E88E5] text-lg">/{String(totalDeckSize)}</span></span>
-                   <span className="text-[9px] uppercase font-black tracking-widest text-[#1E88E5] mt-2">Резерв</span>
+                   <span className="text-[9px] uppercase font-black tracking-widest text-[#1E88E5] mt-2">Колода</span>
                 </div>
-                <button onClick={openAllCardsView} className="text-[8px] uppercase font-black tracking-widest text-slate-300 bg-slate-800/80 border border-slate-600 rounded-md px-2 py-1 hover:border-[#1E88E5] hover:text-white transition-all">Все карты</button>
               </div>
             </div>
 
@@ -3408,55 +3382,51 @@ export default function App() {
         />
       )}
 
-      {(showReserve || showAllCards) && (() => {
-        const closeDeckView = () => { setShowReserve(false); setShowAllCards(false); setBurnConfirmId(null); };
-        // Полная база карт (статичная, не зависит от текущей ротации/анимаций)
-        const allCards = ownedCards;
-        const list = showAllCards ? allCards : drawPile;
+      {showReserve && (() => {
+        const closeDeckView = () => setShowReserve(false);
+        // Очередь появления карт = порядок резерва; короткую очередь добиваем «пустыми» картами
+        const queueLen = Math.max(INITIAL_PLAYERS_DATA.length * CARD_POOL_SIZE, drawPile.length);
         return (
         <div className="absolute inset-0 z-[1100] bg-black/45 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in duration-300 p-10">
-          <div className="relative w-full max-w-5xl bg-slate-900/80 border border-slate-700 rounded-[32px] flex flex-col max-h-[80vh] overflow-hidden shadow-2xl">
+          <div className="relative w-full max-w-5xl bg-slate-900/80 border border-slate-700 rounded-[32px] flex flex-col max-h-[85vh] overflow-hidden shadow-2xl">
             <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
                <div>
-                 <h2 className="text-3xl font-black text-white uppercase tracking-tighter italic text-center">{showAllCards ? 'Все карты' : 'Ваша колода'}</h2>
-                 <p className="text-xs text-slate-500 uppercase tracking-widest mt-1 text-center">{showAllCards ? `Всего карт: ${String(allCards.length)} · нажмите на карту, чтобы сжечь (−1 к макс. мане)` : `Абсолютное число карт: ${String(totalDeckSize)} (в резерве: ${String(drawPile.length)})`}</p>
+                 <h2 className="text-3xl font-black text-white uppercase tracking-tighter italic">Колода</h2>
+                 <p className="text-xs text-slate-500 uppercase tracking-widest mt-1">Очередь появления карт · в колоде {String(drawPile.length)} из {String(totalDeckSize)}</p>
                </div>
                <button onClick={closeDeckView} className="w-12 h-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-white hover:bg-red-900 hover:border-red-500 transition-all group">
                  <span className="text-2xl group-hover:scale-125 transition-transform">✕</span>
                </button>
             </div>
-            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-               <div className="grid grid-cols-5 gap-6">
-                 {list.map((card, idx) => {
-                   const isConfirming = showAllCards && burnConfirmId === card.id;
-                   return (
-                   <div key={`deckview-${card.id}-${idx}`} className="relative h-[280px]">
-                     <div
-                       onClick={() => showAllCards && setBurnConfirmId(isConfirming ? null : card.id)}
-                       className={showAllCards ? 'h-full cursor-pointer' : 'h-full'}
-                     >
-                       <TiltWrapper className="h-full" isDisabled={true}>
-                          <AbilityCard card={card} owner={players.find(p=>p.id===card.ownerId)} mana={maxMana} isDisabled={false} showOwnerLabel={true} comboState={{isCandidate: false, willGiveBonus: false}} />
-                       </TiltWrapper>
-                     </div>
-                     {isConfirming && (
-                       <div className="absolute inset-0 z-20 rounded-2xl bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center gap-2 p-3 animate-in fade-in zoom-in-95 duration-200">
-                         <span className="text-5xl drop-shadow-[0_0_12px_rgba(239,68,68,0.8)]">🔥</span>
-                         <p className="text-center text-sm text-white font-black uppercase tracking-wide">Сжечь карту?</p>
-                         {maxMana <= 1 ? (
-                           <p className="text-center text-[10px] text-red-400 font-bold uppercase leading-tight">Нельзя:<br/>мана не может быть ниже 1</p>
-                         ) : (
-                           <>
-                             <p className="text-center text-[11px] text-amber-400 font-black uppercase">Цена: −1 к макс. мане</p>
-                             <button onClick={(e) => { e.stopPropagation(); burnCard(card); }} className="mt-1 px-5 py-2 bg-red-700 hover:bg-red-600 rounded-lg text-white font-black text-xs uppercase tracking-widest transition-all hover:scale-105 active:scale-95 shadow-[0_0_18px_rgba(239,68,68,0.5)]">Сжечь</button>
-                           </>
-                         )}
-                         <button onClick={(e) => { e.stopPropagation(); setBurnConfirmId(null); }} className="text-[10px] text-slate-400 uppercase tracking-widest hover:text-white transition-colors">Отмена</button>
+            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar flex flex-col items-center gap-8">
+               <div className="flex gap-3 flex-wrap justify-center">
+                 {Array.from({ length: queueLen }).map((_, i) => {
+                   const card = drawPile[i];
+                   if (!card) {
+                     return (
+                       <div key={`q-empty-${i}`} className="relative w-16 h-20 rounded-xl border-2 border-dashed border-slate-700/70 bg-slate-800/20 flex items-center justify-center">
+                         <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-800 border border-slate-700 text-slate-600 text-[9px] font-black flex items-center justify-center">{String(i + 1)}</span>
+                         <span className="text-slate-700 text-xl font-black">?</span>
                        </div>
-                     )}
-                   </div>
+                     );
+                   }
+                   const glow = RARITY_GLOW[card.rarity] || '#64748b';
+                   return (
+                     <div
+                       key={`q-${card.id}-${i}`}
+                       className="relative w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5"
+                       style={{ borderColor: glow, boxShadow: `inset 0 0 12px ${glow}33` }}
+                     >
+                       <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-900 border text-[9px] font-black flex items-center justify-center" style={{ borderColor: glow, color: glow }}>{String(i + 1)}</span>
+                       <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
+                       <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
+                     </div>
                    );
                  })}
+               </div>
+               <div className="w-full border-t border-slate-800 pt-6 flex flex-col items-center">
+                 <p className="text-xs text-slate-500 uppercase tracking-[0.3em] mb-4">Пулл карт отряда · {String(CARD_POOL_SIZE)} слота на бойца</p>
+                 <SquadSlotsBoard players={players} pools={getHeroPools()} />
                </div>
             </div>
           </div>
