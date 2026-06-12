@@ -1536,20 +1536,16 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, onCl
     inHand: true,
   }));
 
-  // Хвост очереди: резерв в известном порядке, затем сброс, ЗАМЕШАННЫЙ в случайные позиции
-  // среди пустых карт (как при реальной перетасовке). Порядок стабилен, пока состав не изменился.
-  const tail = useMemo(() => {
-    const minTail = INITIAL_PLAYERS_DATA.length * CARD_POOL_SIZE;
-    const emptiesCount = Math.max(0, minTail - drawPile.length - discardPile.length);
-    const mixed = shuffleArray([
-      ...discardPile.map(c => ({ card: c, inHand: false })),
-      ...Array.from({ length: emptiesCount }, () => ({ card: null, inHand: false })),
-    ]);
-    return [...drawPile.map(c => ({ card: c, inHand: false })), ...mixed];
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawPile, discardPile]);
-
-  const queue = [...handEntries, ...tail];
+  // Полный цикл — 9 позиций (3 хода × 3 карты): рука → резерв → пустые рубашки → сыгранные (⧖).
+  // Сыгранные карты вернутся при обновлении колоды (каждые 3 хода) — замешаются среди всех карт.
+  const cycleLen = INITIAL_PLAYERS_DATA.length * CARD_POOL_SIZE;
+  const emptiesCount = Math.max(0, cycleLen - handEntries.length - drawPile.length - discardPile.length);
+  const queue = [
+    ...handEntries,
+    ...drawPile.map(c => ({ card: c, inHand: false })),
+    ...Array.from({ length: emptiesCount }, () => ({ card: null, inHand: false })),
+    ...discardPile.map(c => ({ card: c, inHand: false, played: true })),
+  ];
 
   return (
     <div className="absolute inset-0 z-[1100] bg-black/45 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in duration-300 p-10">
@@ -1566,9 +1562,9 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, onCl
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar flex flex-col items-center gap-8">
            <SquadSlotsBoard players={players} pools={pools} hoveredId={hoverId} onHoverCard={setHoverId} />
            <div className="w-full border-t border-slate-800 pt-6 flex flex-col items-center">
-             <p className="text-xs text-slate-500 uppercase tracking-[0.3em] mb-5">Очередь карт · первые {String(handEntries.length)} — в руке</p>
+             <p className="text-xs text-slate-500 uppercase tracking-[0.3em] mb-5">Очередь карт · первые {String(handEntries.length)} — в руке · обновление каждые 3 хода</p>
              <div className="flex gap-3 flex-wrap justify-center items-end">
-               {queue.map(({ card, inHand }, i) => {
+               {queue.map(({ card, inHand, played }, i) => {
                  const isHover = card && hoverId === card.id;
                  const numBadge = (color, border) => (
                    <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-900 border text-[9px] font-black flex items-center justify-center z-10" style={{ borderColor: border, color }}>{String(i + 1)}</span>
@@ -1576,6 +1572,15 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, onCl
                  const inHandBadge = inHand && (
                    <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-slate-700 text-slate-300 text-[7px] font-black px-1.5 py-0.5 rounded-full uppercase whitespace-nowrap z-10">в руке</span>
                  );
+                 if (played) {
+                   // Сыгранная карта — рубашка с ⧖, полупрозрачная с лёгким затемнением
+                   return (
+                     <div key={`q-played-${card.id}-${i}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50" style={{ filter: 'brightness(0.9)' }}>
+                       {numBadge('#475569', '#334155')}
+                       <span className="text-2xl text-slate-300">⧖</span>
+                     </div>
+                   );
+                 }
                  if (!card) {
                    // «Пустая» карта — рубашка без пунктира, символ с прозрачностью 20%
                    return (
@@ -1933,6 +1938,8 @@ export default function App() {
   const audioRef = useRef(null);
   const showLevelUpRef = useRef(false);
   const pendingTransitionRef = useRef(null);
+  // Счётчик раздач: каждые 3 хода колода обновляется (сброс замешивается в резерв)
+  const dealCounterRef = useRef(0);
 
   const [isAnimating, setIsAnimating] = useState(false);
   const [animatingPlayerId, setAnimatingPlayerId] = useState(null);
@@ -2149,6 +2156,7 @@ export default function App() {
     setFlashingTargets([]);
     setSectorSplash(null);
     pendingTransitionRef.current = null;
+    dealCounterRef.current = 0;
     
     if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
     setSpeakingEnemy(null);
@@ -2455,10 +2463,12 @@ export default function App() {
   useEffect(() => {
     if (turnState !== 'dealing' || showLevelUp) return;
     setLastPlayedCost(null); setComboStreak(0);
+    // Колода обновляется каждые 3 хода: сброс замешивается среди ВСЕХ существующих карт
+    // (резерв + сброс перетасовываются вместе), а не когда резерв опустел.
     const checkAndReshuffle = () => {
       let currentDraw = [...drawPile]; let currentDiscard = [...discardPile];
-      const alivePlayersCount = players.filter(p => p.hp > 0).length;
-      if (currentDraw.length < alivePlayersCount && currentDiscard.length > 0) {
+      const isRefreshTurn = dealCounterRef.current > 0 && dealCounterRef.current % 3 === 0;
+      if (isRefreshTurn && currentDiscard.length > 0) {
         const discRect = discardRef.current?.getBoundingClientRect(); const deckRect = deckRef.current?.getBoundingClientRect();
         if (discRect && deckRect) {
           for (let i = 0; i < 5; i++) {
@@ -2474,6 +2484,7 @@ export default function App() {
       return { currentDraw, currentDiscard };
     };
     const { currentDraw, currentDiscard } = checkAndReshuffle();
+    dealCounterRef.current += 1;
     const tempDraw = [...currentDraw]; const assignments = {}; 
     const alivePlayers = players.filter(p => p.hp > 0);
     alivePlayers.forEach(p => {
