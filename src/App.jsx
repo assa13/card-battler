@@ -365,17 +365,9 @@ const HERO_ABILITIES = {
   }
 };
 
-const INITIAL_DECK = [
-  ...HERO_ABILITIES.p1.skills.slice(0, 2),
-  ...HERO_ABILITIES.p2.skills.slice(0, 2),
-  ...HERO_ABILITIES.p3.skills.slice(0, 2),
-];
-
-const REWARD_POOL = [
-  ...HERO_ABILITIES.p1.skills,
-  ...HERO_ABILITIES.p2.skills,
-  ...HERO_ABILITIES.p3.skills,
-];
+// Пулл карт бойца: максимум карт (кроме базовой), которые может держать один герой.
+// Старт — без карт вообще (только базовые), пулл наполняется выбором на level-up.
+const CARD_POOL_SIZE = 3;
 
 const EVENT_NARRATIVES = [
   { title: "Загадочный торговец", text: "Среди обломков вы замечаете фигуру в плаще. Торговец не просит золота, его интересуют лишь истории битв. В обмен он предлагает вашему отряду нечто особенное." },
@@ -390,7 +382,7 @@ const POWERUPS = [
   { id: 'mana', title: 'Осколок Эфира', desc: 'Максимальная мана увеличивается на +1.', icon: '🔵' },
   { id: 'stats', title: 'Эликсир Мощи', desc: 'Основная характеристика каждого бойца увеличивается на +2%.', icon: '💪' },
   { id: 'hp', title: 'Семя Жизни', desc: 'Максимальное здоровье всех героев увеличивается на +50%.', icon: '❤️' },
-  { id: 'cards', title: 'Древний Фолиант', desc: 'Получить 1 легендарную и 2 эпические карты в резерв.', icon: '📜' }
+  { id: 'cards', title: 'Древний Фолиант', desc: 'Выбрать одну из 3 карт: новую или улучшение имеющейся.', icon: '📜' }
 ];
 
 // --- НОВЫЙ БЛОК: ФРАЗЫ ВРАГОВ ---
@@ -409,7 +401,7 @@ const ENEMY_INSULTS = [
 
 const shuffleArray = (array) => [...array].sort(() => Math.random() - 0.5);
 
-// Уровень карты — обеспечивает бесконечный рост урона при слиянии (x2 за каждое слияние)
+// Уровень карты — растёт при выборе улучшения на level-up (x2 урона за каждый уровень)
 const getCardLevel = (card) => (card && card.level) || 1;
 const getLevelMultiplier = (card) => Math.pow(2, getCardLevel(card) - 1);
 
@@ -597,50 +589,6 @@ const decrementStatuses = (enemy) => {
   });
   if (s.mark) next.mark = s.mark;
   return { ...enemy, statuses: next };
-};
-
-// Сливает пары одинаковых карт (имя + редкость + уровень), повышая уровень. Рарность не меняется,
-// поэтому слияние возможно всегда и при любых условиях — урон карты растёт бесконечно.
-const checkAndMerge = (deck) => {
-  const allMerges = [];
-  let currentDeck = [...deck];
-  let foundMerge = true;
-
-  while (foundMerge) {
-    foundMerge = false;
-    const groups = {};
-    currentDeck.forEach((card, idx) => {
-      const key = `${card.name}__${card.rarity}__${getCardLevel(card)}`;
-      if (!groups[key]) groups[key] = [];
-      groups[key].push(idx);
-    });
-
-    const toRemove = new Set();
-    const toAdd = [];
-
-    for (const [, indices] of Object.entries(groups)) {
-      const available = indices.filter(i => !toRemove.has(i));
-      if (available.length >= 2) {
-        const base = currentDeck[available[0]];
-        toRemove.add(available[0]);
-        toRemove.add(available[1]);
-        const result = { ...base, level: getCardLevel(base) + 1, id: `merged_${Date.now()}_${Math.random()}` };
-        toAdd.push(result);
-        allMerges.push({ card1: currentDeck[available[0]], card2: currentDeck[available[1]], result });
-        foundMerge = true;
-      }
-    }
-
-    if (foundMerge) {
-      currentDeck = currentDeck.filter((_, idx) => !toRemove.has(idx));
-      toAdd.forEach(card => {
-        const pos = Math.floor(Math.random() * (currentDeck.length + 1));
-        currentDeck.splice(pos, 0, card);
-      });
-    }
-  }
-
-  return { newDeck: currentDeck, merges: allMerges };
 };
 
 const getTargetText = (type, priority) => {
@@ -1485,112 +1433,80 @@ function getCombatHitSound(vfxType) {
   return './assets/sfx/combat/hit_light.wav';
 }
 
-// --- АНИМАЦИЯ СЛИЯНИЯ КАРТ ---
+// --- ПОПАП СЛОТОВ ОТРЯДА (показывается при добавлении новой карты) ---
 
-const MergeAnimation = ({ mergeQueue, players, maxMana, onComplete }) => {
-  const [currentIdx, setCurrentIdx] = useState(0);
-  const [phase, setPhase] = useState('show'); // show | merge | result
+const RARITY_GLOW = { COMMON: '#64748b', RARE: '#0ea5e9', EPIC: '#9333ea', LEGENDARY: '#f59e0b' };
+
+const SquadSlotsPopup = ({ players, pools, newCardId, onClose }) => {
   const [showPrompt, setShowPrompt] = useState(false);
-  const onCompleteRef = useRef(onComplete);
-  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
-    setPhase('show');
-    setShowPrompt(false);
-    const t1 = setTimeout(() => setPhase('merge'), 1000);
-    const t2 = setTimeout(() => setPhase('result'), 1600);
-    // подсказку показываем через 2 секунды после появления результата
-    const t3 = setTimeout(() => setShowPrompt(true), 1600 + 2000);
-    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); };
-  }, [currentIdx]);
+    const t = setTimeout(() => setShowPrompt(true), 1200);
+    return () => clearTimeout(t);
+  }, []);
 
-  // Продолжение по любой клавише/клику после появления подсказки
   useEffect(() => {
     if (!showPrompt) return;
-    const advance = () => {
-      if (currentIdx < mergeQueue.length - 1) setCurrentIdx(i => i + 1);
-      else onCompleteRef.current();
-    };
+    const advance = () => onCloseRef.current();
     window.addEventListener('keydown', advance);
     window.addEventListener('pointerdown', advance);
     return () => {
       window.removeEventListener('keydown', advance);
       window.removeEventListener('pointerdown', advance);
     };
-  }, [showPrompt, currentIdx, mergeQueue.length]);
-
-  const current = mergeQueue[currentIdx];
-  if (!current) return null;
-
-  const owner = players.find(p => p.id === current.result.ownerId);
-  const glowColors = { COMMON: '#64748b', RARE: '#0ea5e9', EPIC: '#9333ea', LEGENDARY: '#f59e0b' };
-  const glow = glowColors[current.result.rarity] || '#ffffff';
+  }, [showPrompt]);
 
   return (
     <div className="absolute inset-0 z-[2600] bg-black/92 flex flex-col items-center justify-center backdrop-blur-xl animate-in fade-in duration-300">
-      <div className="text-center mb-8">
-        <h2 className="text-5xl font-black text-amber-400 uppercase tracking-widest drop-shadow-2xl">⚗️ СЛИЯНИЕ!</h2>
-        {mergeQueue.length > 1 && (
-          <p className="text-slate-500 text-xs uppercase tracking-widest mt-2">{currentIdx + 1} из {mergeQueue.length}</p>
-        )}
-      </div>
+      <h2 className="text-4xl font-black text-amber-400 uppercase italic tracking-tighter mb-1 text-center drop-shadow-2xl">Новая карта в колоде!</h2>
+      <p className="text-slate-500 text-xs uppercase tracking-[0.3em] mb-8 text-center">Пулл карт отряда · {String(CARD_POOL_SIZE)} слота на бойца</p>
 
-      <div className="relative flex items-center justify-center" style={{ minHeight: 300 }}>
-        {/* Две карты до слияния */}
-        {phase !== 'result' && (
-          <div className="flex items-center gap-10">
-            <div style={{
-              width: 176, height: 256,
-              transform: phase === 'merge' ? 'translateX(110px) scale(0.1) rotate(12deg)' : 'translateX(0) scale(1)',
-              opacity: phase === 'merge' ? 0 : 1,
-              transition: 'all 500ms cubic-bezier(0.4, 0, 0.6, 1)',
-            }}>
-              <AbilityCard card={current.card1} owner={owner} mana={maxMana} maxMana={maxMana} isDisabled={true} comboState={{ isCandidate: false, willGiveBonus: false }} />
-            </div>
-
-            <div style={{
-              fontSize: 30, fontWeight: 900,
-              color: phase === 'merge' ? '#f59e0b' : 'white',
-              transform: phase === 'merge' ? 'scale(2.5)' : 'scale(1)',
-              transition: 'all 400ms',
-              textShadow: phase === 'merge' ? '0 0 30px #f59e0b' : 'none',
-            }}>✕</div>
-
-            <div style={{
-              width: 176, height: 256,
-              transform: phase === 'merge' ? 'translateX(-110px) scale(0.1) rotate(-12deg)' : 'translateX(0) scale(1)',
-              opacity: phase === 'merge' ? 0 : 1,
-              transition: 'all 500ms cubic-bezier(0.4, 0, 0.6, 1)',
-            }}>
-              <AbilityCard card={current.card2} owner={owner} mana={maxMana} maxMana={maxMana} isDisabled={true} comboState={{ isCandidate: false, willGiveBonus: false }} />
-            </div>
-          </div>
-        )}
-
-        {/* Результат слияния */}
-        {phase === 'result' && (
-          <div className="flex flex-col items-center gap-5 animate-in zoom-in-75 fade-in duration-300">
-            <div style={{ width: 200, height: 280, position: 'relative' }}>
-              {/* мягкое свечение под карточкой */}
-              <div style={{
-                position: 'absolute', inset: 10, borderRadius: 18,
-                background: glow, filter: 'blur(38px)', opacity: 0.55,
-                zIndex: 0, pointerEvents: 'none',
-              }} />
-              <div style={{ position: 'relative', zIndex: 1, width: '100%', height: '100%' }}>
-                <TiltWrapper className="w-full h-full">
-                  <AbilityCard card={current.result} owner={owner} mana={maxMana} maxMana={maxMana} isDisabled={false} comboState={{ isCandidate: false, willGiveBonus: false }} growDamage={true} />
-                </TiltWrapper>
+      <div className="flex flex-col gap-4">
+        {players.map(p => {
+          const cards = pools[p.id] || [];
+          return (
+            <div key={p.id} className="flex items-center gap-6 bg-slate-900/70 border border-slate-700/60 rounded-3xl px-8 py-3 min-w-[560px] animate-in slide-in-from-bottom-4 fade-in duration-500">
+              <div className="w-[100px] h-[100px] overflow-hidden flex items-end justify-center shrink-0">
+                <CharSprite atlas={CHAR_ATLASES[p.id]} size={100} />
+              </div>
+              <div className="w-28 shrink-0">
+                <p className="text-white font-black uppercase tracking-tight">{String(p.name)}</p>
+                <p className="text-[10px] text-slate-500 uppercase tracking-widest">{String(cards.length)}/{String(CARD_POOL_SIZE)} карт</p>
+              </div>
+              <div className="flex gap-3">
+                {Array.from({ length: CARD_POOL_SIZE }).map((_, i) => {
+                  const card = cards[i];
+                  if (!card) {
+                    return (
+                      <div key={i} className="w-16 h-20 rounded-xl border-2 border-dashed border-slate-700 bg-slate-800/30 flex items-center justify-center">
+                        <span className="text-slate-700 text-xl font-black">+</span>
+                      </div>
+                    );
+                  }
+                  const glow = RARITY_GLOW[card.rarity] || '#64748b';
+                  const isNew = card.id === newCardId;
+                  return (
+                    <div
+                      key={i}
+                      className={`relative w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5 ${isNew ? 'animate-bounce' : ''}`}
+                      style={{ borderColor: glow, boxShadow: isNew ? `0 0 25px ${glow}` : `inset 0 0 12px ${glow}33` }}
+                    >
+                      {isNew && (
+                        <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-amber-500 text-black text-[8px] font-black px-2 py-0.5 rounded-full uppercase whitespace-nowrap shadow-lg">Новая</div>
+                      )}
+                      <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
+                      <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-            <div style={{ color: glow, fontWeight: 900, fontSize: 18, textTransform: 'uppercase', letterSpacing: '0.2em', textShadow: `0 0 20px ${glow}` }}>
-              ▲ Уровень {getCardLevel(current.result)}
-            </div>
-          </div>
-        )}
+          );
+        })}
       </div>
 
-      {/* Подсказка продолжения (через 2с после результата) */}
       {showPrompt && (
         <div className="absolute bottom-10 left-0 right-0 flex justify-center animate-in fade-in duration-500">
           <p className="text-slate-200 text-sm uppercase tracking-[0.3em] font-black animate-pulse drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]">Нажмите любую клавишу чтобы продолжить</p>
@@ -1747,7 +1663,7 @@ export default function App() {
   const [mana, setMana] = useState(0); 
   const [turnState, setTurnState] = useState('map'); 
   
-  const [drawPile, setDrawPile] = useState(() => shuffleArray([...INITIAL_DECK]));
+  const [drawPile, setDrawPile] = useState([]);
   const [discardPile, setDiscardPile] = useState([]);
   const [xp, setXp] = useState(0);
   const [playerLevel, setPlayerLevel] = useState(1); 
@@ -1785,14 +1701,14 @@ export default function App() {
   const [craftSlots, setCraftSlots] = useState([null, null, null]);
   const [craftWarning, setCraftWarning] = useState('');
   const [showLevelUp, setShowLevelUp] = useState(false);
-  const [mergeQueue, setMergeQueue] = useState([]);
+  const [rewardTitle, setRewardTitle] = useState('УРОВЕНЬ ПОВЫШЕН!');
+  // Попап «слоты отряда» после добавления новой карты: { newCardId }
+  const [slotsPopup, setSlotsPopup] = useState(null);
   const [showReserve, setShowReserve] = useState(false);
   const [showAllCards, setShowAllCards] = useState(false);
   const [burnConfirmId, setBurnConfirmId] = useState(null);
   const [appReady, setAppReady] = useState(false);
   const [ownedCards, setOwnedCards] = useState([]);
-  const [cardRewardCards, setCardRewardCards] = useState([]);
-  const pendingCardRewardRef = useRef(null);
   const [flyingCards, setFlyingCards] = useState([]);
   const [damagePopups, setDamagePopups] = useState([]);
   const [vfxList, setVfxList] = useState([]);
@@ -2074,26 +1990,14 @@ export default function App() {
            return syncPlayerMaxHp({ ...p, baseMaxHp: (p.baseMaxHp ?? p.maxHp) + bonus, hp: p.hp + bonus });
         }));
      } else if (powerupId === 'cards') {
-        const legendaries = REWARD_POOL.filter(c => c.rarity === 'LEGENDARY');
-        const epics = REWARD_POOL.filter(c => c.rarity === 'EPIC');
-        const newCards = [];
-        if (legendaries.length) {
-           const leg = legendaries[Math.floor(Math.random() * legendaries.length)];
-           newCards.push({ ...leg, id: `evt_${Date.now()}_l_${Math.random()}` });
-        }
-        for (let i = 0; i < 2; i++) {
-           if (epics.length) {
-              const ep = epics[Math.floor(Math.random() * epics.length)];
-              newCards.push({ ...ep, id: `evt_${Date.now()}_e${i}_${Math.random()}` });
-           }
-        }
-
         playSound('./assets/sfx/events/powerup_select.wav');
         setCompletedNodes(prev => [...prev, currentMapNodeId]);
         setTurnState('map');
         setCurrentEvent(null);
-        // показываем экран получения карт (с пометками слияния)
-        showCardReward(newCards);
+        // открываем тот же выбор из 3 карт, что и на level-up
+        setRewardTitle('ДРЕВНИЙ ФОЛИАНТ');
+        setRewardOptions(buildLevelUpOptions());
+        setShowLevelUp(true);
         return;
      }
 
@@ -2127,7 +2031,8 @@ export default function App() {
     if (fullReset) {
       setPlayers(INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p })));
       setXp(0); setXpToNext(60); setPlayerLevel(1); setMaxMana(5);
-      setDrawPile(shuffleArray([...INITIAL_DECK])); setDiscardPile([]);
+      // Старт без карт: только базовые атаки, пулл наполняется на level-up
+      setDrawPile([]); setDiscardPile([]);
       setInventory(Array(INVENTORY_SIZE).fill(null));
       setEquipped({ p1: null, p2: null, p3: null });
     } else {
@@ -2140,20 +2045,18 @@ export default function App() {
         hasActed: false,
         justDealt: false,
       }, equipped[p.id])));
-      setDrawPile(shuffleArray(currentFullDeck.length > 0 ? currentFullDeck : [...INITIAL_DECK]));
+      setDrawPile(shuffleArray(currentFullDeck));
       setDiscardPile([]);
     }
 
-    setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setFlyingItems([]); setShowLevelUp(false); setMergeQueue([]);
+    setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setFlyingItems([]); setShowLevelUp(false); setSlotsPopup(null);
     setDragSrcIdx(null); setDragOverPlayerId(null); setItemTooltip(null);
     setShowCraft(false); setCraftSlots([null, null, null]); setCraftWarning('');
     setCurrentEvent(null);
     setBloodParticles([]);
     setFlashingTargets([]);
-    setCardRewardCards([]);
     setSectorSplash(null);
     setBurnConfirmId(null);
-    pendingCardRewardRef.current = null;
     pendingTransitionRef.current = null;
     
     if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
@@ -2199,7 +2102,8 @@ export default function App() {
       const total = prev + amount;
       const cur = xpToNextRef.current;
       if (total >= cur) {
-        setRewardOptions(shuffleArray([...REWARD_POOL]).slice(0, 3));
+        setRewardTitle('УРОВЕНЬ ПОВЫШЕН!');
+        setRewardOptions(buildLevelUpOptions());
         setShowLevelUp(true); setPlayerLevel(l => l + 1); setMaxMana(m => m + 1);
         // Рост HP за уровень отряда (вместо отвязанного от статов str→hp)
         setPlayers(prev => prev.map(p => {
@@ -2390,56 +2294,55 @@ export default function App() {
   // Реальные карты, которые сейчас на руках (без базовых "b*"), включая павших героев
   const getRealHandCards = () => players.map(p => p.currentCard).filter(c => c && !c.id.startsWith('b'));
 
-  // Применяет результат слияния, корректно учитывая карты на руках:
-  // слитые карты убираются с рук, оставшиеся на руках не дублируются в колоде.
-  const commitMergedDeck = (newDeck, merges) => {
-    const survivingIds = new Set(newDeck.map(c => c.id));
-    const realHand = getRealHandCards();
-    setPlayers(prev => prev.map(p => (p.currentCard && !p.currentCard.id.startsWith('b') && !survivingIds.has(p.currentCard.id)) ? { ...p, currentCard: null } : p));
-    const stillInHand = new Set(realHand.filter(c => survivingIds.has(c.id)).map(c => c.id));
-    setDrawPile(shuffleArray(newDeck.filter(c => !stillInHand.has(c.id))));
-    setDiscardPile([]);
-    setMergeQueue(merges);
-  };
-
-  // Сливает любые имеющиеся пары во всей колоде (резерв + сброс + руки). Возвращает true, если было слияние.
-  const settleMerges = () => {
+  // Пуллы карт каждого бойца (вся колода: резерв + сброс + руки), в порядке скиллов героя
+  const getHeroPools = () => {
     const full = [...drawPile, ...discardPile, ...getRealHandCards()];
-    const { newDeck, merges } = checkAndMerge(full);
-    if (merges.length === 0) return false;
-    commitMergedDeck(newDeck, merges);
-    return true;
+    const pools = {};
+    INITIAL_PLAYERS_DATA.forEach(p => { pools[p.id] = []; });
+    full.forEach(c => { if (pools[c.ownerId]) pools[c.ownerId].push(c); });
+    Object.keys(pools).forEach(pid => {
+      const order = HERO_ABILITIES[pid].skills.map(s => s.name);
+      pools[pid].sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
+    });
+    return pools;
   };
 
-  // Проверяет, приведёт ли добавление карты к слиянию (для меток "СЛИЯНИЕ")
-  const rewardWouldMerge = (card) => {
-    const { merges } = checkAndMerge([...drawPile, ...discardPile, ...getRealHandCards(), { ...card, id: `chk_${Math.random()}` }]);
-    return merges.length > 0;
+  // Собирает 3 варианта награды: новые карты (пока пулл бойца не полон) и улучшения имеющихся.
+  // Когда все пуллы заполнены — остаются только улучшения. Читает состояние через рефы,
+  // потому что вызывается из мемоизированного gainXp.
+  const buildLevelUpOptions = () => {
+    const hand = playersRef.current.map(p => p.currentCard).filter(c => c && !c.id.startsWith('b'));
+    const full = [...drawPileRef.current, ...discardPileRef.current, ...hand];
+    const candidates = [];
+    INITIAL_PLAYERS_DATA.forEach(({ id: pid }) => {
+      const owned = full.filter(c => c.ownerId === pid);
+      const ownedNames = new Set(owned.map(c => c.name));
+      if (owned.length < CARD_POOL_SIZE) {
+        HERO_ABILITIES[pid].skills.forEach(s => {
+          if (!ownedNames.has(s.name)) candidates.push({ kind: 'new', card: s });
+        });
+      }
+      owned.forEach(c => candidates.push({ kind: 'upgrade', card: c }));
+    });
+    return shuffleArray(candidates).slice(0, 3);
   };
 
-  // Показывает окно получения карт с пометкой готовых к слиянию
-  const showCardReward = (newCards) => {
-    const fullDeck = [...drawPile, ...discardPile, ...getRealHandCards(), ...newCards];
-    const { newDeck, merges } = checkAndMerge(fullDeck);
-    const surviving = new Set(newDeck.map(c => c.id));
-    const displayCards = newCards.map(c => ({ ...c, willMerge: !surviving.has(c.id) }));
-    pendingCardRewardRef.current = { newCards };
-    setCardRewardCards(displayCards);
-  };
-
-  const finishCardReward = () => {
-    const pending = pendingCardRewardRef.current;
-    pendingCardRewardRef.current = null;
-    setCardRewardCards([]);
-    if (!pending) return;
-    const full = [...drawPile, ...discardPile, ...getRealHandCards(), ...pending.newCards];
-    const { newDeck, merges } = checkAndMerge(full);
-    if (merges.length > 0) {
-      playSound('./assets/sfx/game/level_up.wav');
-      commitMergedDeck(newDeck, merges);
-    } else {
-      setDrawPile(prev => [...prev, ...pending.newCards]);
+  // Выполняет отложенный переход (победа/карта), если он был назначен во время диалога
+  const runPendingTransition = () => {
+    const pending = pendingTransitionRef.current;
+    if (pending) {
+      pendingTransitionRef.current = null;
+      if (pending === 'victory') { playSound('./assets/sfx/game/victory.wav'); setTurnState('victory'); }
+      else setTurnState(pending);
     }
+  };
+
+  // Повышает уровень карты, где бы она ни находилась (резерв, сброс, руки)
+  const upgradeCardById = (cardId) => {
+    const bump = c => (c && c.id === cardId) ? { ...c, level: getCardLevel(c) + 1 } : c;
+    setDrawPile(prev => prev.map(bump));
+    setDiscardPile(prev => prev.map(bump));
+    setPlayers(prev => prev.map(p => p.currentCard ? { ...p, currentCard: bump(p.currentCard) } : p));
   };
 
   // Сжечь карту из колоды за -1 к максимальной мане (удаляет её из любой части ротации)
@@ -2457,43 +2360,31 @@ export default function App() {
     playSound('./assets/sfx/game/enemy_turn.wav', 0.5);
   };
 
-  const selectReward = (card) => {
+  // Выбор награды на level-up: новая карта в пулл бойца или +1 уровень существующей
+  const selectReward = (option) => {
     playSound('./assets/sfx/game/level_up.wav');
-    const newCard = { ...card, id: `rew_${Date.now()}_${Math.random()}` };
-    const fullDeck = [...drawPile, ...discardPile, ...getRealHandCards(), newCard];
-    const { newDeck, merges } = checkAndMerge(fullDeck);
-
-    if (merges.length > 0) {
-      commitMergedDeck(newDeck, merges);
-    } else {
-      setDrawPile(prev => {
-        const pile = [...prev];
-        const randomIndex = Math.floor(Math.random() * (pile.length + 1));
-        pile.splice(randomIndex, 0, newCard);
-        return pile;
-      });
-    }
-
     setShowLevelUp(false);
-    // Если нет слияний — сразу выполняем отложенный переход
-    if (merges.length === 0) {
-      const pending = pendingTransitionRef.current;
-      if (pending) {
-        pendingTransitionRef.current = null;
-        if (pending === 'victory') { playSound('./assets/sfx/game/victory.wav'); setTurnState('victory'); }
-        else setTurnState(pending);
-      }
+
+    if (option.kind === 'upgrade') {
+      upgradeCardById(option.card.id);
+      runPendingTransition();
+      return;
     }
+
+    const newCard = { ...option.card, id: `rew_${Date.now()}_${Math.random()}`, level: 1 };
+    setDrawPile(prev => {
+      const pile = [...prev];
+      const randomIndex = Math.floor(Math.random() * (pile.length + 1));
+      pile.splice(randomIndex, 0, newCard);
+      return pile;
+    });
+    // Показываем схему слотов отряда; отложенный переход выполнится при закрытии попапа
+    setSlotsPopup({ newCardId: newCard.id });
   };
 
-  const handleMergeComplete = () => {
-    setMergeQueue([]);
-    const pending = pendingTransitionRef.current;
-    if (pending) {
-      pendingTransitionRef.current = null;
-      if (pending === 'victory') { playSound('./assets/sfx/game/victory.wav'); setTurnState('victory'); }
-      else setTurnState(pending);
-    }
+  const closeSlotsPopup = () => {
+    setSlotsPopup(null);
+    runPendingTransition();
   };
 
   useEffect(() => {
@@ -2720,16 +2611,11 @@ export default function App() {
   useEffect(() => { playersRef.current = players; }, [players]);
   const enemiesRef = useRef(enemies);
   useEffect(() => { enemiesRef.current = enemies; }, [enemies]);
+  const drawPileRef = useRef(drawPile);
+  useEffect(() => { drawPileRef.current = drawPile; }, [drawPile]);
+  const discardPileRef = useRef(discardPile);
+  useEffect(() => { discardPileRef.current = discardPile; }, [discardPile]);
   useEffect(() => { showLevelUpRef.current = showLevelUp; }, [showLevelUp]);
-
-  // Слияние происходит всегда: как только в колоде (резерв+сброс+руки) есть пара —
-  // сливаем, но только в стабильном состоянии (не во время анимаций/раздачи/диалогов).
-  useEffect(() => {
-    if (mergeQueue.length > 0 || showLevelUp || cardRewardCards.length > 0 || isAnimating) return;
-    if (turnState !== 'player' && turnState !== 'map') return;
-    settleMerges();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [drawPile, discardPile, players, turnState, mergeQueue, showLevelUp, cardRewardCards, isAnimating]);
 
   useEffect(() => {
     if (turnState !== 'enemy' || showLevelUp) return;
