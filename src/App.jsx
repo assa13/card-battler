@@ -1503,8 +1503,8 @@ const SquadSlotsBoard = ({ players, pools, newCardId = null, hoveredId = null, o
               return (
                 <div
                   key={i}
-                  onMouseEnter={onHoverCard ? () => onHoverCard(card.id) : undefined}
-                  onMouseLeave={onHoverCard ? () => onHoverCard(null) : undefined}
+                  onMouseEnter={onHoverCard ? (e) => onHoverCard(card, e) : undefined}
+                  onMouseLeave={onHoverCard ? () => onHoverCard(null, null) : undefined}
                   className={`relative w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5 transition-transform duration-150 ${isNew ? 'animate-bounce' : ''} ${isHover ? 'scale-110 z-10' : ''}`}
                   style={{ borderColor: isHover ? '#ffffff' : glow, boxShadow: isNew || isHover ? `0 0 25px ${glow}` : `inset 0 0 12px ${glow}33` }}
                 >
@@ -1562,9 +1562,17 @@ const SquadSlotsPopup = ({ players, pools, newCardId, onClose }) => {
 
 // --- ОКНО КОЛОДЫ: пуллы бойцов + живая очередь ротации карт ---
 
-const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, onClose }) => {
-  // Двусторонняя подсветка: слот бойца <-> карта в очереди
+const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxMana, onClose }) => {
+  // Двусторонняя подсветка: слот бойца <-> карта в очереди + тултип с реальной картой
   const [hoverId, setHoverId] = useState(null);
+  const [tooltip, setTooltip] = useState(null); // { card, x, top, bottom }
+
+  const handleHoverCard = (card, e) => {
+    if (!card) { setHoverId(null); setTooltip(null); return; }
+    setHoverId(card.id);
+    const r = e.currentTarget.getBoundingClientRect();
+    setTooltip({ card, x: r.left + r.width / 2, top: r.top, bottom: r.bottom });
+  };
 
   const handEntries = players.map(p => ({
     card: isRealDeckCard(p.currentCard) ? p.currentCard : (isEmptyCard(p.currentCard) ? p.currentCard : null),
@@ -1591,7 +1599,7 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, onCl
            </button>
         </div>
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar flex flex-col items-center gap-8">
-           <SquadSlotsBoard players={players} pools={pools} hoveredId={hoverId} onHoverCard={setHoverId} />
+           <SquadSlotsBoard players={players} pools={pools} hoveredId={hoverId} onHoverCard={handleHoverCard} />
            <div className="w-full border-t border-slate-800 pt-6 flex flex-col items-center">
              <p className="text-xs text-slate-500 uppercase tracking-[0.3em] mb-5">Очередь карт · первые {String(handEntries.length)} — в руке · обновление каждые 3 хода</p>
              <div className="flex gap-3 flex-wrap justify-center items-end">
@@ -1635,8 +1643,8 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, onCl
                  return (
                    <div
                      key={`q-${card.id}-${i}`}
-                     onMouseEnter={() => setHoverId(card.id)}
-                     onMouseLeave={() => setHoverId(null)}
+                     onMouseEnter={(e) => handleHoverCard(card, e)}
+                     onMouseLeave={() => handleHoverCard(null, null)}
                      className={`relative w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5 transition-transform duration-150 ${inHand && !isHover ? 'opacity-50' : ''} ${isHover ? 'scale-110 z-10' : ''}`}
                      style={{ borderColor: isHover ? '#ffffff' : glow, boxShadow: isHover ? `0 0 25px ${glow}` : `inset 0 0 12px ${glow}33` }}
                    >
@@ -1652,6 +1660,19 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, onCl
         </div>
       </div>
       <div className="absolute inset-0 -z-10" onClick={onClose}></div>
+
+      {tooltip && (() => {
+        // Тултип с реальной картой: над мини-картой, если не влезает — под ней; по X — в пределах экрана
+        const TIP_W = 192, TIP_H = 270, PAD = 8;
+        const placeAbove = tooltip.top - TIP_H - PAD >= 0;
+        const top = placeAbove ? tooltip.top - TIP_H - PAD : tooltip.bottom + PAD;
+        const left = Math.min(Math.max(tooltip.x - TIP_W / 2, PAD), window.innerWidth - TIP_W - PAD);
+        return (
+          <div className="fixed z-[1300] pointer-events-none animate-in fade-in zoom-in-95 duration-150" style={{ left, top, width: TIP_W, height: TIP_H }}>
+            <AbilityCard card={tooltip.card} owner={players.find(p => p.id === tooltip.card.ownerId)} mana={maxMana} maxMana={maxMana} isDisabled={false} showOwnerLabel={true} comboState={{ isCandidate: false, willGiveBonus: false }} />
+          </div>
+        );
+      })()}
     </div>
   );
 };
@@ -3542,6 +3563,7 @@ export default function App() {
           drawPile={drawPile}
           discardPile={discardPile}
           totalDeckSize={totalDeckSize}
+          maxMana={maxMana}
           onClose={() => setShowReserve(false)}
         />
       )}
