@@ -366,8 +366,9 @@ const HERO_ABILITIES = {
 };
 
 // Пулл карт бойца: максимум карт (кроме базовой), которые может держать один герой.
-// Старт — без карт вообще (только базовые), пулл наполняется выбором на level-up.
+// Колода всегда полная (DECK_SIZE): старт — только «пустые» карты-балласт, пулл наполняется на level-up.
 const CARD_POOL_SIZE = 3;
+const DECK_SIZE = INITIAL_PLAYERS_DATA.length * CARD_POOL_SIZE;
 
 const EVENT_NARRATIVES = [
   { title: "Загадочный торговец", text: "Среди обломков вы замечаете фигуру в плаще. Торговец не просит золота, его интересуют лишь истории битв. В обмен он предлагает вашему отряду нечто особенное." },
@@ -400,6 +401,40 @@ const ENEMY_INSULTS = [
 ];
 
 const shuffleArray = (array) => [...array].sort(() => Math.random() - 0.5);
+
+const isBasicCard = (card) => card && card.id.startsWith('b');
+const isEmptyCard = (card) => card && card.isEmpty;
+const isRealDeckCard = (card) => card && !isBasicCard(card) && !isEmptyCard(card);
+const isDeckCard = (card) => card && !isBasicCard(card);
+
+const createEmptyCard = (ownerId, slotIndex) => ({
+  id: `empty_${ownerId}_${slotIndex}`,
+  ownerId,
+  isEmpty: true,
+  name: 'Пусто',
+  icon: '🙨',
+});
+
+const createInitialDeck = () => {
+  const cards = [];
+  INITIAL_PLAYERS_DATA.forEach(({ id }) => {
+    for (let i = 0; i < CARD_POOL_SIZE; i++) cards.push(createEmptyCard(id, i));
+  });
+  return shuffleArray(cards);
+};
+
+// Добивает колоду до DECK_SIZE пустыми картами (на случай старых сохранений)
+const ensureFullDeck = (cards) => {
+  const deck = [...cards];
+  INITIAL_PLAYERS_DATA.forEach(({ id }) => {
+    const ownerCards = deck.filter(c => c.ownerId === id);
+    const missing = CARD_POOL_SIZE - ownerCards.length;
+    for (let i = 0; i < missing; i++) {
+      deck.push(createEmptyCard(id, ownerCards.length + i));
+    }
+  });
+  return deck;
+};
 
 // Уровень карты — растёт при выборе улучшения на level-up (x2 урона за каждый уровень)
 const getCardLevel = (card) => (card && card.level) || 1;
@@ -1532,18 +1567,14 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, onCl
   const [hoverId, setHoverId] = useState(null);
 
   const handEntries = players.map(p => ({
-    card: p.currentCard && !p.currentCard.id.startsWith('b') ? p.currentCard : null,
+    card: isRealDeckCard(p.currentCard) ? p.currentCard : (isEmptyCard(p.currentCard) ? p.currentCard : null),
     inHand: true,
   }));
 
-  // Полный цикл — 9 позиций (3 хода × 3 карты): рука → резерв → пустые рубашки → сыгранные (⧖).
-  // Сыгранные карты вернутся при обновлении колоды (каждые 3 хода) — замешаются среди всех карт.
-  const cycleLen = INITIAL_PLAYERS_DATA.length * CARD_POOL_SIZE;
-  const emptiesCount = Math.max(0, cycleLen - handEntries.length - drawPile.length - discardPile.length);
+  // Полный цикл — DECK_SIZE карт: рука → резерв → сыгранные (⧖). Пустые карты — полноценные объекты колоды.
   const queue = [
     ...handEntries,
     ...drawPile.map(c => ({ card: c, inHand: false })),
-    ...Array.from({ length: emptiesCount }, () => ({ card: null, inHand: false })),
     ...discardPile.map(c => ({ card: c, inHand: false, played: true })),
   ];
 
@@ -1573,7 +1604,7 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, onCl
                    <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-slate-700 text-slate-300 text-[7px] font-black px-1.5 py-0.5 rounded-full uppercase whitespace-nowrap z-10">в руке</span>
                  );
                  if (played) {
-                   // Сыгранная карта — рубашка с ⧖, полупрозрачная с лёгким затемнением
+                   // Сыгранная карта (в т.ч. пустая балласт) — рубашка с ⧖
                    return (
                      <div key={`q-played-${card.id}-${i}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50" style={{ filter: 'brightness(0.9)' }}>
                        {numBadge('#475569', '#334155')}
@@ -1581,10 +1612,19 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, onCl
                      </div>
                    );
                  }
-                 if (!card) {
-                   // «Пустая» карта — рубашка без пунктира, символ с прозрачностью 20%
+                 if (isEmptyCard(card)) {
+                   // Пустая карта-балласт в колоде — рубашка с 🙨
                    return (
-                     <div key={`q-empty-${i}`} className={`relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center ${inHand ? 'opacity-50' : ''}`}>
+                     <div key={`q-empty-${card.id}-${i}`} className={`relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center ${inHand ? 'opacity-50' : ''}`}>
+                       {numBadge('#475569', '#334155')}
+                       {inHandBadge}
+                       <span className="text-2xl" style={{ opacity: 0.2 }}>🙨</span>
+                     </div>
+                   );
+                 }
+                 if (!card) {
+                   return (
+                     <div key={`q-hand-basic-${i}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50">
                        {numBadge('#475569', '#334155')}
                        {inHandBadge}
                        <span className="text-2xl" style={{ opacity: 0.2 }}>🙨</span>
@@ -1763,7 +1803,7 @@ export default function App() {
   const [mana, setMana] = useState(0); 
   const [turnState, setTurnState] = useState('map'); 
   
-  const [drawPile, setDrawPile] = useState([]);
+  const [drawPile, setDrawPile] = useState(() => createInitialDeck());
   const [discardPile, setDiscardPile] = useState([]);
   const [xp, setXp] = useState(0);
   const [playerLevel, setPlayerLevel] = useState(1); 
@@ -2124,14 +2164,14 @@ export default function App() {
 
     // Сначала собираем карты с рук (до очистки currentCard)
     let handCards = [];
-    players.forEach(p => { if (p.currentCard && !p.currentCard.id.startsWith('b')) handCards.push(p.currentCard); });
+    players.forEach(p => { if (p.currentCard && isDeckCard(p.currentCard)) handCards.push(p.currentCard); });
     const currentFullDeck = [...drawPile, ...discardPile, ...handCards];
 
     if (fullReset) {
       setPlayers(INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p })));
       setXp(0); setXpToNext(60); setPlayerLevel(1); setMaxMana(5);
-      // Старт без карт: только базовые атаки, пулл наполняется на level-up
-      setDrawPile([]); setDiscardPile([]);
+      // Старт с полной колодой из пустых карт-балласта; пулл наполняется на level-up
+      setDrawPile(createInitialDeck()); setDiscardPile([]);
       setInventory(Array(INVENTORY_SIZE).fill(null));
       setEquipped({ p1: null, p2: null, p3: null });
     } else {
@@ -2144,7 +2184,7 @@ export default function App() {
         hasActed: false,
         justDealt: false,
       }, equipped[p.id])));
-      setDrawPile(shuffleArray(currentFullDeck));
+      setDrawPile(shuffleArray(ensureFullDeck(currentFullDeck)));
       setDiscardPile([]);
     }
 
@@ -2379,15 +2419,15 @@ export default function App() {
     setCraftWarning('');
   };
 
-  // Реальные карты, которые сейчас на руках (без базовых "b*"), включая павших героев
-  const getRealHandCards = () => players.map(p => p.currentCard).filter(c => c && !c.id.startsWith('b'));
+  // Реальные карты способностей на руках (без базовых и пустых балласт-карт)
+  const getRealHandCards = () => players.map(p => p.currentCard).filter(isRealDeckCard);
 
-  // Пуллы карт каждого бойца (вся колода: резерв + сброс + руки), в порядке скиллов героя
+  // Пуллы карт каждого бойца (только реальные способности, без пустых балласт-карт)
   const getHeroPools = () => {
     const full = [...drawPile, ...discardPile, ...getRealHandCards()];
     const pools = {};
     INITIAL_PLAYERS_DATA.forEach(p => { pools[p.id] = []; });
-    full.forEach(c => { if (pools[c.ownerId]) pools[c.ownerId].push(c); });
+    full.filter(isRealDeckCard).forEach(c => { if (pools[c.ownerId]) pools[c.ownerId].push(c); });
     Object.keys(pools).forEach(pid => {
       const order = HERO_ABILITIES[pid].skills.map(s => s.name);
       pools[pid].sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name));
@@ -2399,11 +2439,11 @@ export default function App() {
   // Когда все пуллы заполнены — остаются только улучшения. Читает состояние через рефы,
   // потому что вызывается из мемоизированного gainXp.
   const buildLevelUpOptions = () => {
-    const hand = playersRef.current.map(p => p.currentCard).filter(c => c && !c.id.startsWith('b'));
+    const hand = playersRef.current.map(p => p.currentCard).filter(isRealDeckCard);
     const full = [...drawPileRef.current, ...discardPileRef.current, ...hand];
     const candidates = [];
     INITIAL_PLAYERS_DATA.forEach(({ id: pid }) => {
-      const owned = full.filter(c => c.ownerId === pid);
+      const owned = full.filter(c => c.ownerId === pid && isRealDeckCard(c));
       const ownedNames = new Set(owned.map(c => c.name));
       if (owned.length < CARD_POOL_SIZE) {
         HERO_ABILITIES[pid].skills.forEach(s => {
@@ -2445,12 +2485,14 @@ export default function App() {
     }
 
     const newCard = { ...option.card, id: `rew_${Date.now()}_${Math.random()}`, level: 1 };
-    setDrawPile(prev => {
-      const pile = [...prev];
-      const randomIndex = Math.floor(Math.random() * (pile.length + 1));
-      pile.splice(randomIndex, 0, newCard);
-      return pile;
-    });
+    const ownerId = option.card.ownerId;
+    // Находим ОДНУ конкретную пустую карту бойца (в резерве или сбросе) и заменяем её по id,
+    // чтобы не продублировать награду, если пустые есть в обеих стопках
+    const targetEmpty = [...drawPileRef.current, ...discardPileRef.current]
+      .find(c => isEmptyCard(c) && c.ownerId === ownerId);
+    const replaceById = (pile) => pile.map(c => (targetEmpty && c.id === targetEmpty.id) ? newCard : c);
+    setDrawPile(prev => replaceById(prev));
+    setDiscardPile(prev => replaceById(prev));
     // Показываем схему слотов отряда; отложенный переход выполнится при закрытии попапа
     setSlotsPopup({ newCardId: newCard.id });
   };
@@ -2485,7 +2527,8 @@ export default function App() {
     };
     const { currentDraw, currentDiscard } = checkAndReshuffle();
     dealCounterRef.current += 1;
-    const tempDraw = [...currentDraw]; const assignments = {}; 
+    const tempDraw = [...currentDraw]; const assignments = {};
+    const emptiesToDiscard = [];
     const alivePlayers = players.filter(p => p.hp > 0);
     alivePlayers.forEach(p => {
       if (tempDraw.length > 0) {
@@ -2496,7 +2539,16 @@ export default function App() {
     let delay = 0; const deckRect = deckRef.current?.getBoundingClientRect();
     players.forEach(p => {
       if (p.hp <= 0) return;
-      const cardToDeal = assignments[p.id] || HERO_ABILITIES[p.id].basic;
+      const drawn = assignments[p.id];
+      let cardToDeal;
+      if (drawn && isEmptyCard(drawn)) {
+        cardToDeal = HERO_ABILITIES[p.id].basic;
+        emptiesToDiscard.push(drawn);
+      } else if (drawn) {
+        cardToDeal = drawn;
+      } else {
+        cardToDeal = HERO_ABILITIES[p.id].basic;
+      }
       const slotRect = slotRefs.current[p.id]?.getBoundingClientRect();
       if (deckRect && slotRect) {
         const flyId = `deal_${p.id}_${Date.now()}`;
@@ -2505,7 +2557,7 @@ export default function App() {
       }
       delay += 300; 
     });
-    setTimeout(() => { playSound('./assets/sfx/game/mana_restore.wav', 0.5); setDrawPile(tempDraw); setDiscardPile(currentDiscard); setPlayers(prev => prev.map(p => ({ ...p, hasActed: false, justDealt: false }))); setMana(maxMana); setTurnState('player'); }, delay + 1000); 
+    setTimeout(() => { playSound('./assets/sfx/game/mana_restore.wav', 0.5); setDrawPile(tempDraw); setDiscardPile([...currentDiscard, ...emptiesToDiscard]); setPlayers(prev => prev.map(p => ({ ...p, hasActed: false, justDealt: false }))); setMana(maxMana); setTurnState('player'); }, delay + 1000); 
   }, [turnState, showLevelUp, maxMana]);
 
   const playCard = (playerIndex, card) => {
@@ -2670,7 +2722,7 @@ export default function App() {
         }
       };
 
-      if (!card.id.startsWith('b')) {
+      if (isRealDeckCard(card)) {
         const slotRect = slotRefs.current[player.id]?.getBoundingClientRect(); const discardRect = discardRef.current?.getBoundingClientRect();
         setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, currentCard: null, hasActed: true } : p));
         if (slotRect && discardRect) {
@@ -2808,7 +2860,7 @@ export default function App() {
                setPlayers(currentPs => currentPs.map(p => {
                   if (!targets.some(t => t.id === p.id)) return p;
                   const newHp = Math.max(0, p.hp - dmg);
-                  if (newHp === 0 && p.currentCard && !p.currentCard.id.startsWith('b')) setDiscardPile(dp => [...dp, p.currentCard]);
+                  if (newHp === 0 && p.currentCard && isDeckCard(p.currentCard)) setDiscardPile(dp => [...dp, p.currentCard]);
                   return { ...p, hp: newHp, currentCard: null };
                }));
 
@@ -2869,7 +2921,7 @@ export default function App() {
             setPlayers(currentPs => currentPs.map(p => {
                if (p.id === target.id) {
                   const newHp = Math.max(0, p.hp - dmg);
-                  if (newHp === 0 && p.currentCard && !p.currentCard.id.startsWith('b')) setDiscardPile(dp => [...dp, p.currentCard]);
+                  if (newHp === 0 && p.currentCard && isDeckCard(p.currentCard)) setDiscardPile(dp => [...dp, p.currentCard]);
                   return { ...p, hp: newHp, currentCard: null };
                }
                return p;
@@ -2908,7 +2960,7 @@ export default function App() {
     return { isCandidate, willGiveBonus };
   };
 
-  const totalDeckSize = drawPile.length + discardPile.length + players.filter(p => p.currentCard && !p.currentCard.id.startsWith('b')).length;
+  const totalDeckSize = DECK_SIZE;
 
   const currentNode = gameMap.find(n => n.id === currentMapNodeId);
   const currentNodeInfo = getNodeInfo(currentNode?.type);
