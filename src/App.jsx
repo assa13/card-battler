@@ -1585,15 +1585,16 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
 
   const deadIds = new Set(players.filter(p => p.hp <= 0).map(p => p.id));
 
-  // Очередь: ровно DECK_SIZE (9) слотов колоды + 3 отдельных слота сброса.
-  // Колода: рука (полупрозрачно) + резерв; карты, ушедшие в сброс, занимают
-  // свои слоты рубашками ⧖. Сброс: последние 3 сыгранные карты с градиентом прозрачности.
-  const handCards = players.map(p => p.currentCard).filter(isDeckCard);
-  const deckSlots = [
-    ...handCards.map(c => ({ card: c, inHand: true })),
-    ...drawPile.map(c => ({ card: c })),
-  ];
-  while (deckSlots.length < DECK_SIZE) deckSlots.push({ gone: true });
+  // Очередь из трёх секций: Рука (3 слота) | колода (остальные из 9) | Сброс (3 слота).
+  // Карты, ушедшие в сброс, занимают слоты колоды рубашками ⧖ до обновления.
+  const handSlots = players.map(p => ({
+    player: p,
+    card: isDeckCard(p.currentCard) ? p.currentCard : null,
+  }));
+  const handCardsCount = handSlots.filter(s => s.card).length;
+  const deckRestLen = DECK_SIZE - handCardsCount;
+  const deckSlots = drawPile.map(c => ({ card: c }));
+  while (deckSlots.length < deckRestLen) deckSlots.push({ gone: true });
 
   const recent3 = discardPile.slice(-3);
   // Градиент прозрачности: новее — заметнее (последняя сыгранная справа)
@@ -1618,15 +1619,52 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar flex flex-col items-center gap-8">
            <SquadSlotsBoard players={players} pools={pools} hoveredId={hoverId} onHoverCard={handleHoverCard} />
            <div className="w-full border-t border-slate-800 pt-6 flex flex-col items-center">
-             <p className="text-xs text-slate-500 uppercase tracking-[0.3em] mb-5">Очередь карт · {String(DECK_SIZE)} в колоде · <span className="text-red-400">последние 3 из сброса</span> · обновление каждые 3 хода</p>
              <div className="flex gap-3 justify-center items-end">
-               {deckSlots.map(({ card, inHand, gone }, i) => {
+               {/* Секция «Рука» */}
+               <div className="flex flex-col items-center gap-2">
+                 <p className="text-[10px] text-sky-400 uppercase tracking-[0.3em] font-black">Рука</p>
+                 <div className="flex gap-3">
+                   {handSlots.map(({ player, card }, i) => {
+                     const isHover = card && hoverId === card.id;
+                     if (player.hp <= 0) {
+                       return (
+                         <div key={`h-dead-${player.id}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50" style={{ filter: 'brightness(0.9)' }}>
+                           <span className="text-2xl" style={{ opacity: 0.4 }}>💀</span>
+                         </div>
+                       );
+                     }
+                     if (!card || isEmptyCard(card)) {
+                       // Базовая атака / пустая карта — рубашка
+                       return (
+                         <div key={`h-basic-${player.id}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-60">
+                           <span className="text-2xl" style={{ opacity: 0.2 }}>🙨</span>
+                         </div>
+                       );
+                     }
+                     const glow = RARITY_GLOW[card.rarity] || '#64748b';
+                     return (
+                       <div
+                         key={`h-${card.id}-${i}`}
+                         onMouseEnter={(e) => handleHoverCard(card, e)}
+                         onMouseLeave={() => handleHoverCard(null, null)}
+                         className={`relative w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5 transition-transform duration-150 ${isHover ? 'scale-110 z-10' : ''}`}
+                         style={{ borderColor: isHover ? '#ffffff' : glow, boxShadow: isHover ? `0 0 25px ${glow}` : `inset 0 0 12px ${glow}33` }}
+                       >
+                         <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
+                         <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
+                       </div>
+                     );
+                   })}
+                 </div>
+               </div>
+
+               {/* Разделитель рука | колода */}
+               <div className="w-px h-16 bg-slate-700 mx-2 shrink-0"></div>
+
+               {deckSlots.map(({ card, gone }, i) => {
                  const isHover = card && hoverId === card.id;
                  const numBadge = (color, border) => (
                    <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-900 border text-[9px] font-black flex items-center justify-center z-10" style={{ borderColor: border, color }}>{String(i + 1)}</span>
-                 );
-                 const inHandBadge = inHand && (
-                   <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-slate-700 text-slate-300 text-[7px] font-black px-1.5 py-0.5 rounded-full uppercase whitespace-nowrap z-10">в руке</span>
                  );
                  if (gone) {
                    // Слот карты, ушедшей в сброс — рубашка с ⧖ до обновления колоды
@@ -1649,9 +1687,8 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                  if (isEmptyCard(card)) {
                    // Пустая карта-балласт в колоде — рубашка с 🙨
                    return (
-                     <div key={`q-empty-${card.id}-${i}`} className={`relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center ${inHand ? 'opacity-50' : ''}`}>
+                     <div key={`q-empty-${card.id}-${i}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center">
                        {numBadge('#475569', '#334155')}
-                       {inHandBadge}
                        <span className="text-2xl" style={{ opacity: 0.2 }}>🙨</span>
                      </div>
                    );
@@ -1662,11 +1699,10 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                      key={`q-${card.id}-${i}`}
                      onMouseEnter={(e) => handleHoverCard(card, e)}
                      onMouseLeave={() => handleHoverCard(null, null)}
-                     className={`relative w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5 transition-transform duration-150 ${inHand && !isHover ? 'opacity-50' : ''} ${isHover ? 'scale-110 z-10' : ''}`}
+                     className={`relative w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5 transition-transform duration-150 ${isHover ? 'scale-110 z-10' : ''}`}
                      style={{ borderColor: isHover ? '#ffffff' : glow, boxShadow: isHover ? `0 0 25px ${glow}` : `inset 0 0 12px ${glow}33` }}
                    >
                      {numBadge(glow, glow)}
-                     {inHandBadge}
                      <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
                      <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
                    </div>
@@ -1676,6 +1712,10 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                {/* Разделитель колода | сброс */}
                <div className="w-px h-16 bg-slate-700 mx-2 shrink-0"></div>
 
+               {/* Секция «Сброс» */}
+               <div className="flex flex-col items-center gap-2">
+                 <p className="text-[10px] text-red-400 uppercase tracking-[0.3em] font-black">Сброс</p>
+                 <div className="flex gap-3">
                {discardSlots.map(({ card, opacity }, i) => {
                  const isHover = card && hoverId === card.id;
                  if (!card) {
@@ -1695,7 +1735,6 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                      className={`relative w-16 h-20 rounded-xl border-2 bg-red-950/60 flex flex-col items-center justify-center gap-0.5 transition-transform duration-150 ${isHover ? 'scale-110 z-10' : ''}`}
                      style={{ borderColor: '#ef4444', boxShadow: isHover ? '0 0 25px #ef4444' : 'inset 0 0 12px #ef444433', opacity: isHover ? 1 : opacity }}
                    >
-                     <span className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-red-900 text-red-200 text-[7px] font-black px-1.5 py-0.5 rounded-full uppercase whitespace-nowrap z-10">сброс</span>
                      {showFace ? (
                        <>
                          <span className="text-2xl drop-shadow-lg" style={{ filter: 'grayscale(0.4)' }}>{String(card.icon)}</span>
@@ -1707,6 +1746,8 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                    </div>
                  );
                })}
+                 </div>
+               </div>
              </div>
            </div>
         </div>
