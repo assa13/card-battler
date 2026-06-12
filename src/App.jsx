@@ -1585,15 +1585,15 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
 
   const deadIds = new Set(players.filter(p => p.hp <= 0).map(p => p.id));
 
-  // Очередь из трёх секций: Рука (3 слота) | колода (остальные из 9) | Сброс (3 слота).
-  // Карты, ушедшие в сброс, занимают слоты колоды рубашками ⧖ до обновления.
+  // Единая очередь из DECK_SIZE (9) позиций: первые 3 — рука (по слоту на бойца),
+  // остальные 6 — резерв; карты, ушедшие в сброс, занимают позиции рубашками ⧖.
+  // Справа отдельно 3 слота сброса. Нумерация сквозная 1–9.
   const handSlots = players.map(p => ({
     player: p,
     card: isDeckCard(p.currentCard) ? p.currentCard : null,
   }));
-  const handCardsCount = handSlots.filter(s => s.card).length;
-  const deckRestLen = DECK_SIZE - handCardsCount;
-  const deckSlots = drawPile.map(c => ({ card: c }));
+  const deckRestLen = DECK_SIZE - handSlots.length;
+  const deckSlots = drawPile.slice(0, deckRestLen).map(c => ({ card: c }));
   while (deckSlots.length < deckRestLen) deckSlots.push({ gone: true });
 
   const recent3 = discardPile.slice(-3);
@@ -1620,15 +1620,19 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
            <SquadSlotsBoard players={players} pools={pools} hoveredId={hoverId} onHoverCard={handleHoverCard} />
            <div className="w-full border-t border-slate-800 pt-6 flex flex-col items-center">
              <div className="flex gap-3 justify-center items-end">
-               {/* Секция «Рука» */}
+               {/* Секция «Рука» — первые позиции общей очереди */}
                <div className="flex flex-col items-center gap-2">
                  <p className="text-[10px] text-sky-400 uppercase tracking-[0.3em] font-black">Рука</p>
                  <div className="flex gap-3">
                    {handSlots.map(({ player, card }, i) => {
                      const isHover = card && hoverId === card.id;
+                     const numBadge = (color, border) => (
+                       <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-900 border text-[9px] font-black flex items-center justify-center z-10" style={{ borderColor: border, color }}>{String(i + 1)}</span>
+                     );
                      if (player.hp <= 0) {
                        return (
                          <div key={`h-dead-${player.id}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50" style={{ filter: 'brightness(0.9)' }}>
+                           {numBadge('#475569', '#334155')}
                            <span className="text-2xl" style={{ opacity: 0.4 }}>💀</span>
                          </div>
                        );
@@ -1637,6 +1641,7 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                        // Базовая атака / пустая карта — рубашка
                        return (
                          <div key={`h-basic-${player.id}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-60">
+                           {numBadge('#475569', '#334155')}
                            <span className="text-2xl" style={{ opacity: 0.2 }}>🙨</span>
                          </div>
                        );
@@ -1650,6 +1655,7 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                          className={`relative w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5 transition-transform duration-150 ${isHover ? 'scale-110 z-10' : ''}`}
                          style={{ borderColor: isHover ? '#ffffff' : glow, boxShadow: isHover ? `0 0 25px ${glow}` : `inset 0 0 12px ${glow}33` }}
                        >
+                         {numBadge(glow, glow)}
                          <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
                          <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
                        </div>
@@ -1664,7 +1670,7 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                {deckSlots.map(({ card, gone }, i) => {
                  const isHover = card && hoverId === card.id;
                  const numBadge = (color, border) => (
-                   <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-900 border text-[9px] font-black flex items-center justify-center z-10" style={{ borderColor: border, color }}>{String(i + 1)}</span>
+                   <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-900 border text-[9px] font-black flex items-center justify-center z-10" style={{ borderColor: border, color }}>{String(handSlots.length + i + 1)}</span>
                  );
                  if (gone) {
                    // Слот карты, ушедшей в сброс — рубашка с ⧖ до обновления колоды
