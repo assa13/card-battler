@@ -1585,17 +1585,18 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
 
   const deadIds = new Set(players.filter(p => p.hp <= 0).map(p => p.id));
 
-  const handEntries = players.map(p => ({
-    card: isRealDeckCard(p.currentCard) ? p.currentCard : (isEmptyCard(p.currentCard) ? p.currentCard : null),
-    inHand: true,
-  }));
-
-  // Полный цикл — DECK_SIZE карт: рука → резерв → сыгранные (⧖). Пустые карты — полноценные объекты колоды.
+  // Ровно DECK_SIZE (9) слотов — больше карт быть не может.
+  // Слева активная ротация: рука (полупрозрачно) + резерв. Справа сброс:
+  // последние 3 сыгранные карты красным — в реалтайм-ротации они не участвуют,
+  // более старый сброс — красные рубашки ⧖.
+  const handCards = players.map(p => p.currentCard).filter(isDeckCard);
+  const recentFrom = Math.max(0, discardPile.length - 3);
   const queue = [
-    ...handEntries,
-    ...drawPile.map(c => ({ card: c, inHand: false })),
-    ...discardPile.map(c => ({ card: c, inHand: false, played: true })),
+    ...handCards.map(c => ({ card: c, inHand: true })),
+    ...drawPile.map(c => ({ card: c })),
+    ...discardPile.map((c, idx) => ({ card: c, discarded: true, recent: idx >= recentFrom })),
   ];
+  while (queue.length < DECK_SIZE) queue.push({ card: null });
 
   return (
     <div className="absolute inset-0 z-[1100] bg-black/45 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in duration-300 p-10">
@@ -1612,9 +1613,9 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar flex flex-col items-center gap-8">
            <SquadSlotsBoard players={players} pools={pools} hoveredId={hoverId} onHoverCard={handleHoverCard} />
            <div className="w-full border-t border-slate-800 pt-6 flex flex-col items-center">
-             <p className="text-xs text-slate-500 uppercase tracking-[0.3em] mb-5">Очередь карт · первые {String(handEntries.length)} — в руке · обновление каждые 3 хода</p>
+             <p className="text-xs text-slate-500 uppercase tracking-[0.3em] mb-5">Очередь карт · {String(DECK_SIZE)} слотов · <span className="text-red-400">сброс справа</span> · обновление каждые 3 хода</p>
              <div className="flex gap-3 flex-wrap justify-center items-end">
-               {queue.map(({ card, inHand, played }, i) => {
+               {queue.map(({ card, inHand, discarded, recent }, i) => {
                  const isHover = card && hoverId === card.id;
                  const numBadge = (color, border) => (
                    <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-900 border text-[9px] font-black flex items-center justify-center z-10" style={{ borderColor: border, color }}>{String(i + 1)}</span>
@@ -1631,12 +1632,28 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                      </div>
                    );
                  }
-                 if (played) {
-                   // Сыгранная карта (в т.ч. пустая балласт) — рубашка с ⧖
+                 if (discarded) {
+                   // Сброс — красные, из ротации выбыли до обновления колоды.
+                   // Последние 3 показываем лицом, более старые — красной рубашкой ⧖
+                   if (recent && isRealDeckCard(card)) {
+                     return (
+                       <div
+                         key={`q-disc-${card.id}-${i}`}
+                         onMouseEnter={(e) => handleHoverCard(card, e)}
+                         onMouseLeave={() => handleHoverCard(null, null)}
+                         className={`relative w-16 h-20 rounded-xl border-2 bg-red-950/60 flex flex-col items-center justify-center gap-0.5 transition-transform duration-150 ${isHover ? 'scale-110 z-10' : 'opacity-70'}`}
+                         style={{ borderColor: '#ef4444', boxShadow: isHover ? '0 0 25px #ef4444' : 'inset 0 0 12px #ef444433' }}
+                       >
+                         {numBadge('#ef4444', '#ef4444')}
+                         <span className="text-2xl drop-shadow-lg" style={{ filter: 'grayscale(0.4)' }}>{String(card.icon)}</span>
+                         <span className="text-[9px] font-black uppercase text-red-400">ур.{String(getCardLevel(card))}</span>
+                       </div>
+                     );
+                   }
                    return (
-                     <div key={`q-played-${card.id}-${i}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50" style={{ filter: 'brightness(0.9)' }}>
-                       {numBadge('#475569', '#334155')}
-                       <span className="text-2xl text-slate-300">⧖</span>
+                     <div key={`q-disc-back-${card.id}-${i}`} className="relative w-16 h-20 rounded-xl border-2 border-red-900 bg-gradient-to-br from-red-950/70 to-slate-950 flex items-center justify-center opacity-60">
+                       {numBadge('#ef4444', '#7f1d1d')}
+                       <span className="text-2xl text-red-400/70">{recent ? '🙨' : '⧖'}</span>
                      </div>
                    );
                  }
@@ -1652,9 +1669,8 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                  }
                  if (!card) {
                    return (
-                     <div key={`q-hand-basic-${i}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50">
+                     <div key={`q-pad-${i}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50">
                        {numBadge('#475569', '#334155')}
-                       {inHandBadge}
                        <span className="text-2xl" style={{ opacity: 0.2 }}>🙨</span>
                      </div>
                    );
