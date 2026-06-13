@@ -68,14 +68,14 @@ const getItemBurnXp = (item) => (item && ITEM_BURN_XP[item.rarity]) || 0;
 // которая переносится между забегами и не сгорает при смерти. 1 огонёк за порог,
 // остаток сверх порога переходит в следующий цикл заполнения.
 const JUNK_SOUL_POINTS = { COMMON: 1, RARE: 4, EPIC: 10, LEGENDARY: 25 };
-const EMBER_JUNK_THRESHOLD = 15;
+const EMBER_JUNK_THRESHOLD = 11; // было 15; −30% к стоимости огонька (меньше очков хлама за 1 🔥)
 const getItemJunkPoints = (item) => (item && JUNK_SOUL_POINTS[item.rarity]) || 0;
 const sumJunkPoints = (items) => items.reduce((s, it) => s + getItemJunkPoints(it), 0);
-// Цена открытия слотов на экране подготовки: каждый следующий ×2
-const PREP_SLOT_PRICES = [1, 2, 4, 8, 16, 32];
+// Цена открытия слотов на экране подготовки: каждый следующий ×2, базовые значения −30%
+const PREP_SLOT_PRICES = [1, 1, 3, 6, 11, 22];
 const getPrepSlotPrice = (boughtCount) => PREP_SLOT_PRICES[Math.min(boughtCount, PREP_SLOT_PRICES.length - 1)];
 const PREP_MAX_BUYS = 2;
-const PREP_BURN_GAIN = 1;
+const PREP_BURN_COST = 1; // сжигание карты всегда стоит ровно 1 огонёк
 
 // Готичные фразы для экрана подготовки перед забегом
 const GOTHIC_PHRASES = [
@@ -207,9 +207,9 @@ const charColorizeFilter = (hue, sat) => {
 // отмасштабированы под высоту арены 355px (коэф. ≈0.651).
 const CHAR_SPRITE_SIZE = 166;
 const CHAR_FORMATION = {
-  p1: { left: 25, top: -46 },   // воин — сверху слева
-  p2: { left: 191, top: 42 },   // разбойник — по центру, шаг вперёд
-  p3: { left: 25, top: 121 },   // маг — снизу слева
+  p1: { left: 171, top: 42 },   // воин — по центру, шаг вперёд
+  p2: { left: 5, top: -46 },    // разбойник — сверху слева
+  p3: { left: 5, top: 121 },    // маг — снизу слева
 };
 
 // Атласы врагов (спрайты зеркалятся через scaleX(-1))
@@ -236,16 +236,16 @@ const ENEMY_TYPES = {
   'Орк':        { dmgMult: 1.40, attackStyle: 'melee',  vfxType: 'smash'       },
   'Зомби':      { dmgMult: 0.85, attackStyle: 'melee',  vfxType: 'enemy'       },
   'Слизень':    { dmgMult: 0.65, attackStyle: 'melee',  vfxType: 'enemy'       },
-  'Стрелок':    { dmgMult: 1.10, attackStyle: 'ranged', vfxType: 'slash'       },
+  'Стрелок':    { dmgMult: 1.10, attackStyle: 'ranged', vfxType: 'arrow'       },
   'Тёмный маг': { dmgMult: 1.45, attackStyle: 'ranged', vfxType: 'dark_void'   },
   'Глаз':       { dmgMult: 1.70, attackStyle: 'aoe',    vfxType: 'dark_void'   },
 };
 
 // Зеркальная формация врагов — точное зеркало CHAR_FORMATION (left→right, top одинаковые)
 const ENEMY_FORMATIONS = {
-  1: [{ right: 191, top: 42  }],                          // зеркало p2 — шаг вперёд
-  2: [{ right: 25,  top: -46 }, { right: 25, top: 121 }], // зеркала p1 и p3
-  3: [{ right: 25,  top: -46 }, { right: 191, top: 42 }, { right: 25, top: 121 }], // зеркала p1, p2, p3
+  1: [{ right: 171, top: 42  }],                          // зеркало p1 — шаг вперёд
+  2: [{ right: 5,   top: -46 }, { right: 5, top: 121 }],  // зеркала p2 и p3
+  3: [{ right: 5,   top: -46 }, { right: 171, top: 42 }, { right: 5, top: 121 }], // зеркала p1, p2, p3
 };
 
 // Анимированный спрайт из атласа. Покраска — CSS filter на видимый кадр, без оверлея поверх.
@@ -949,8 +949,13 @@ const spawnEnemies = (type, stage, sector = 1) => {
   };
 
   if (type === 'boss') {
-    // Глаз — единственный босс, AoE, очень толстый
-    return [mk('boss', 'Глаз', 280, 65, '👁️', 400)];
+    // Глаз — единственный босс, AoE. Понерфлен: −30% HP, −25% к атаке
+    const boss = mk('boss', 'Глаз', 280, 65, '👁️', 400);
+    boss.hp = Math.round(boss.hp * 0.7);
+    boss.maxHp = boss.hp;
+    boss.dmgMult = boss.dmgMult * 0.75;
+    boss.isBoss = true;
+    return [boss];
   } else if (type === 'combat_hard') {
     return shuffleArray([
       mk('h1', 'Орк',        100, 28, '🪓', 150),
@@ -968,6 +973,7 @@ const spawnEnemies = (type, stage, sector = 1) => {
       mk('e1', 'Слизень', 35, 10, '🟢', 50),
       mk('e2', 'Гоблин',  45, 12, '👺', 55),
       mk('e3', 'Волк',    40, 11, '🐺', 50),
+      mk('e4', 'Бандит',  48, 13, '🦹', 60),
     ]).slice(0, 1 + Math.floor(Math.random() * 2));
   }
 };
@@ -1254,13 +1260,13 @@ const CombatVfx = ({ vfx }) => {
            t1 = setTimeout(() => {
              setStyle({ left: vfx.endX, top: vfx.endY, opacity: 0, transform: 'translate(-50%, -50%) scale(2) rotate(45deg)', transition: 'all 450ms ease-out' });
            }, 20);
-        } else if (['daggers', 'poison', 'dagger_single'].includes(vfx.type)) {
+        } else if (['daggers', 'poison', 'dagger_single', 'arrow'].includes(vfx.type)) {
            const angle = Math.atan2(vfx.endY - vfx.startY, vfx.endX - vfx.startX) * 180 / Math.PI;
-           const scatterX = vfx.type === 'dagger_single' ? 0 : (Math.random() - 0.5) * 80;
-           const scatterY = vfx.type === 'dagger_single' ? 0 : (Math.random() - 0.5) * 80;
+           const scatterX = (vfx.type === 'dagger_single' || vfx.type === 'arrow') ? 0 : (Math.random() - 0.5) * 80;
+           const scatterY = (vfx.type === 'dagger_single' || vfx.type === 'arrow') ? 0 : (Math.random() - 0.5) * 80;
            setStyle({ left: vfx.startX + scatterX, top: vfx.startY + scatterY, opacity: 1, transform: `translate(-50%, -50%) rotate(${angle + 90}deg)` });
            t1 = setTimeout(() => {
-             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: `translate(-50%, -50%) rotate(${angle + 90 + 1080}deg)`, transition: 'all 450ms ease-out' });
+             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: `translate(-50%, -50%) rotate(${angle + 90 + (vfx.type === 'arrow' ? 0 : 1080)}deg)`, transition: 'all 450ms ease-out' });
            }, 20);
         }
     }, vfx.delay || 0);
@@ -1280,6 +1286,7 @@ const CombatVfx = ({ vfx }) => {
   if (vfx.type === 'dark_strike') return <div style={style} className="fixed z-[1000] w-56 h-56 border-t-[20px] border-r-[20px] border-purple-900 rounded-full shadow-[0_0_30px_#000] pointer-events-none" />;
   
   if (vfx.type === 'dagger_single' || vfx.type === 'daggers') return <div style={style} className="fixed z-[1000] text-4xl drop-shadow-[0_0_10px_#36B373] pointer-events-none">🗡️</div>;
+  if (vfx.type === 'arrow') return <div style={style} className="fixed z-[1000] text-3xl drop-shadow-[0_0_8px_#94a3b8] pointer-events-none">🏹</div>;
   if (vfx.type === 'poison') return <div style={style} className="fixed z-[1000] text-4xl drop-shadow-[0_0_20px_#22c55e] pointer-events-none">🧪</div>;
 
   return null;
@@ -1861,26 +1868,16 @@ const DeathScreen = ({ items, startProgress = 0, threshold = EMBER_JUNK_THRESHOL
 const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThreshold = EMBER_JUNK_THRESHOLD, prepCardsBought, onBuyCard, onBurnCard, onStart }) => {
   const phrase = useMemo(() => GOTHIC_PHRASES[Math.floor(Math.random() * GOTHIC_PHRASES.length)], []);
   const bgSplash = useMemo(() => pickColdSplash(), []);
-  const [picker, setPicker] = useState(null); // { heroId, slotIndex }
 
   const slotPrice = getPrepSlotPrice(prepCardsBought);
   const hasEmptySlot = players.some(p => (pools[p.id] || []).length < CARD_POOL_SIZE);
   const canBuyMore = prepCardsBought < PREP_MAX_BUYS && hasEmptySlot && soulEmbers >= slotPrice;
 
-  const openPicker = (heroId, slotIndex) => {
+  // Покупка слота: карта определяется системой автоматически и случайно (см. buyPrepCard)
+  const buySlot = (heroId) => {
     if (!canBuyMore) return;
-    setPicker({ heroId, slotIndex });
+    onBuyCard(heroId);
   };
-
-  const handlePick = (skill) => {
-    if (!picker) return;
-    onBuyCard(picker.heroId, skill);
-    setPicker(null);
-  };
-
-  const pickerHero = picker ? players.find(p => p.id === picker.heroId) : null;
-  const pickerOwnedKeys = picker ? getOwnedSkillKeys(picker.heroId, pools[picker.heroId] || []) : new Set();
-  const pickerOptions = picker ? getUnownedSkills(picker.heroId, pickerOwnedKeys) : [];
 
   return (
     <div className="absolute inset-0 z-[2000] animate-in fade-in duration-500 overflow-hidden">
@@ -1934,9 +1931,10 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
                           <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
                           <button
                             type="button"
-                            onClick={() => onBurnCard(card.id)}
-                            title="Сжечь карту (+1 🔥)"
-                            className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-900 border border-red-500 text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 hover:scale-110 transition-all shadow-lg z-10"
+                            onClick={() => soulEmbers >= PREP_BURN_COST && onBurnCard(card.id)}
+                            disabled={soulEmbers < PREP_BURN_COST}
+                            title={soulEmbers >= PREP_BURN_COST ? 'Сжечь карту (1 🔥)' : 'Нужен 1 огонёк души'}
+                            className={`absolute -top-2 -right-2 w-6 h-6 rounded-full border text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 hover:scale-110 transition-all shadow-lg z-10 ${soulEmbers >= PREP_BURN_COST ? 'bg-red-900 border-red-500 cursor-pointer' : 'bg-slate-800 border-slate-600 opacity-40 cursor-not-allowed'}`}
                           >🔥</button>
                         </div>
                       );
@@ -1948,7 +1946,7 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
                         <button
                           key={i}
                           type="button"
-                          onClick={canBuy ? () => openPicker(p.id, i) : undefined}
+                          onClick={canBuy ? () => buySlot(p.id) : undefined}
                           disabled={!canBuy}
                           className={`relative w-16 h-20 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all ${canBuy ? 'border-sky-400 bg-sky-950/40 hover:scale-110 hover:shadow-[0_0_20px_rgba(56,189,248,0.5)] cursor-pointer' : 'border-slate-700 bg-slate-800/30 opacity-50 cursor-not-allowed'}`}
                         >
@@ -1971,41 +1969,6 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
 
         <button type="button" onClick={onStart} className="px-16 py-5 bg-white text-slate-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">Старт</button>
       </div>
-
-      {/* Выбор карты из всех скиллов персонажа */}
-      {picker && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center p-6 animate-in fade-in duration-200">
-          <div className="bg-slate-900/95 border border-slate-600 rounded-3xl p-8 max-w-4xl w-full max-h-[85vh] overflow-y-auto custom-scrollbar shadow-2xl">
-            <div className="flex justify-between items-start mb-6">
-              <div>
-                <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter">Выберите карту</h3>
-                <p className="text-sm text-slate-400 mt-1">{pickerHero ? String(pickerHero.name) : ''} · {String(slotPrice)} 🔥</p>
-              </div>
-              <button type="button" onClick={() => setPicker(null)} className="w-10 h-10 rounded-full bg-slate-800 border border-slate-600 text-white hover:bg-red-900 transition-all">✕</button>
-            </div>
-            {pickerOptions.length === 0 ? (
-              <p className="text-slate-500 text-center py-8">Все карты этого бойца уже в колоде</p>
-            ) : (
-              <div className="flex flex-wrap gap-4 justify-center">
-                {pickerOptions.map(skill => {
-                  const preview = { ...skill, id: `pick_${skill.id}`, level: 1 };
-                  const owner = pickerHero;
-                  return (
-                    <button
-                      key={skill.id}
-                      type="button"
-                      onClick={() => handlePick(skill)}
-                      className="w-44 h-[245px] shrink-0 rounded-2xl overflow-hidden hover:scale-105 hover:ring-2 hover:ring-sky-400 transition-all text-left"
-                    >
-                      <AbilityCard card={preview} owner={owner} mana={5} maxMana={5} isDisabled={false} comboState={{ isCandidate: false, willGiveBonus: false }} />
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -2018,6 +1981,7 @@ const CardRevealOverlay = ({ card, owner, bgHue = 260, bgSat = 60, onDismiss }) 
   const [flipped, setFlipped] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
+  const [shake, setShake] = useState({ x: 0, y: 0, rot: 0 });
   const canDismissRef = useRef(false);
 
   useEffect(() => {
@@ -2029,10 +1993,18 @@ const CardRevealOverlay = ({ card, owner, bgHue = 260, bgSat = 60, onDismiss }) 
       const t = Math.min(1, (now - start) / GROW_MS);
       const eased = t * t * t; // easeInCubic — нарастание «напряжения»
       setScale(0.4 + eased * 0.6);
+      // Шейк нарастает по мере увеличения карты (фаза «саспенса», карта ещё рубашкой)
+      const amp = t * t * 9; // амплитуда растёт квадратично
+      setShake({
+        x: (Math.random() - 0.5) * 2 * amp,
+        y: (Math.random() - 0.5) * 2 * amp,
+        rot: (Math.random() - 0.5) * 2 * amp * 0.35,
+      });
       if (t < 1) raf = requestAnimationFrame(tick);
+      else setShake({ x: 0, y: 0, rot: 0 });
     };
     raf = requestAnimationFrame(tick);
-    const tFlip = setTimeout(() => { setFlipped(true); playSound('./assets/sfx/game/level_up.wav'); }, GROW_MS);
+    const tFlip = setTimeout(() => { setFlipped(true); setShake({ x: 0, y: 0, rot: 0 }); playSound('./assets/sfx/game/level_up.wav'); }, GROW_MS);
     const tPrompt = setTimeout(() => { setShowPrompt(true); canDismissRef.current = true; }, 3000);
     return () => { cancelAnimationFrame(raf); clearTimeout(tFlip); clearTimeout(tPrompt); };
   }, []);
@@ -2058,8 +2030,8 @@ const CardRevealOverlay = ({ card, owner, bgHue = 260, bgSat = 60, onDismiss }) 
       <ShaderBackground hue={bgHue} sat={bgSat} speed={0.6} embedded />
       <div className="absolute inset-0 bg-black/40 pointer-events-none" />
       <div className="relative" style={{ perspective: '1400px' }} onMouseMove={handleMove} onMouseLeave={() => setTilt({ x: 0, y: 0 })}>
-        {/* Внешний слой: масштаб (rAF) + наклон мышью */}
-        <div style={{ transformStyle: 'preserve-3d', transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) scale(${scale})` }}>
+        {/* Внешний слой: шейк (rAF) + масштаб (rAF) + наклон мышью */}
+        <div style={{ transformStyle: 'preserve-3d', transform: `translate(${shake.x}px, ${shake.y}px) rotate(${shake.rot}deg) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) scale(${scale})` }}>
           {/* Внутренний слой: переворот лицо/рубашка */}
           <div
             className="w-52 h-[290px] relative"
@@ -2898,15 +2870,18 @@ export default function App() {
     setShowPrep(true);
   };
 
-  // Покупка стартовой карты: выбранный скилл заменяет пустую карту-балласт в колоде
-  const buyPrepCard = (heroId, skill) => {
+  // Покупка стартовой карты: система сама случайно выбирает карту из доступного пула
+  // героя и заменяет ею пустую карту-балласт в колоде
+  const buyPrepCard = (heroId) => {
     const price = getPrepSlotPrice(prepCardsBought);
     if (prepCardsBought >= PREP_MAX_BUYS || soulEmbers < price) return;
     const owned = [...drawPileRef.current, ...discardPileRef.current].filter(c => c.ownerId === heroId && isRealDeckCard(c));
     const ownedKeys = getOwnedSkillKeys(heroId, owned);
-    if (heroOwnsSkill(heroId, skill, ownedKeys)) return;
+    const options = getUnownedSkills(heroId, ownedKeys);
+    if (options.length === 0) return;
     const targetEmpty = drawPileRef.current.find(c => isEmptyCard(c) && c.ownerId === heroId);
     if (!targetEmpty) return;
+    const skill = options[Math.floor(Math.random() * options.length)];
     const newCard = { ...skill, id: `prep_${Date.now()}_${Math.random()}`, level: 1, skillId: skill.id };
     setDrawPile(prev => prev.map(c => c.id === targetEmpty.id ? newCard : c));
     setSoulEmbers(e => e - price);
@@ -2915,15 +2890,16 @@ export default function App() {
     setCardReveal({ card: newCard, owner });
   };
 
-  // Сжечь карту на экране подготовки → +1 огонёк, слот снова пустой (балласт)
+  // Сжечь карту на экране подготовки → −1 огонёк, слот снова пустой (балласт)
   const burnPrepCard = (cardId) => {
+    if (soulEmbers < PREP_BURN_COST) return;
     const all = [...drawPileRef.current, ...discardPileRef.current];
     const card = all.find(c => c.id === cardId);
     if (!card || !isRealDeckCard(card)) return;
     const toEmpty = (c) => (c && c.id === cardId) ? createEmptyCard(c.ownerId, 0) : c;
     setDrawPile(prev => prev.map(toEmpty));
     setDiscardPile(prev => prev.map(toEmpty));
-    setSoulEmbers(e => e + PREP_BURN_GAIN);
+    setSoulEmbers(e => e - PREP_BURN_COST);
     playSound('./assets/sfx/ui/card_discard.wav', 0.6);
   };
 
@@ -3454,7 +3430,8 @@ export default function App() {
         if (target.hp <= 0 && !target.isDead) {
           target.hp = 0; target.isDead = true;
           xpToSpawn.push({ id: target.id, amount: target.xpReward });
-          const loot = rollLootDrop(sectorRef.current, currentStageRef.current);
+          // Босс всегда даёт легендарный предмет
+          const loot = target.isBoss ? generateItemOfRarity('LEGENDARY') : rollLootDrop(sectorRef.current, currentStageRef.current);
           if (loot) lootToSpawn.push({ id: target.id, item: loot });
           playSound('./assets/sfx/combat/death.wav', 0.7);
         }
@@ -3548,7 +3525,8 @@ export default function App() {
         if (e.hp <= 0 && !e.isDead) {
           e.isDead = true; e.hp = 0;
           bleedXp.push({ id: e.id, amount: e.xpReward });
-          const loot = rollLootDrop(sectorRef.current, currentStageRef.current); if (loot) bleedLoot.push({ id: e.id, item: loot });
+          // Босс всегда даёт легендарный предмет
+          const loot = e.isBoss ? generateItemOfRarity('LEGENDARY') : rollLootDrop(sectorRef.current, currentStageRef.current); if (loot) bleedLoot.push({ id: e.id, item: loot });
           playSound('./assets/sfx/combat/death.wav', 0.7);
         }
       }
@@ -3680,6 +3658,8 @@ export default function App() {
             }));
          }
 
+         const hitDelay = style === 'ranged' ? 480 : 300;
+
          setTimeout(() => {
             setVfxList([]);
             playSound('./assets/sfx/combat/enemy_attack.wav');
@@ -3713,7 +3693,7 @@ export default function App() {
             setAnimatingEnemyId(null);
             setTimeout(() => setAnimatingTargetIds([]), 350);
             setIsAnimating(false);
-         }, 300);
+         }, hitDelay);
       }, delay); 
       delay += 800; 
     });
