@@ -293,6 +293,44 @@ const CharSprite = ({ atlas, size = 110, className = '', style = {}, hue, sat })
   );
 };
 
+// Мини HP-бар врага: прямоугольный, скрыт по умолчанию, всплывает при получении урона
+// и плавно исчезает. Двухслойная анимация: белый «откушенный» кусок сужается до текущего HP.
+const EnemyHpBar = ({ hp, maxHp }) => {
+  const pct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
+  const [visible, setVisible] = useState(false);
+  const [ghostPct, setGhostPct] = useState(pct);
+  const prevHpRef = useRef(hp);
+  const hideTimerRef = useRef(null);
+
+  useEffect(() => {
+    const prev = prevHpRef.current;
+    prevHpRef.current = hp;
+    if (hp < prev) {
+      // Урон: показать бар, белый «призрак» = прежняя ширина, затем сузить до текущего HP
+      setVisible(true);
+      setGhostPct(Math.max(0, Math.min(100, (prev / maxHp) * 100)));
+      const raf = requestAnimationFrame(() => requestAnimationFrame(() => setGhostPct(pct)));
+      clearTimeout(hideTimerRef.current);
+      hideTimerRef.current = setTimeout(() => setVisible(false), 1000);
+      return () => cancelAnimationFrame(raf);
+    } else {
+      // Лечение/сброс — без всплытия, просто синхронизируем
+      setGhostPct(pct);
+    }
+  }, [hp, maxHp, pct]);
+
+  useEffect(() => () => clearTimeout(hideTimerRef.current), []);
+
+  return (
+    <div className={`absolute left-1/2 -translate-x-1/2 -bottom-1 w-[32px] h-1 bg-slate-950/80 border border-black/60 z-[70] pointer-events-none overflow-hidden transition-opacity duration-500 ${visible ? 'opacity-100' : 'opacity-0'}`}>
+      {/* Белый «откушенный» кусок (под красным): сужается от прежнего значения к текущему */}
+      <div className="absolute inset-y-0 left-0 bg-white" style={{ width: `${ghostPct}%`, transition: 'width 0.45s ease-out' }} />
+      {/* Реальное HP поверх — красный, меняется мгновенно */}
+      <div className="absolute inset-y-0 left-0 bg-gradient-to-r from-red-700 to-red-500" style={{ width: `${pct}%` }} />
+    </div>
+  );
+};
+
 // Пузырь речи врага: белый с красной обводкой и хвостиком над спрайтом.
 // Сдвигается внутрь, если упирается в верх/край экрана, чтобы всегда был виден.
 const EnemySpeechBubble = ({ text }) => {
@@ -1972,6 +2010,84 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
   );
 };
 
+// --- СЕКВЕНЦИЯ РАСКРЫТИЯ ПОЛУЧЕННОЙ КАРТЫ (открытие слота) ---
+// Фаза 1: карта появляется рубашкой к игроку. Фаза 2: саспенс — масштаб нарастает
+// (easeInCubic). Фаза 3: на пике карта переворачивается, показывая лицо. Длительность ~3с.
+const CardRevealOverlay = ({ card, owner, bgHue = 260, bgSat = 60, onDismiss }) => {
+  const [scale, setScale] = useState(0.4);
+  const [flipped, setFlipped] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [tilt, setTilt] = useState({ x: 0, y: 0 });
+  const canDismissRef = useRef(false);
+
+  useEffect(() => {
+    playSound('./assets/sfx/ui/card_deal.wav', 0.5);
+    const GROW_MS = 1850;
+    const start = performance.now();
+    let raf;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / GROW_MS);
+      const eased = t * t * t; // easeInCubic — нарастание «напряжения»
+      setScale(0.4 + eased * 0.6);
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    const tFlip = setTimeout(() => { setFlipped(true); playSound('./assets/sfx/game/level_up.wav'); }, GROW_MS);
+    const tPrompt = setTimeout(() => { setShowPrompt(true); canDismissRef.current = true; }, 3000);
+    return () => { cancelAnimationFrame(raf); clearTimeout(tFlip); clearTimeout(tPrompt); };
+  }, []);
+
+  useEffect(() => {
+    const handler = () => { if (canDismissRef.current) onDismiss(); };
+    window.addEventListener('keydown', handler);
+    window.addEventListener('pointerdown', handler);
+    return () => { window.removeEventListener('keydown', handler); window.removeEventListener('pointerdown', handler); };
+  }, [onDismiss]);
+
+  const handleMove = (e) => {
+    if (!canDismissRef.current) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const px = e.clientX - r.left, py = e.clientY - r.top;
+    setTilt({ x: ((r.height / 2 - py) / (r.height / 2)) * 9, y: ((px - r.width / 2) / (r.width / 2)) * 9 });
+  };
+
+  const glow = RARITY_GLOW[card.rarity] || '#64748b';
+
+  return (
+    <div className="absolute inset-0 z-[2600] overflow-hidden flex flex-col items-center justify-center animate-in fade-in duration-300">
+      <ShaderBackground hue={bgHue} sat={bgSat} speed={0.6} embedded />
+      <div className="absolute inset-0 bg-black/40 pointer-events-none" />
+      <div className="relative" style={{ perspective: '1400px' }} onMouseMove={handleMove} onMouseLeave={() => setTilt({ x: 0, y: 0 })}>
+        {/* Внешний слой: масштаб (rAF) + наклон мышью */}
+        <div style={{ transformStyle: 'preserve-3d', transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) scale(${scale})` }}>
+          {/* Внутренний слой: переворот лицо/рубашка */}
+          <div
+            className="w-52 h-[290px] relative"
+            style={{ transformStyle: 'preserve-3d', transform: `rotateY(${flipped ? 0 : 180}deg)`, transition: 'transform 600ms cubic-bezier(0.34, 1.2, 0.64, 1)' }}
+          >
+            {/* Лицо карты — как в бою */}
+            <div className="absolute inset-0 rounded-2xl overflow-hidden" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', boxShadow: `0 0 55px ${glow}` }}>
+              <AbilityCard card={card} owner={owner} mana={5} maxMana={5} isDisabled={false} comboState={{ isCandidate: false, willGiveBonus: false }} />
+            </div>
+            {/* Рубашка */}
+            <div
+              className="absolute inset-0 rounded-2xl border-2 border-slate-600 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center"
+              style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)', boxShadow: 'inset 0 0 40px rgba(0,0,0,0.7)' }}
+            >
+              <img src="./corner.png" alt="" aria-hidden="true" className="absolute top-1.5 left-1.5 w-16 h-16 opacity-40 pointer-events-none" />
+              <img src="./corner.png" alt="" aria-hidden="true" className="absolute bottom-1.5 right-1.5 w-16 h-16 opacity-40 pointer-events-none" style={{ transform: 'scale(-1)' }} />
+              <span className="text-7xl opacity-25 select-none">✦</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      {showPrompt && (
+        <p className="absolute bottom-16 text-slate-200 text-sm uppercase tracking-[0.35em] font-black animate-pulse drop-shadow-[0_0_12px_rgba(0,0,0,0.95)]">Нажмите любую кнопку</p>
+      )}
+    </div>
+  );
+};
+
 // --- ОКНО КОЛОДЫ: пуллы бойцов + живая очередь ротации карт ---
 
 const DeckWindow = ({ players, pools, drawPile, discardPile, maxMana, onClose }) => {
@@ -2358,6 +2474,8 @@ export default function App() {
   const [levelUpQueue, setLevelUpQueue] = useState(0);
   const [showPrep, setShowPrep] = useState(false);
   const [prepCardsBought, setPrepCardsBought] = useState(0);
+  // Секвенция раскрытия полученной карты: { card, owner } | null
+  const [cardReveal, setCardReveal] = useState(null);
   const xpToNextRef = useRef(60);
   const [rewardOptions, setRewardOptions] = useState([]);
   
@@ -2793,7 +2911,8 @@ export default function App() {
     setDrawPile(prev => prev.map(c => c.id === targetEmpty.id ? newCard : c));
     setSoulEmbers(e => e - price);
     setPrepCardsBought(c => c + 1);
-    playSound('./assets/sfx/game/level_up.wav');
+    const owner = players.find(p => p.id === heroId);
+    setCardReveal({ card: newCard, owner });
   };
 
   // Сжечь карту на экране подготовки → +1 огонёк, слот снова пустой (балласт)
@@ -3739,6 +3858,12 @@ export default function App() {
           0%, 100% { transform: rotate(-2.5deg); }
           50% { transform: rotate(2.5deg); }
         }
+        @keyframes lowHpPulse {
+          /* Тёмно-красный (≈#641212) тинт по пикселям спрайта (колоризация как у героев),
+             тусклый и приглушённый — интенсивность/яркость снижены ~втрое от яркого красного */
+          0%, 100% { filter: none; }
+          50% { filter: brightness(0.6) sepia(1) hue-rotate(-32deg) saturate(250%); }
+        }
       `}</style>
       <div 
         ref={appRef} 
@@ -3844,6 +3969,7 @@ export default function App() {
                 const formation = ENEMY_FORMATIONS[enemies.length] || ENEMY_FORMATIONS[3];
                 const basePos = formation[eIdx] || formation[formation.length - 1];
                 const isBoss = enemy.attackStyle === 'aoe';
+                const lowHp = !enemy.isDead && enemy.hp / enemy.maxHp < 0.3;
                 const enemySize = isBoss ? Math.round(CHAR_SPRITE_SIZE * 1.5625) : CHAR_SPRITE_SIZE;
                 // Босс крупнее; right уменьшается = сдвиг вправо, top увеличивается = ниже
                 const pos = isBoss ? { right: basePos.right - 95, top: basePos.top - 10 } : basePos;
@@ -3899,16 +4025,12 @@ export default function App() {
                         </div>
                       </div>
                     )}
-                    {/* Мини HP-бар без цифр */}
-                    {!enemy.isDead && (
-                      <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-14 h-1.5 bg-slate-950/80 rounded-full overflow-hidden border border-black/50 z-[70] pointer-events-none">
-                        <div className="h-full bg-gradient-to-r from-red-700 to-red-500 transition-all duration-300" style={{ width: `${Math.max(0, Math.min(100, (enemy.hp / enemy.maxHp) * 100))}%` }}></div>
-                      </div>
-                    )}
+                    {/* Мини HP-бар без цифр: скрыт, всплывает при уроне */}
+                    {!enemy.isDead && <EnemyHpBar hp={enemy.hp} maxHp={enemy.maxHp} />}
                     <div className="relative" style={{ transform: 'scaleX(-1)' }}>
                       <div
                         className={`relative ${enemyAtlas ? '' : 'text-6xl'} ${isHoveredTarget || isBeingAttacked ? 'drop-shadow-[0_0_25px_rgba(239,68,68,0.4)]' : ''} ${flashingTargets.includes(enemy.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`}
-                        style={{ animation: isSpeaking && !isBeingAttacked && !isAttacking ? 'speechWobble 0.4s ease-in-out infinite' : 'none', transition: 'all 0.15s ease-out' }}
+                        style={{ animation: isSpeaking && !isBeingAttacked && !isAttacking ? 'speechWobble 0.4s ease-in-out infinite' : (lowHp && !isBeingAttacked && !isAttacking && !flashingTargets.includes(enemy.id) ? 'lowHpPulse 0.9s ease-in-out infinite' : 'none'), transition: 'all 0.15s ease-out' }}
                       >
                         {enemyAtlas ? <CharSprite atlas={enemyAtlas} size={enemySize} /> : String(enemy.icon)}
                         {isHoveredTarget && !isAnimating && <div className="absolute -inset-2 border-2 border-red-500 rounded-full animate-ping opacity-40"></div>}
@@ -4189,6 +4311,16 @@ export default function App() {
           onBuyCard={buyPrepCard}
           onBurnCard={burnPrepCard}
           onStart={() => setShowPrep(false)}
+        />
+      )}
+
+      {cardReveal && (
+        <CardRevealOverlay
+          card={cardReveal.card}
+          owner={cardReveal.owner}
+          bgHue={bgLocation.hue}
+          bgSat={bgLocation.sat}
+          onDismiss={() => setCardReveal(null)}
         />
       )}
 
