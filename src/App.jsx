@@ -23,6 +23,9 @@ const INITIAL_PLAYERS_DATA = [
 // Рост максимального HP за уровень отряда (воин — танк, растёт быстрее)
 const HP_PER_LEVEL = { p1: 8, p2: 6, p3: 4 };
 
+// Цветовые акценты бойцов (для подсветки слотов руки в экране колоды)
+const HERO_ACCENT = { p1: '#3b82f6', p2: '#22c55e', p3: '#a855f7' };
+
 // Вторичные эффекты абилок. Каждый масштабируется от ВТОРОСТЕПЕННОГО стата владельца.
 // duration — в ХОДАХ врага (тикает, когда враги ходят). mark — без длительности (до первого удара).
 const SECONDARY_EFFECTS = {
@@ -34,6 +37,19 @@ const SECONDARY_EFFECTS = {
   mark:   { stat: 'dex', icon: '🎯', color: 'text-green-400', label: 'Метка',          duration: 0 },
 };
 const STAT_TEXT_COLOR = { str: 'text-red-400', dex: 'text-green-400', int: 'text-blue-400' };
+
+// Краткое описание дебаффа врага для тултипа при наведении
+const describeStatus = (key, val = {}) => {
+  switch (key) {
+    case 'stun':   return 'Пропускает ход';
+    case 'vuln':   return `Получает +${Math.round((val.amount || 0) * 100)}% урона`;
+    case 'bleed':  return `Теряет ${val.dmg || 0} HP в начале хода`;
+    case 'blind':  return `Шанс промаха ${Math.round((val.chance || 0) * 100)}%`;
+    case 'weaken': return `Атака ослаблена на ${Math.round((val.atk || 0) * 100)}%`;
+    case 'mark':   return `Следующий удар ×${val.mult || 1}`;
+    default:       return '';
+  }
+};
 
 // Классовые веса (для справки / будущей экипировки)
 const CLASS_WEIGHTS = {
@@ -47,6 +63,30 @@ const LOOT_DROP_CHANCE = 0.65;
 const ITEM_RARITY_WEIGHTS = { COMMON: 68, RARE: 21, EPIC: 9, LEGENDARY: 2 };
 const ITEM_BURN_XP = { COMMON: 4, RARE: 8, EPIC: 16, LEGENDARY: 30 };
 const getItemBurnXp = (item) => (item && ITEM_BURN_XP[item.rarity]) || 0;
+
+// «Огонёк души» — мета-валюта: хлам копит очки в ГЛОБАЛЬНУЮ шкалу прогресса,
+// которая переносится между забегами и не сгорает при смерти. 1 огонёк за порог,
+// остаток сверх порога переходит в следующий цикл заполнения.
+const JUNK_SOUL_POINTS = { COMMON: 1, RARE: 4, EPIC: 10, LEGENDARY: 25 };
+const EMBER_JUNK_THRESHOLD = 15;
+const getItemJunkPoints = (item) => (item && JUNK_SOUL_POINTS[item.rarity]) || 0;
+const sumJunkPoints = (items) => items.reduce((s, it) => s + getItemJunkPoints(it), 0);
+// Цена открытия слотов на экране подготовки: каждый следующий ×2
+const PREP_SLOT_PRICES = [1, 2, 4, 8, 16, 32];
+const getPrepSlotPrice = (boughtCount) => PREP_SLOT_PRICES[Math.min(boughtCount, PREP_SLOT_PRICES.length - 1)];
+const PREP_MAX_BUYS = 2;
+const PREP_BURN_GAIN = 1;
+
+// Готичные фразы для экрана подготовки перед забегом
+const GOTHIC_PHRASES = [
+  'Прошлые путники сгинули во тьме, оставив лишь пугающие слухи о своих страданиях.',
+  'Тени этих коридоров сотканы из криков тех, кто пришел сюда до вас.',
+  'Они искали здесь славу, но обрели лишь вечный холод и прах.',
+  'Смерть в этом месте — не избавление, а лишь начало бесконечной агонии.',
+  'Кости предшественников устилают вам путь. Ступайте тихо.',
+  'Мрак уже поглотил их надежды. Теперь он голоден до ваших.',
+  'Никто не возвращался из этой бездны. Вы — лишь следующая жертва.',
+];
 // Главный стат предмета — чёткая градация по рарности, ощутимые значения
 const ITEM_STAT_RANGES = {
   COMMON: { min: 4, max: 7 },
@@ -150,6 +190,18 @@ const CHAR_ATLASES = {
   p2: { url: './chars/rogue_atlas.png',   cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
   p3: { url: './chars/priest_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
 };
+// Hue/Sat (Photoshop Colorize) для героев: p1 — воин, p2 — разбойник, p3 — маг.
+const CHAR_COLORIZE = {
+  p1: { hue: 196, sat: 32 },
+  p2: { hue: 80,  sat: 48 },
+  p3: { hue: 286, sat: 34 },
+};
+// Colorize без оверлея: sepia + hue-rotate + saturate на видимом кадре (аналог PS Hue/Sat Colorize).
+const charColorizeFilter = (hue, sat) => {
+  const hueRotate = hue - 38; // sepia(1) ≈ 38° на цветовом круге
+  const saturate = Math.round(80 + sat * 2.8);
+  return `sepia(1) saturate(${saturate}%) hue-rotate(${hueRotate}deg)`;
+};
 
 // Зигзаг-формация бойцов игрока. Координаты из макета (контейнер 545px высотой, спрайт 254px)
 // отмасштабированы под высоту арены 355px (коэф. ≈0.651).
@@ -196,8 +248,8 @@ const ENEMY_FORMATIONS = {
   3: [{ right: 25,  top: -46 }, { right: 191, top: 42 }, { right: 25, top: 121 }], // зеркала p1, p2, p3
 };
 
-// Анимированный спрайт из атласа: проигрывает кадры по сетке через background-position
-const CharSprite = ({ atlas, size = 110, className = '', style = {} }) => {
+// Анимированный спрайт из атласа. Покраска — CSS filter на видимый кадр, без оверлея поверх.
+const CharSprite = ({ atlas, size = 110, className = '', style = {}, hue, sat }) => {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     if (!atlas) return;
@@ -210,20 +262,34 @@ const CharSprite = ({ atlas, size = 110, className = '', style = {} }) => {
   if (!atlas) return null;
   const col = frame % atlas.cols;
   const row = Math.floor(frame / atlas.cols);
+  const sheetW = atlas.cols * size;
+  const sheetH = atlas.rows * size;
+
   return (
     <div
       className={className}
       style={{
         width: size,
         height: size,
-        backgroundImage: `url(${atlas.url})`,
-        backgroundSize: `${atlas.cols * size}px ${atlas.rows * size}px`,
-        backgroundPosition: `-${col * size}px -${row * size}px`,
-        backgroundRepeat: 'no-repeat',
-        imageRendering: 'pixelated',
+        overflow: 'hidden',
+        ...(hue != null ? { filter: charColorizeFilter(hue, sat) } : {}),
         ...style,
       }}
-    />
+    >
+      <img
+        src={atlas.url}
+        alt=""
+        draggable={false}
+        className="block max-w-none select-none"
+        style={{
+          width: sheetW,
+          height: sheetH,
+          marginLeft: -col * size,
+          marginTop: -row * size,
+          imageRendering: 'pixelated',
+        }}
+      />
+    </div>
   );
 };
 
@@ -257,10 +323,19 @@ const EnemySpeechBubble = ({ text }) => {
   );
 };
 
-const rollItemRarity = () => {
-  const total = Object.values(ITEM_RARITY_WEIGHTS).reduce((a, b) => a + b, 0);
+const rollItemRarity = (sector = 1, stage = 0) => {
+  // Чем глубже заход — тем выше шанс редкого лута (сектор + этап карты)
+  const depth = Math.max(0, (sector - 1) * 6 + Math.max(0, stage - 1));
+  const t = Math.min(1, depth / 22);
+  const weights = {
+    COMMON: Math.round(78 - t * 38),
+    RARE: Math.round(16 + t * 14),
+    EPIC: Math.round(5 + t * 15),
+    LEGENDARY: Math.round(1 + t * 9),
+  };
+  const total = Object.values(weights).reduce((a, b) => a + b, 0);
   let roll = Math.random() * total;
-  for (const [rarity, weight] of Object.entries(ITEM_RARITY_WEIGHTS)) {
+  for (const [rarity, weight] of Object.entries(weights)) {
     roll -= weight;
     if (roll <= 0) return rarity;
   }
@@ -312,9 +387,9 @@ const generateItemOfRarity = (rarity) => {
   };
 };
 
-const generateRandomItem = () => generateItemOfRarity(rollItemRarity());
+const generateRandomItem = (sector = 1, stage = 0) => generateItemOfRarity(rollItemRarity(sector, stage));
 
-const rollLootDrop = () => (Math.random() < LOOT_DROP_CHANCE ? generateRandomItem() : null);
+const rollLootDrop = (sector = 1, stage = 0) => (Math.random() < LOOT_DROP_CHANCE ? generateRandomItem(sector, stage) : null);
 
 const getEffectivePlayer = (player, equippedItem) => {
   if (!player) return player;
@@ -335,32 +410,34 @@ const formatItemStats = (stats = {}) => {
   return parts.length ? parts.join(' · ') : 'Без бонусов';
 };
 
+// comboSplash: true — карта бьёт одиночно, но при комбо (2-я карта: +50, 3-я: +150) бьёт по площади.
+// type: 'single' у всех комбо-сплэшей; 'splash' только у базовых (без comboSplash).
 const HERO_ABILITIES = {
   p1: { 
     basic: { id: 'b1', name: 'Удар мечом', cost: 0, mult: 1.8, scale: { str: 1.0, dex: 0.2 }, dmgType: 'melee', icon: '⚔️', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'slash' },
     skills: [
-      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.8, scale: { str: 1.0, dex: 0.15 }, dmgType: 'melee', icon: '🔨', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' } },
-      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.7, scale: { str: 0.9, dex: 0.25 }, dmgType: 'melee', icon: '🌪️', type: 'splash', rarity: 'COMMON', vfxType: 'slash' },
+      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.8, scale: { str: 1.0, dex: 0.15 }, dmgType: 'melee', icon: '🔨', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' }, comboSplash: true },
+      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.7, scale: { str: 0.9, dex: 0.25 }, dmgType: 'melee', icon: '🌪️', type: 'single', priority: 'highestHp', rarity: 'COMMON', vfxType: 'slash', comboSplash: true },
       { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, mult: 1.6, scale: { str: 1.0, dex: 0.35 }, dmgType: 'melee', icon: '🏃', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'slash' },
-      { id: 's1_4', ownerId: 'p1', name: 'Землетрясение', cost: 4, mult: 1.8, scale: { str: 0.8, int: 0.4 }, dmgType: 'magic', icon: '🌋', type: 'splash', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'vuln' } }
+      { id: 's1_4', ownerId: 'p1', name: 'Землетрясение', cost: 4, mult: 1.8, scale: { str: 0.8, int: 0.4 }, dmgType: 'magic', icon: '🌋', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'vuln' }, comboSplash: true }
     ]
   },
   p2: { 
     basic: { id: 'b2', name: 'Кинжал', cost: 0, mult: 2.0, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🗡️', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'dagger_single' },
     skills: [
       { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.8, scale: { dex: 1.0, int: 0.25 }, dmgType: 'ranged', icon: '🧪', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'poison', secondary: { effect: 'bleed' } },
-      { id: 's2_2', ownerId: 'p2', name: 'Танец стали', cost: 3, mult: 2.4, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '⚔️', type: 'splash', rarity: 'RARE', vfxType: 'daggers' },
+      { id: 's2_2', ownerId: 'p2', name: 'Танец стали', cost: 3, mult: 2.4, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '⚔️', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'daggers', comboSplash: true },
       { id: 's2_3', ownerId: 'p2', name: 'Теневой шаг', cost: 2, mult: 2.6, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🥷', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'dark_strike', secondary: { effect: 'blind' } },
-      { id: 's2_4', ownerId: 'p2', name: 'Шквал ножей', cost: 3, mult: 2.6, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '🗡️', type: 'splash', rarity: 'EPIC', vfxType: 'daggers' }
+      { id: 's2_4', ownerId: 'p2', name: 'Шквал ножей', cost: 3, mult: 2.6, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '🗡️', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'daggers', comboSplash: true }
     ]
   },
   p3: { 
     basic: { id: 'b3', name: 'Искра', cost: 0, mult: 1.0, scale: { int: 1.0, dex: 0.2 }, dmgType: 'magic', icon: '✨', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'magic_spark' },
     skills: [
-      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 2.5, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '☄️', type: 'splash', rarity: 'RARE', vfxType: 'fireball' },
+      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 2.5, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '☄️', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'fireball', comboSplash: true },
       { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, scale: { int: 1.0, dex: 0.25 }, dmgType: 'magic', icon: '❄️', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'ice_spike', secondary: { effect: 'mark' } },
-      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, mult: 2.0, scale: { int: 0.8, dex: 0.4 }, dmgType: 'magic', icon: '⚡', type: 'splash', rarity: 'RARE', vfxType: 'lightning' },
-      { id: 's3_4', ownerId: 'p3', name: 'Черная дыра', cost: 5, mult: 3.2, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '🌌', type: 'splash', rarity: 'LEGENDARY', vfxType: 'dark_void', secondary: { effect: 'weaken' } }
+      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, mult: 2.0, scale: { int: 0.8, dex: 0.4 }, dmgType: 'magic', icon: '⚡', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'lightning', comboSplash: true },
+      { id: 's3_4', ownerId: 'p3', name: 'Черная дыра', cost: 5, mult: 3.2, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '🌌', type: 'single', priority: 'highestHp', rarity: 'LEGENDARY', vfxType: 'dark_void', secondary: { effect: 'weaken' }, comboSplash: true }
     ]
   }
 };
@@ -369,6 +446,11 @@ const HERO_ABILITIES = {
 // Колода всегда полная (DECK_SIZE): старт — только «пустые» карты-балласт, пулл наполняется на level-up.
 const CARD_POOL_SIZE = 3;
 const DECK_SIZE = INITIAL_PLAYERS_DATA.length * CARD_POOL_SIZE;
+
+// Комбо-бонус к урону по шагу серии: [1-я карта, 2-я, 3-я+] => +0% / +50% / +150%
+const COMBO_DAMAGE_MULT = [1, 1.5, 2.5];
+// % прибавки для отображения в UI (соответствует COMBO_DAMAGE_MULT)
+const COMBO_DAMAGE_PCT = [0, 50, 150];
 
 const EVENT_NARRATIVES = [
   { title: "Загадочный торговец", text: "Среди обломков вы замечаете фигуру в плаще. Торговец не просит золота, его интересуют лишь истории битв. В обмен он предлагает вашему отряду нечто особенное." },
@@ -406,6 +488,29 @@ const isBasicCard = (card) => card && card.id.startsWith('b');
 const isEmptyCard = (card) => card && card.isEmpty;
 const isRealDeckCard = (card) => card && !isBasicCard(card) && !isEmptyCard(card);
 const isDeckCard = (card) => card && !isBasicCard(card);
+
+// Стабильный ключ скилла в колоде (имя + id шаблона) — для дедупа на level-up / prep
+const getHeroSkillCatalog = (heroId) => HERO_ABILITIES[heroId]?.skills || [];
+const resolveSkillTemplate = (heroId, card) => {
+  if (!card) return null;
+  const catalog = getHeroSkillCatalog(heroId);
+  if (card.skillId) return catalog.find(s => s.id === card.skillId) || null;
+  return catalog.find(s => s.id === card.id || s.name === card.name) || null;
+};
+const getOwnedSkillKeys = (heroId, cards) => {
+  const keys = new Set();
+  cards.filter(c => c.ownerId === heroId && isRealDeckCard(c)).forEach(c => {
+    keys.add(c.name);
+    if (c.skillId) keys.add(c.skillId);
+    const tmpl = resolveSkillTemplate(heroId, c);
+    if (tmpl) { keys.add(tmpl.id); keys.add(tmpl.name); }
+  });
+  return keys;
+};
+const getUnownedSkills = (heroId, ownedKeys) =>
+  getHeroSkillCatalog(heroId).filter(s => !ownedKeys.has(s.id) && !ownedKeys.has(s.name));
+const heroOwnsSkill = (heroId, skill, ownedKeys) =>
+  ownedKeys.has(skill.id) || ownedKeys.has(skill.name);
 
 const createEmptyCard = (ownerId, slotIndex) => ({
   id: `empty_${ownerId}_${slotIndex}`,
@@ -555,19 +660,20 @@ const getCardDescription = (owner, card) => {
   return { targetLine, effectLine };
 };
 
-// Готовит payload эффекта для наложения на врага (величины посчитаны от владельца)
-const buildSecondaryPayload = (owner, card) => {
+// Готовит payload эффекта для наложения на врага (величины посчитаны от владельца).
+// comboMult >= 1 масштабирует величины эффектов для 2-й и 3-й карт комбо.
+const buildSecondaryPayload = (owner, card, comboMult = 1) => {
   if (!card?.secondary) return null;
   const effect = card.secondary.effect;
   const def = SECONDARY_EFFECTS[effect];
   if (!def) return null;
-  const v = getSecondaryStatValue(owner, effect);
+  const v = getSecondaryStatValue(owner, effect) * comboMult;
   switch (effect) {
-    case 'stun':   return { effect, chance: Math.min(0.75, v * 0.02), duration: def.duration };
-    case 'vuln':   return { effect, amount: Math.min(0.50, v * 0.01), duration: def.duration };
+    case 'stun':   return { effect, chance: Math.min(0.95, v * 0.02), duration: def.duration };
+    case 'vuln':   return { effect, amount: Math.min(0.80, v * 0.01), duration: def.duration };
     case 'bleed':  return { effect, dmg: Math.max(1, Math.round(v * 0.5)), duration: def.duration };
-    case 'blind':  return { effect, chance: Math.min(0.75, v * 0.02), duration: def.duration };
-    case 'weaken': return { effect, atk: Math.min(0.50, v * 0.01), hpLoss: Math.max(1, Math.round(v * 0.5)), duration: def.duration };
+    case 'blind':  return { effect, chance: Math.min(0.95, v * 0.02), duration: def.duration };
+    case 'weaken': return { effect, atk: Math.min(0.80, v * 0.01), hpLoss: Math.max(1, Math.round(v * 0.5)), duration: def.duration };
     case 'mark':   return { effect, mult: 1 + v * 0.01 };
     default: return null;
   }
@@ -1141,12 +1247,22 @@ const CombatVfx = ({ vfx }) => {
   return null;
 };
 
-const ShaderBackground = ({ intensity = 0 }) => {
+const ShaderBackground = ({ hue = 210, sat = 60, speed = 0, embedded = false }) => {
   const canvasRef = useRef(null);
-  const targetIntensityRef = useRef(0);
-  const intensityRef = useRef(0);
+  const targetSpeedRef = useRef(0);
+  const speedRef = useRef(0);
+  // [dark, bright] цвета небулы. Плавно интерполируются к цвету текущей локации.
+  const targetColorRef = useRef([[0.02, 0.05, 0.12], [0.10, 0.40, 0.78]]);
+  const colorRef = useRef([[0.02, 0.05, 0.12], [0.10, 0.40, 0.78]]);
 
-  useEffect(() => { targetIntensityRef.current = Math.min(1, Math.max(0, intensity)); }, [intensity]);
+  useEffect(() => { targetSpeedRef.current = Math.min(1, Math.max(0, speed)); }, [speed]);
+
+  useEffect(() => {
+    // Используем hue локации; насыщенность/яркость подобраны под тёмную небулу, чуть усилены от sat локации.
+    const satBright = Math.min(95, sat * 0.6 + 55);
+    const satDark = Math.min(90, sat * 0.6 + 45);
+    targetColorRef.current = [hslToRgb01(hue, satDark, 8), hslToRgb01(hue, satBright, 44)];
+  }, [hue, sat]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1162,7 +1278,9 @@ const ShaderBackground = ({ intensity = 0 }) => {
       precision mediump float;
       uniform vec2 iResolution;
       uniform float iTime;
-      uniform float iIntensity;
+      uniform float iSpeed;
+      uniform vec3 uColorDark;
+      uniform vec3 uColorBright;
       #define OCTAVES 5.0
 
       float rand2(vec2 co){ return fract(cos(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453); }
@@ -1193,32 +1311,27 @@ const ShaderBackground = ({ intensity = 0 }) => {
 
       float complexFBM(vec2 p) {
           #define MOTION_BOOST 1.25
-          float speed = mix(0.35, 1.1, clamp(iIntensity, 0.0, 1.0)) * 0.5 * MOTION_BOOST;
+          float spd = clamp(iSpeed, 0.0, 1.0);
+          float speed = mix(0.30, 1.6, spd) * 0.5 * MOTION_BOOST;
           float t = iTime * speed;
 
           vec2 c = p - 1.75;
-          float ang = t * (0.02 + 0.06 * iIntensity) * MOTION_BOOST;
+          float ang = t * (0.02 + 0.06 * spd) * MOTION_BOOST;
           c = rot(ang) * c;
           p = c + 1.75;
 
           float slow = t / (3.0 / MOTION_BOOST);
-          vec2 offset1 = vec2(sin(slow * 0.7 * MOTION_BOOST), cos(slow * 0.9 * MOTION_BOOST)) * (0.25 + 0.35 * iIntensity);
+          vec2 offset1 = vec2(sin(slow * 0.7 * MOTION_BOOST), cos(slow * 0.9 * MOTION_BOOST)) * (0.25 + 0.35 * spd);
           vec2 offset2 = vec2(sin(t * 1.3 * MOTION_BOOST), cos(t * 1.1 * MOTION_BOOST)) * (0.4 * MOTION_BOOST);
-          float warp = 1.0 + iIntensity * 0.55;
+          float warp = 1.0 + spd * 0.55;
           return fractalNoise( p + offset1 + warp * fractalNoise( p + 1.5 * fractalNoise( p - offset2 ) ) );
       }
 
       void main() {
           vec2 uv = gl_FragCoord.xy / iResolution.xy;
-          vec2 sp = uv * (3.5 + iIntensity * 0.4);
+          vec2 sp = uv * (3.5 + iSpeed * 0.4);
           float n = complexFBM(sp);
-          float blend = clamp(iIntensity, 0.0, 1.0);
-
-          vec3 cold = mix(vec3(0.02, 0.05, 0.12), vec3(0.10, 0.40, 0.78), clamp(n * 1.15, 0.0, 1.0));
-          vec3 red = mix(vec3(0.09, 0.02, 0.04), vec3(0.82, 0.16, 0.12), clamp(n * 1.15, 0.0, 1.0));
-          vec3 twoTone = mix(cold, red, n);
-          vec3 col = mix(cold, twoTone, blend);
-
+          vec3 col = mix(uColorDark, uColorBright, clamp(n * 1.15, 0.0, 1.0));
           gl_FragColor = vec4(col, 1.0);
       }
     `;
@@ -1246,7 +1359,9 @@ const ShaderBackground = ({ intensity = 0 }) => {
 
     const iTimeLocation = gl.getUniformLocation(program, 'iTime');
     const iResolutionLocation = gl.getUniformLocation(program, 'iResolution');
-    const iIntensityLocation = gl.getUniformLocation(program, 'iIntensity');
+    const iSpeedLocation = gl.getUniformLocation(program, 'iSpeed');
+    const uColorDarkLocation = gl.getUniformLocation(program, 'uColorDark');
+    const uColorBrightLocation = gl.getUniformLocation(program, 'uColorBright');
 
     const TIERS = [
       { scale: 0.6, fps: 30 },
@@ -1276,9 +1391,13 @@ const ShaderBackground = ({ intensity = 0 }) => {
     let lastFrame = -Infinity;
 
     const draw = () => {
-      intensityRef.current += (targetIntensityRef.current - intensityRef.current) * 0.02;
+      speedRef.current += (targetSpeedRef.current - speedRef.current) * 0.02;
+      const cur = colorRef.current, tgt = targetColorRef.current;
+      for (let i = 0; i < 2; i++) for (let j = 0; j < 3; j++) cur[i][j] += (tgt[i][j] - cur[i][j]) * 0.03;
       gl.uniform1f(iTimeLocation, (Date.now() - startTime) / 1000);
-      gl.uniform1f(iIntensityLocation, intensityRef.current);
+      gl.uniform1f(iSpeedLocation, speedRef.current);
+      gl.uniform3f(uColorDarkLocation, cur[0][0], cur[0][1], cur[0][2]);
+      gl.uniform3f(uColorBrightLocation, cur[1][0], cur[1][1], cur[1][2]);
       gl.uniform2f(iResolutionLocation, canvas.width, canvas.height);
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     };
@@ -1286,22 +1405,28 @@ const ShaderBackground = ({ intensity = 0 }) => {
     let lastRaf = 0, intervalSum = 0, intervalCount = 0, evalAt = 0;
     const render = (now = 0) => {
       animationFrameId = requestAnimationFrame(render);
-      if (document.hidden) { lastRaf = 0; return; }
+      // Скрытая вакладка: браузер замораживает rAF. Сбрасываем тайминги, чтобы кадр
+      // после возврата не посчитался гигантским интервалом и не «уронил» оценку.
+      if (document.hidden) { lastRaf = 0; evalAt = 0; intervalSum = 0; intervalCount = 0; return; }
 
-      if (lastRaf) { intervalSum += now - lastRaf; intervalCount++; }
+      if (lastRaf) {
+        const dt = now - lastRaf;
+        // Игнорируем выбросы (возврат из фона, GC, тяжёлый ререндер при смене ноды),
+        // чтобы единичные лаги не деградировали и не останавливали шейдер.
+        if (dt < 100) { intervalSum += dt; intervalCount++; }
+      }
       lastRaf = now;
       if (!evalAt) evalAt = now + 1500;
-      if (now >= evalAt) {
-        const avg = intervalCount ? intervalSum / intervalCount : 16;
+      // Оцениваем производительность только по полному окну с достаточным числом выборок.
+      if (now >= evalAt && intervalCount >= 20) {
+        const avg = intervalSum / intervalCount;
         intervalSum = 0; intervalCount = 0; evalAt = now + 1500;
-        if (avg > 30) {
-          if (tier < TIERS.length - 1) {
-            tier++; frameInterval = 1000 / TIERS[tier].fps; resize();
-          } else {
-            cancelAnimationFrame(animationFrameId);
-            return;
-          }
+        // Деградируем по тирам при стабильно низком FPS, но НИКОГДА не отключаем рендер полностью.
+        if (avg > 30 && tier < TIERS.length - 1) {
+          tier++; frameInterval = 1000 / TIERS[tier].fps; resize();
         }
+      } else if (now >= evalAt) {
+        evalAt = now + 1500; intervalSum = 0; intervalCount = 0;
       }
 
       if (now - lastFrame < frameInterval) return;
@@ -1315,20 +1440,55 @@ const ShaderBackground = ({ intensity = 0 }) => {
     return () => { window.removeEventListener('resize', resize); cancelAnimationFrame(animationFrameId); };
   }, []);
 
-  return <canvas ref={canvasRef} className="fixed inset-0 w-full h-full z-[-2] pointer-events-none" />;
+  return <canvas ref={canvasRef} className={`${embedded ? 'absolute inset-0 z-0' : 'fixed inset-0 z-[-2]'} w-full h-full pointer-events-none`} />;
+};
+
+// HSL (H 0-360, S/L 0-100) → [r,g,b] в диапазоне 0..1 для шейдера.
+const hslToRgb01 = (h, s, l) => {
+  h = ((h % 360) + 360) % 360; s /= 100; l /= 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) [r, g, b] = [c, x, 0];
+  else if (h < 120) [r, g, b] = [x, c, 0];
+  else if (h < 180) [r, g, b] = [0, c, x];
+  else if (h < 240) [r, g, b] = [0, x, c];
+  else if (h < 300) [r, g, b] = [x, 0, c];
+  else [r, g, b] = [c, 0, x];
+  return [r + m, g + m, b + m];
 };
 
 const BG_MASK_URL = './bg/mask.png';
-// Сжатые JPEG локации (1280px, q80)
-const BG_LOCATIONS = [
-  './bg/locations/loc_01.jpg',
-  './bg/locations/loc_02.jpg',
+// ЧБ пиксель-арт локации. Красятся на лету через mix-blend-mode: color —
+// аналог Hue/Saturation (Colorize) из Photoshop: hue/sat берутся из оверлея, яркость из картинки.
+const BG_LOCATION_SETS = [
+  { name: 'cemetery',      hue: 191, sat: 25, images: ['./bg/locations/cemetery_01.png', './bg/locations/cemetery_02.png', './bg/locations/cemetery_03.png'] },
+  { name: 'torture',       hue: 14,  sat: 20, images: ['./bg/locations/torture_01.png', './bg/locations/torture_02.png', './bg/locations/torture_03.png'] },
+  { name: 'dungeon_reach', hue: 304, sat: 30, images: ['./bg/locations/dungeon_reach_01.png', './bg/locations/dungeon_reach_02.png', './bg/locations/dungeon_reach_03.png'] },
 ];
-const pickRandomBgLocation = () => BG_LOCATIONS[Math.floor(Math.random() * BG_LOCATIONS.length)];
+// Сектор = один набор: сектор 1 — cemetery, 2 — torture, 3 — dungeon_reach, после третьего цикл.
+// Цифра картинки (01/02/03) растёт с дистанцией, пройденной по карте сектора (stage 1–5 → 01/01/02/02/03).
+const pickBgLocation = (sector = 1, stage = 0) => {
+  const set = BG_LOCATION_SETS[(sector - 1) % BG_LOCATION_SETS.length];
+  // Карта сектора: stage 1–5 (5 = босс) → варианты 01,01,02,02,03
+  const variant = Math.min(set.images.length - 1, Math.floor(Math.max(0, stage - 1) * set.images.length / 5));
+  return { url: set.images[variant], hue: set.hue, sat: set.sat };
+};
+
+// Сплеш стартового экрана: случайная локация + случайный холодный оттенок (циан→синий→индиго).
+const pickColdSplash = () => {
+  const all = BG_LOCATION_SETS.flatMap(s => s.images);
+  return {
+    url: all[Math.floor(Math.random() * all.length)],
+    hue: 185 + Math.floor(Math.random() * 70), // 185..255
+    sat: 22 + Math.floor(Math.random() * 14),   // 22..35
+  };
+};
 
 // Картинка поверх шейдера: масштаб от ширины экрана, градиентная маска (якорь сверху, 100% ширины).
 // Маска 100%×100% элемента картинки. PNG-маска + CSS-градиент (intersect) — гарантированный fade.
-const ImageBackground = ({ imageUrl }) => {
+const ImageBackground = ({ imageUrl, hue, sat, opacity = 1, embedded = false }) => {
   const maskStyle = {
     WebkitMaskImage: `url('${BG_MASK_URL}'), linear-gradient(to bottom, #000 0%, #000 25%, transparent 100%)`,
     maskImage: `url('${BG_MASK_URL}'), linear-gradient(to bottom, #000 0%, #000 25%, transparent 100%)`,
@@ -1343,15 +1503,23 @@ const ImageBackground = ({ imageUrl }) => {
   };
 
   return (
-    <div className="fixed inset-0 z-[-1] pointer-events-none overflow-hidden">
-      <img
-        src={imageUrl}
-        key={imageUrl}
-        alt=""
-        className="absolute top-0 left-0 block w-full h-auto select-none"
-        style={maskStyle}
-        draggable={false}
-      />
+    <div className={`${embedded ? 'absolute inset-0 z-[1]' : 'fixed inset-0 z-[-1]'} pointer-events-none overflow-hidden`} style={{ opacity }}>
+      {/* Маска на обёртке, чтобы покрасочный оверлей выцветал вместе с картинкой.
+          isolation: blend «color» смешивается только с картинкой, не с тем, что позади. */}
+      <div key={imageUrl} className="absolute top-0 left-0 w-full" style={{ ...maskStyle, isolation: 'isolate', transform: 'scale(1.045)', transformOrigin: 'center center' }}>
+        <img
+          src={imageUrl}
+          alt=""
+          className="block w-full h-auto select-none"
+          draggable={false}
+        />
+        {hue != null && (
+          <div
+            className="absolute inset-0"
+            style={{ backgroundColor: `hsl(${hue} ${sat}% 50%)`, mixBlendMode: 'color' }}
+          />
+        )}
+      </div>
     </div>
   );
 };
@@ -1367,13 +1535,16 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
 
   if (!card) return null;
   const rarity = RARITIES[card.rarity] || RARITIES.COMMON;
-  const { isCandidate, willGiveBonus } = comboState;
+  const { isCandidate, willGiveBonus, comboStep = 0, comboPct = 0, willSplash = false } = comboState;
   const level = getCardLevel(card);
   
   let dmg = owner ? getCardDamage(owner, card) : 0;
-  if (willGiveBonus) dmg = Math.floor(dmg * 1.5);
+  if (willGiveBonus) dmg = Math.floor(dmg * COMBO_DAMAGE_MULT[Math.min(comboStep, 2)]);
   const statColor = getCardStatColor(card);
-  const { targetLine, effectLine } = getCardDescription(owner, card);
+  const base = getCardDescription(owner, card);
+  // В комбо удар по площади у comboSplash-карт
+  const targetLine = willSplash ? '💥 Бьёт всех врагов' : base.targetLine;
+  const effectLine = base.effectLine;
 
   const displayRarityName = showOwnerLabel && owner ? `${rarity.name} - ${owner.name}` : rarity.name;
 
@@ -1384,7 +1555,8 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
         <div className={`w-[22px] h-[22px] rounded-full flex items-center justify-center font-black text-[10px] border-2 border-white/20 shadow-lg text-white ${mana < card.cost ? 'bg-red-500' : 'bg-[#1E88E5]'}`}>{String(card.cost)}</div>
       </div>
       <div className="flex-1 flex flex-col items-center justify-center relative p-1 bg-[#373945] min-h-[40px]">
-        {isCandidate && (<div className="absolute top-1 left-1 bg-yellow-400 text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">COMBO!</div>)}
+        {isCandidate && (<div className="absolute top-1 left-1 bg-yellow-400 text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">COMBO{willGiveBonus && comboPct > 0 ? ` +${comboPct}%` : '!'}</div>)}
+        {willSplash && (<div className="absolute top-1 right-1 bg-orange-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg z-10">💥 AoE</div>)}
         <span className="text-[1.35rem] drop-shadow-2xl group-hover:scale-110 transition-transform duration-500">{String(card.icon)}</span>
       </div>
       <div className="text-center leading-none bg-[#50546d] border-t border-slate-600/30 px-2 pt-4 pb-2 flex flex-col justify-center gap-0.5 min-h-[76px] relative">
@@ -1404,7 +1576,7 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
             {effectLine.icon} {effectLine.label}{effectLine.value ? `: ${effectLine.value}` : ''}
           </p>
         )}
-        <p className="text-[10px] text-slate-400 leading-none mt-0.5">{targetLine}</p>
+        <p className={`text-[10px] leading-none mt-0.5 ${willSplash ? 'text-orange-400 font-bold' : 'text-slate-400'}`}>{targetLine}</p>
       </div>
     </div>
   );
@@ -1482,7 +1654,7 @@ const SquadSlotsBoard = ({ players, pools, newCardId = null, hoveredId = null, o
       return (
         <div key={p.id} className={`flex items-center gap-6 bg-slate-900/70 border border-slate-700/60 rounded-3xl px-8 py-3 min-w-[560px] animate-in slide-in-from-bottom-4 fade-in duration-500 ${isDead ? 'grayscale' : ''}`}>
           <div className={`w-[100px] h-[100px] overflow-hidden flex items-end justify-center shrink-0 ${isDead ? 'opacity-50' : ''}`}>
-            <CharSprite atlas={CHAR_ATLASES[p.id]} size={100} />
+            <CharSprite atlas={CHAR_ATLASES[p.id]} size={100} {...CHAR_COLORIZE[p.id]} />
           </div>
           <div className="w-28 shrink-0">
             <p className={`font-black uppercase tracking-tight ${isDead ? 'text-slate-500' : 'text-white'}`}>{String(p.name)}</p>
@@ -1518,7 +1690,7 @@ const SquadSlotsBoard = ({ players, pools, newCardId = null, hoveredId = null, o
                   style={{ borderColor: isHover ? '#ffffff' : glow, boxShadow: isNew || isHover ? `0 0 25px ${glow}` : `inset 0 0 12px ${glow}33` }}
                 >
                   {isNew && (
-                    <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 bg-amber-500 text-black text-[8px] font-black px-2 py-0.5 rounded-full uppercase whitespace-nowrap shadow-lg">Новая</div>
+                    <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 z-20 bg-amber-500 text-black text-[8px] font-black px-2 py-0.5 rounded-full uppercase whitespace-nowrap shadow-lg pointer-events-none">Новая</div>
                   )}
                   <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
                   <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
@@ -1569,9 +1741,240 @@ const SquadSlotsPopup = ({ players, pools, newCardId, onClose }) => {
   );
 };
 
+// --- ЭКРАН СМЕРТИ: автопродажа хлама -> огоньки души ---
+
+const DeathScreen = ({ items, startProgress = 0, threshold = EMBER_JUNK_THRESHOLD, onDone }) => {
+  // Хлам копится в ГЛОБАЛЬНУЮ шкалу, продолжая её с предыдущего забега (startProgress).
+  // При пересечении порога выдаётся огонёк, остаток переносится дальше.
+  const junkPoints = useMemo(() => sumJunkPoints(items), [items]);
+  const totalPoints = startProgress + junkPoints;
+
+  // acc — текущее анимированное значение очков (от startProgress до totalPoints)
+  const [acc, setAcc] = useState(startProgress);
+  const [phase, setPhase] = useState(junkPoints > 0 ? 'selling' : 'done'); // selling | done
+
+  useEffect(() => {
+    if (phase !== 'selling') return;
+    const DURATION = 2200;
+    const start = performance.now();
+    let raf;
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / DURATION);
+      setAcc(startProgress + t * junkPoints);
+      if (t < 1) raf = requestAnimationFrame(tick);
+      else { setAcc(totalPoints); setPhase('done'); }
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [phase, startProgress, junkPoints, totalPoints]);
+
+  const embersBefore = Math.floor(startProgress / threshold);
+  const shownEmbers = Math.floor(acc / threshold) - embersBefore;
+  const barValue = Math.floor(acc % threshold);
+  const barFill = (acc % threshold) / threshold;
+  const sellFraction = junkPoints > 0 ? (acc - startProgress) / junkPoints : 1;
+  const soldCount = Math.round(sellFraction * items.length);
+
+  return (
+    <div className="absolute inset-0 z-[2000] bg-red-950/85 flex flex-col items-center justify-center backdrop-blur-xl animate-in fade-in duration-700 p-6">
+      <h1 className="text-7xl font-black text-white drop-shadow-[0_0_40px_rgba(239,68,68,1)] mb-2 tracking-tighter uppercase italic text-center">ОТРЯД ПАЛ</h1>
+      <p className="text-lg text-red-300 font-bold uppercase tracking-[0.4em] mb-10 text-center">Уровень обнулён · снаряжение обращается в пепел</p>
+
+      {/* Хлам на продажу */}
+      <div className="flex flex-col items-center gap-4 mb-8">
+        <p className="text-xs text-slate-400 uppercase tracking-[0.3em] font-black">Накопленный хлам: {String(items.length)}</p>
+        <div className="flex gap-2 flex-wrap justify-center max-w-xl min-h-[3.5rem]">
+          {items.map((item, i) => (
+            <div key={i} className={`w-12 h-12 rounded-lg border overflow-hidden transition-all duration-300 ${i < soldCount ? 'opacity-15 grayscale scale-75' : 'border-slate-600'}`}>
+              <ItemIcon item={item} className="w-full h-full" />
+            </div>
+          ))}
+          {items.length === 0 && <p className="text-slate-600 text-sm italic">Пусто — нечего продавать</p>}
+        </div>
+
+        {/* Глобальная шкала прогресса огонька души: [текущее] / [порог] */}
+        <div className="w-96 flex flex-col gap-1">
+          <div className="flex justify-between text-[10px] uppercase tracking-[0.25em] font-black text-amber-300/80">
+            <span>Шкала огонька души</span>
+            <span>{String(barValue)} / {String(threshold)}</span>
+          </div>
+          <div className="w-full h-4 bg-slate-900/80 rounded-full border border-slate-700 overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-amber-600 to-amber-300 rounded-full transition-none" style={{ width: `${barFill * 100}%` }}></div>
+          </div>
+        </div>
+
+        {/* Огоньки души */}
+        <div className={`flex items-center gap-3 transition-all duration-500 ${shownEmbers > 0 || phase === 'done' ? 'opacity-100 scale-100' : 'opacity-30 scale-90'}`}>
+          <span className="text-4xl drop-shadow-[0_0_15px_rgba(96,165,250,0.9)]">🔥</span>
+          <span className="text-4xl font-black text-sky-300 drop-shadow-[0_0_15px_rgba(96,165,250,0.7)]">+{String(shownEmbers)}</span>
+          <span className="text-xs text-sky-400/80 uppercase tracking-[0.25em] font-black self-end pb-1.5">Огоньки души</span>
+        </div>
+      </div>
+
+      {phase === 'done' && (
+        <button onClick={onDone} className="px-16 py-6 bg-white text-red-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter animate-in fade-in zoom-in-95 duration-500">Принять судьбу</button>
+      )}
+    </div>
+  );
+};
+
+// --- ЭКРАН ПОДГОТОВКИ: покупка стартовых карт за огоньки души ---
+
+const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThreshold = EMBER_JUNK_THRESHOLD, prepCardsBought, onBuyCard, onBurnCard, onStart }) => {
+  const phrase = useMemo(() => GOTHIC_PHRASES[Math.floor(Math.random() * GOTHIC_PHRASES.length)], []);
+  const bgSplash = useMemo(() => pickColdSplash(), []);
+  const [picker, setPicker] = useState(null); // { heroId, slotIndex }
+
+  const slotPrice = getPrepSlotPrice(prepCardsBought);
+  const hasEmptySlot = players.some(p => (pools[p.id] || []).length < CARD_POOL_SIZE);
+  const canBuyMore = prepCardsBought < PREP_MAX_BUYS && hasEmptySlot && soulEmbers >= slotPrice;
+
+  const openPicker = (heroId, slotIndex) => {
+    if (!canBuyMore) return;
+    setPicker({ heroId, slotIndex });
+  };
+
+  const handlePick = (skill) => {
+    if (!picker) return;
+    onBuyCard(picker.heroId, skill);
+    setPicker(null);
+  };
+
+  const pickerHero = picker ? players.find(p => p.id === picker.heroId) : null;
+  const pickerOwnedKeys = picker ? getOwnedSkillKeys(picker.heroId, pools[picker.heroId] || []) : new Set();
+  const pickerOptions = picker ? getUnownedSkills(picker.heroId, pickerOwnedKeys) : [];
+
+  return (
+    <div className="absolute inset-0 z-[2000] animate-in fade-in duration-500 overflow-hidden">
+      {/* Непрозрачная база перекрывает боевую сцену: на фоне виден только шейдер + картинка */}
+      <div className="absolute inset-0 bg-slate-950" />
+      <ShaderBackground hue={bgSplash.hue} sat={bgSplash.sat} speed={0.4} embedded />
+      <ImageBackground imageUrl={bgSplash.url} hue={bgSplash.hue} sat={bgSplash.sat} embedded opacity={0.9} />
+      <div className="relative z-10 flex flex-col items-center justify-center p-6 overflow-y-auto custom-scrollbar min-h-full">
+        <h2 className="text-5xl font-black text-white uppercase italic tracking-tighter mb-3 text-center drop-shadow-2xl">Подготовка к вылазке</h2>
+        <p className="text-slate-200 italic text-xl max-w-2xl text-center mb-2 leading-relaxed font-medium drop-shadow-lg">«{phrase}»</p>
+
+        <div className="flex items-center gap-6 mb-8 mt-4">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl drop-shadow-[0_0_12px_rgba(96,165,250,0.9)]">🔥</span>
+            <span className="text-2xl font-black text-sky-300">{String(soulEmbers)}</span>
+            <span className="text-[10px] text-sky-400/80 uppercase tracking-[0.25em] font-black self-end pb-1">Огоньки души</span>
+          </div>
+          {/* Глобальная шкала прогресса: переносится между забегами */}
+          <div className="flex flex-col gap-1 w-44">
+            <div className="flex justify-between text-[9px] uppercase tracking-[0.2em] font-black text-amber-300/70">
+              <span>След. огонёк</span>
+              <span>{String(soulProgress)} / {String(emberThreshold)}</span>
+            </div>
+            <div className="w-full h-2.5 bg-slate-900/80 rounded-full border border-slate-700 overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-amber-600 to-amber-300 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (soulProgress / emberThreshold) * 100)}%` }}></div>
+            </div>
+          </div>
+          <span className="text-xs text-slate-400 uppercase tracking-widest font-black">Следующий слот: {String(slotPrice)} 🔥</span>
+        </div>
+
+        <div className="flex flex-col gap-4 mb-10">
+          {players.map(p => {
+            const cards = pools[p.id] || [];
+            return (
+              <div key={p.id} className="flex items-center gap-6 bg-slate-900/60 backdrop-blur-md border border-slate-700/60 rounded-3xl px-8 py-3 min-w-[560px] animate-in slide-in-from-bottom-4 fade-in duration-500">
+                <div className="w-[100px] h-[100px] overflow-hidden flex items-end justify-center shrink-0">
+                  <CharSprite atlas={CHAR_ATLASES[p.id]} size={100} {...CHAR_COLORIZE[p.id]} />
+                </div>
+                <div className="w-28 shrink-0">
+                  <p className="font-black uppercase tracking-tight text-white">{String(p.name)}</p>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-widest">{String(cards.length)}/{String(CARD_POOL_SIZE)} карт</p>
+                </div>
+                <div className="flex gap-3">
+                  {Array.from({ length: CARD_POOL_SIZE }).map((_, i) => {
+                    const card = cards[i];
+                    if (card) {
+                      const glow = RARITY_GLOW[card.rarity] || '#64748b';
+                      return (
+                        <div key={i} className="relative group w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5" style={{ borderColor: glow, boxShadow: `inset 0 0 12px ${glow}33` }}>
+                          <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
+                          <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
+                          <button
+                            type="button"
+                            onClick={() => onBurnCard(card.id)}
+                            title="Сжечь карту (+1 🔥)"
+                            className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-900 border border-red-500 text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 hover:scale-110 transition-all shadow-lg z-10"
+                          >🔥</button>
+                        </div>
+                      );
+                    }
+                    const isFirstEmpty = i === cards.length;
+                    if (isFirstEmpty) {
+                      const canBuy = canBuyMore && cards.length < CARD_POOL_SIZE;
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={canBuy ? () => openPicker(p.id, i) : undefined}
+                          disabled={!canBuy}
+                          className={`relative w-16 h-20 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all ${canBuy ? 'border-sky-400 bg-sky-950/40 hover:scale-110 hover:shadow-[0_0_20px_rgba(56,189,248,0.5)] cursor-pointer' : 'border-slate-700 bg-slate-800/30 opacity-50 cursor-not-allowed'}`}
+                        >
+                          <span className="text-xl">🔥</span>
+                          <span className={`text-[10px] font-black uppercase ${canBuy ? 'text-sky-300' : 'text-slate-500'}`}>{String(slotPrice)}</span>
+                        </button>
+                      );
+                    }
+                    return (
+                      <div key={i} className="w-16 h-20 rounded-xl border-2 border-dashed border-slate-700 bg-slate-800/30 flex items-center justify-center">
+                        <span className="text-slate-700 text-xl font-black">+</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <button type="button" onClick={onStart} className="px-16 py-5 bg-white text-slate-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">Старт</button>
+      </div>
+
+      {/* Выбор карты из всех скиллов персонажа */}
+      {picker && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center p-6 animate-in fade-in duration-200">
+          <div className="bg-slate-900/95 border border-slate-600 rounded-3xl p-8 max-w-4xl w-full max-h-[85vh] overflow-y-auto custom-scrollbar shadow-2xl">
+            <div className="flex justify-between items-start mb-6">
+              <div>
+                <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter">Выберите карту</h3>
+                <p className="text-sm text-slate-400 mt-1">{pickerHero ? String(pickerHero.name) : ''} · {String(slotPrice)} 🔥</p>
+              </div>
+              <button type="button" onClick={() => setPicker(null)} className="w-10 h-10 rounded-full bg-slate-800 border border-slate-600 text-white hover:bg-red-900 transition-all">✕</button>
+            </div>
+            {pickerOptions.length === 0 ? (
+              <p className="text-slate-500 text-center py-8">Все карты этого бойца уже в колоде</p>
+            ) : (
+              <div className="flex flex-wrap gap-4 justify-center">
+                {pickerOptions.map(skill => {
+                  const preview = { ...skill, id: `pick_${skill.id}`, level: 1 };
+                  const owner = pickerHero;
+                  return (
+                    <button
+                      key={skill.id}
+                      type="button"
+                      onClick={() => handlePick(skill)}
+                      className="w-44 h-[245px] shrink-0 rounded-2xl overflow-hidden hover:scale-105 hover:ring-2 hover:ring-sky-400 transition-all text-left"
+                    >
+                      <AbilityCard card={preview} owner={owner} mana={5} maxMana={5} isDisabled={false} comboState={{ isCandidate: false, willGiveBonus: false }} />
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // --- ОКНО КОЛОДЫ: пуллы бойцов + живая очередь ротации карт ---
 
-const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxMana, onClose }) => {
+const DeckWindow = ({ players, pools, drawPile, discardPile, maxMana, onClose }) => {
   // Двусторонняя подсветка: слот бойца <-> карта в очереди + тултип с реальной картой
   const [hoverId, setHoverId] = useState(null);
   const [tooltip, setTooltip] = useState(null); // { card, x, top, bottom }
@@ -1583,25 +1986,41 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
     setTooltip({ card, x: r.left + r.width / 2, top: r.top, bottom: r.bottom });
   };
 
+  // Слоты павших — статичные рубашки 💀 без номеров: в руке на месте бойца,
+  // в колоде — закреплены в хвосте секции (в ротации не участвуют, не двигаются).
+  // Живые карты показываются в реальном порядке drawPile со сквозной нумерацией.
   const deadIds = new Set(players.filter(p => p.hp <= 0).map(p => p.id));
+  const aliveCount = players.length - deadIds.size;
+  const liveDiscard = discardPile.filter(c => !deadIds.has(c.ownerId));
 
-  // Единая очередь из DECK_SIZE (9) позиций: первые 3 — рука (по слоту на бойца),
-  // остальные 6 — резерв; карты, ушедшие в сброс, занимают позиции рубашками ⧖.
-  // Справа отдельно 3 слота сброса. Нумерация сквозная 1–9.
-  const handSlots = players.map(p => ({
-    player: p,
-    card: isDeckCard(p.currentCard) ? p.currentCard : null,
-  }));
-  const deckRestLen = DECK_SIZE - handSlots.length;
-  const deckSlots = drawPile.slice(0, deckRestLen).map(c => ({ card: c }));
-  while (deckSlots.length < deckRestLen) deckSlots.push({ gone: true });
+  let queueNum = 0;
+  const handSlots = players.map(p => {
+    const isDead = p.hp <= 0;
+    return {
+      player: p,
+      isDead,
+      card: !isDead && isDeckCard(p.currentCard) ? p.currentCard : null,
+      num: isDead ? null : ++queueNum,
+    };
+  });
 
-  const recent3 = discardPile.slice(-3);
-  // Градиент прозрачности: новее — заметнее (последняя сыгранная справа)
-  const discardSlots = Array.from({ length: 3 }, (_, i) => {
-    const startIdx = 3 - recent3.length;
-    const card = i >= startIdx ? recent3[i - startIdx] : null;
-    return { card, opacity: 0.35 + i * 0.25 };
+  // По 2 позиции ротации на живого бойца (3-я карта в руке)
+  const liveDeckLen = aliveCount * (CARD_POOL_SIZE - 1);
+  const liveDraw = drawPile.filter(c => !deadIds.has(c.ownerId));
+  const deckSlots = liveDraw.slice(0, liveDeckLen).map(c => ({ card: c, num: ++queueNum }));
+  while (deckSlots.length < liveDeckLen) deckSlots.push({ gone: true, num: ++queueNum });
+  // Хвост очереди: статичные черепа павших (по 2 на бойца), без номеров
+  players.filter(p => p.hp <= 0).forEach(p => {
+    for (let k = 0; k < CARD_POOL_SIZE - 1; k++) deckSlots.push({ isDead: true, player: p });
+  });
+
+  const discardSlotCount = Math.max(1, aliveCount);
+  const recentDiscards = liveDiscard.slice(-discardSlotCount);
+  const discardSlots = Array.from({ length: discardSlotCount }, (_, i) => {
+    const startIdx = discardSlotCount - recentDiscards.length;
+    const card = i >= startIdx ? recentDiscards[i - startIdx] : null;
+    const opacity = discardSlotCount === 1 ? 1 : 0.35 + i * (0.65 / Math.max(1, discardSlotCount - 1));
+    return { card, opacity };
   });
 
   return (
@@ -1610,7 +2029,7 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
         <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
            <div>
              <h2 className="text-3xl font-black text-white uppercase tracking-tighter italic">Колода</h2>
-             <p className="text-xs text-slate-500 uppercase tracking-widest mt-1">Пулл карт отряда · {String(CARD_POOL_SIZE)} слота на бойца · карт {String(totalDeckSize)}</p>
+             <p className="text-xs text-slate-500 uppercase tracking-widest mt-1">Пулл карт отряда · {String(CARD_POOL_SIZE)} слота на бойца · карт {String(DECK_SIZE)}</p>
            </div>
            <button onClick={onClose} className="w-12 h-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-white hover:bg-red-900 hover:border-red-500 transition-all group">
              <span className="text-2xl group-hover:scale-125 transition-transform">✕</span>
@@ -1624,24 +2043,24 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                <div className="flex flex-col items-center gap-2">
                  <p className="text-[10px] text-sky-400 uppercase tracking-[0.3em] font-black">Рука</p>
                  <div className="flex gap-3">
-                   {handSlots.map(({ player, card }, i) => {
+                   {handSlots.map(({ player, card, isDead, num }, i) => {
                      const isHover = card && hoverId === card.id;
-                     const numBadge = (color, border) => (
-                       <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-900 border text-[9px] font-black flex items-center justify-center z-10" style={{ borderColor: border, color }}>{String(i + 1)}</span>
+                     const accent = HERO_ACCENT[player.id] || '#64748b';
+                     const numBadge = () => (
+                       <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-900 border text-[9px] font-black flex items-center justify-center z-10" style={{ borderColor: accent, color: accent }}>{String(num)}</span>
                      );
-                     if (player.hp <= 0) {
+                     if (isDead) {
                        return (
-                         <div key={`h-dead-${player.id}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50" style={{ filter: 'brightness(0.9)' }}>
-                           {numBadge('#475569', '#334155')}
+                         <div key={`h-dead-${player.id}`} className="relative w-16 h-20 rounded-xl border-2 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50" style={{ borderColor: `${accent}66`, filter: 'brightness(0.9)' }}>
                            <span className="text-2xl" style={{ opacity: 0.4 }}>💀</span>
                          </div>
                        );
                      }
                      if (!card || isEmptyCard(card)) {
-                       // Базовая атака / пустая карта — рубашка
+                       // Базовая атака / пустая карта — рубашка с акцентом героя
                        return (
-                         <div key={`h-basic-${player.id}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-60">
-                           {numBadge('#475569', '#334155')}
+                         <div key={`h-basic-${player.id}`} className="relative w-16 h-20 rounded-xl border-2 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-70" style={{ borderColor: `${accent}88`, boxShadow: `inset 0 0 12px ${accent}22` }}>
+                           {numBadge()}
                            <span className="text-2xl" style={{ opacity: 0.2 }}>🙨</span>
                          </div>
                        );
@@ -1653,9 +2072,9 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                          onMouseEnter={(e) => handleHoverCard(card, e)}
                          onMouseLeave={() => handleHoverCard(null, null)}
                          className={`relative w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5 transition-transform duration-150 ${isHover ? 'scale-110 z-10' : ''}`}
-                         style={{ borderColor: isHover ? '#ffffff' : glow, boxShadow: isHover ? `0 0 25px ${glow}` : `inset 0 0 12px ${glow}33` }}
+                         style={{ borderColor: isHover ? '#ffffff' : accent, boxShadow: isHover ? `0 0 25px ${accent}` : `inset 0 0 12px ${glow}55` }}
                        >
-                         {numBadge(glow, glow)}
+                         {numBadge()}
                          <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
                          <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
                        </div>
@@ -1667,26 +2086,26 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                {/* Разделитель рука | колода */}
                <div className="w-px h-16 bg-slate-700 mx-2 shrink-0"></div>
 
-               {deckSlots.map(({ card, gone }, i) => {
+               {deckSlots.map((slot, i) => {
+                 const { card, gone, isDead, player, num } = slot;
                  const isHover = card && hoverId === card.id;
                  const numBadge = (color, border) => (
-                   <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-900 border text-[9px] font-black flex items-center justify-center z-10" style={{ borderColor: border, color }}>{String(handSlots.length + i + 1)}</span>
+                   <span className="absolute -top-2 -left-1 w-5 h-5 rounded-full bg-slate-900 border text-[9px] font-black flex items-center justify-center z-10" style={{ borderColor: border, color }}>{String(num)}</span>
                  );
+                 if (isDead) {
+                   const accent = HERO_ACCENT[player.id] || '#64748b';
+                   return (
+                     <div key={`q-dead-${player.id}-${i}`} className="relative w-16 h-20 rounded-xl border-2 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50" style={{ borderColor: `${accent}66`, filter: 'brightness(0.9)' }}>
+                       <span className="text-2xl" style={{ opacity: 0.4 }}>💀</span>
+                     </div>
+                   );
+                 }
                  if (gone) {
                    // Слот карты, ушедшей в сброс — рубашка с ⧖ до обновления колоды
                    return (
                      <div key={`q-gone-${i}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50" style={{ filter: 'brightness(0.9)' }}>
                        {numBadge('#475569', '#334155')}
                        <span className="text-2xl text-slate-300">⧖</span>
-                     </div>
-                   );
-                 }
-                 if (card && deadIds.has(card.ownerId)) {
-                   // Карта павшего бойца — пустая рубашка с черепом
-                   return (
-                     <div key={`q-dead-${card.id}-${i}`} className="relative w-16 h-20 rounded-xl border-2 border-slate-700 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center opacity-50" style={{ filter: 'brightness(0.9)' }}>
-                       {numBadge('#475569', '#334155')}
-                       <span className="text-2xl" style={{ opacity: 0.4 }}>💀</span>
                      </div>
                    );
                  }
@@ -1731,8 +2150,7 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                      </div>
                    );
                  }
-                 const isDeadOwner = deadIds.has(card.ownerId);
-                 const showFace = isRealDeckCard(card) && !isDeadOwner;
+                 const showFace = isRealDeckCard(card);
                  return (
                    <div
                      key={`d-${card.id}-${i}`}
@@ -1747,7 +2165,7 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, totalDeckSize, maxM
                          <span className="text-[9px] font-black uppercase text-red-400">ур.{String(getCardLevel(card))}</span>
                        </>
                      ) : (
-                       <span className="text-2xl text-red-400/70">{isDeadOwner ? '💀' : '🙨'}</span>
+                       <span className="text-2xl text-red-400/70">🙨</span>
                      )}
                    </div>
                  );
@@ -1842,6 +2260,7 @@ const Preloader = ({ assets, onEnter }) => {
   const totalUnits = assets.length;
   const pct = Math.min(100, Math.round((sfxLoaded / totalUnits) * 100));
   const ready = sfxLoaded >= assets.length;
+  const splash = useMemo(() => pickColdSplash(), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1875,7 +2294,9 @@ const Preloader = ({ assets, onEnter }) => {
   }, [assets]);
 
   return (
-    <div className="fixed inset-0 z-[3000] bg-[#0a0a0f] flex flex-col items-center justify-center overflow-hidden">
+    <div className="fixed inset-0 z-[3000] bg-[#17191C] flex flex-col items-center justify-center overflow-hidden">
+      {/* Сплеш: те же параметры что в бою (маска+градиент), но случайная локация и случайный холодный оттенок */}
+      <ImageBackground imageUrl={splash.url} hue={splash.hue} sat={splash.sat} opacity={0.8} />
       <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 left-0 w-[300px] h-[300px] opacity-60" />
       <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 right-0 w-[300px] h-[300px] opacity-60" style={{ transform: 'scaleX(-1)' }} />
       <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[300px] h-[300px] opacity-60" style={{ transform: 'scaleY(-1)' }} />
@@ -1887,7 +2308,7 @@ const Preloader = ({ assets, onEnter }) => {
       <div className="w-[min(80vw,420px)]">
         <div className="h-3 w-full bg-slate-800/80 rounded-full overflow-hidden border border-slate-700 shadow-inner">
           <div
-            className="h-full bg-gradient-to-r from-[#1E88E5] via-amber-400 to-[#D32F2F] transition-all duration-300 ease-out"
+            className="h-full bg-white transition-all duration-300 ease-out"
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -1928,6 +2349,15 @@ export default function App() {
   const [xp, setXp] = useState(0);
   const [playerLevel, setPlayerLevel] = useState(1); 
   const [xpToNext, setXpToNext] = useState(60);
+  // Мета-валюта: переживает смерть, тратится на стартовые карты на экране подготовки
+  const [soulEmbers, setSoulEmbers] = useState(0);
+  // Глобальная шкала прогресса огонька души (очки хлама): переносится между забегами,
+  // не сгорает при смерти; остаток сверх порога копится дальше.
+  const [soulProgress, setSoulProgress] = useState(0);
+  // Очередь невыбранных левелапов: каждый полученный уровень = 1 выбор карт по очереди
+  const [levelUpQueue, setLevelUpQueue] = useState(0);
+  const [showPrep, setShowPrep] = useState(false);
+  const [prepCardsBought, setPrepCardsBought] = useState(0);
   const xpToNextRef = useRef(60);
   const [rewardOptions, setRewardOptions] = useState([]);
   
@@ -1948,7 +2378,11 @@ export default function App() {
   const [currentStage, setCurrentStage] = useState(0); 
   const [sector, setSector] = useState(1);
   const [sectorSplash, setSectorSplash] = useState(null);
-  const [bgLocation, setBgLocation] = useState(() => pickRandomBgLocation());
+  const sectorRef = useRef(sector);
+  const currentStageRef = useRef(currentStage);
+  useEffect(() => { sectorRef.current = sector; }, [sector]);
+  useEffect(() => { currentStageRef.current = currentStage; }, [currentStage]);
+  const [bgLocation, setBgLocation] = useState(() => pickBgLocation(1, 0));
 
   const [flyingXps, setFlyingXps] = useState([]);
   const [flyingItems, setFlyingItems] = useState([]);
@@ -2203,7 +2637,7 @@ export default function App() {
     playSound('./assets/sfx/map/node_click.wav');
     setCurrentMapNodeId(node.id);
     setCurrentStage(node.stage);
-    setBgLocation(pickRandomBgLocation());
+    setBgLocation(pickBgLocation(sector, node.stage));
 
     if (node.type === 'event') {
       playSound('./assets/sfx/events/event_start.wav');
@@ -2271,14 +2705,16 @@ export default function App() {
     if (turnState !== 'player' || player.hp <= 0 || !player.currentCard || player.hasActed || isAnimating || showLevelUp || turnState === 'victory_wait') return;
     playSound('./assets/sfx/ui/hover.wav', 0.4);
     setHoveredPlayerId(player.id);
-    const targetIndices = getTargets(player.currentCard, playerIndex, enemies);
+    // Считаем шаг комбо так же, как playCard: если карта продолжит серию — шаг +1
+    const willCombo = lastPlayedCost !== null && player.currentCard.cost === lastPlayedCost + 1;
+    const prospectiveStep = willCombo ? comboStreak + 1 : 0;
+    const targetIndices = getTargets(player.currentCard, playerIndex, enemies, prospectiveStep);
     setHoveredTargetIds(targetIndices.map(idx => enemies[idx].id));
   };
 
   const resetGame = (fullReset = false, advanceSector = false, fromDeath = false) => {
-    if (fullReset) setSector(1);
-    else if (advanceSector) setSector(s => s + 1);
-    else if (fromDeath) setSector(1);
+    const nextSector = (fullReset || fromDeath) ? 1 : advanceSector ? sector + 1 : sector;
+    setSector(nextSector);
 
     musicFadeToRandom();
 
@@ -2287,15 +2723,18 @@ export default function App() {
     players.forEach(p => { if (p.currentCard && isDeckCard(p.currentCard)) handCards.push(p.currentCard); });
     const currentFullDeck = [...drawPile, ...discardPile, ...handCards];
 
-    if (fullReset) {
-      setPlayers(INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p })));
-      setXp(0); setXpToNext(60); setPlayerLevel(1); setMaxMana(5);
-      // Старт с полной колодой из пустых карт-балласта; пулл наполняется на level-up
+    if (fullReset || fromDeath) {
+      // Новая игра или смерть: уровень обнуляется, колода — пустой балласт.
+      // При смерти надетый шмот сохраняется (ненадетый продан за огоньки на экране смерти).
+      setPlayers(INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p }, fromDeath ? equipped[p.id] : null)));
+      // Уровень/опыт обнуляются. xpToNextRef синхронизируем тут же: он обновляется
+      // отложенным эффектом, иначе первый gainXp после смерти взял бы старый порог.
+      setXp(0); setXpToNext(60); xpToNextRef.current = 60; setPlayerLevel(1); setMaxMana(5);
       setDrawPile(createInitialDeck()); setDiscardPile([]);
       setInventory(Array(INVENTORY_SIZE).fill(null));
-      setEquipped({ p1: null, p2: null, p3: null });
+      if (fullReset) setEquipped({ p1: null, p2: null, p3: null });
     } else {
-      // Смерть / новый сектор: статы, уровень, мана, колода и предметы сохраняются,
+      // Новый сектор: статы, уровень, мана, колода и предметы сохраняются,
       // бойцы воскресают с полным HP
       setPlayers(prev => prev.map(p => syncPlayerMaxHp({
         ...p,
@@ -2308,7 +2747,7 @@ export default function App() {
       setDiscardPile([]);
     }
 
-    setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setFlyingItems([]); setShowLevelUp(false); setSlotsPopup(null);
+    setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setFlyingItems([]); setShowLevelUp(false); setSlotsPopup(null); setLevelUpQueue(0); setRewardOptions([]);
     setDragSrcIdx(null); setDragOverPlayerId(null); setItemTooltip(null);
     setShowCraft(false); setCraftSlots([null, null, null]); setCraftWarning('');
     setCurrentEvent(null);
@@ -2323,13 +2762,59 @@ export default function App() {
 
     const newMap = generateMap();
     setGameMap(newMap); setCurrentMapNodeId(newMap[0].id); setCompletedNodes([newMap[0].id]); setCurrentStage(0);
+    setBgLocation(pickBgLocation(nextSector, 0));
     setTurnState('map');
   };
 
-  const getTargets = useCallback((card, playerIndex, currentEnemies) => {
-    if (card.type === 'splash') return currentEnemies.map((e, i) => !e.isDead ? i : -1).filter(i => i !== -1);
+  // Экран смерти завершён: зачисляем огоньки за проданный хлам, обнуляем забег,
+  // открываем экран подготовки (покупка стартовых карт)
+  const handleDeathDone = () => {
+    const items = inventory.filter(Boolean);
+    // Очки хлама добавляются к глобальной шкале; огоньки выдаются за каждый порог,
+    // остаток сверх порога переносится на следующий цикл.
+    const total = soulProgress + sumJunkPoints(items);
+    setSoulEmbers(e => e + Math.floor(total / EMBER_JUNK_THRESHOLD));
+    setSoulProgress(total % EMBER_JUNK_THRESHOLD);
+    resetGame(false, false, true);
+    setPrepCardsBought(0);
+    setShowPrep(true);
+  };
+
+  // Покупка стартовой карты: выбранный скилл заменяет пустую карту-балласт в колоде
+  const buyPrepCard = (heroId, skill) => {
+    const price = getPrepSlotPrice(prepCardsBought);
+    if (prepCardsBought >= PREP_MAX_BUYS || soulEmbers < price) return;
+    const owned = [...drawPileRef.current, ...discardPileRef.current].filter(c => c.ownerId === heroId && isRealDeckCard(c));
+    const ownedKeys = getOwnedSkillKeys(heroId, owned);
+    if (heroOwnsSkill(heroId, skill, ownedKeys)) return;
+    const targetEmpty = drawPileRef.current.find(c => isEmptyCard(c) && c.ownerId === heroId);
+    if (!targetEmpty) return;
+    const newCard = { ...skill, id: `prep_${Date.now()}_${Math.random()}`, level: 1, skillId: skill.id };
+    setDrawPile(prev => prev.map(c => c.id === targetEmpty.id ? newCard : c));
+    setSoulEmbers(e => e - price);
+    setPrepCardsBought(c => c + 1);
+    playSound('./assets/sfx/game/level_up.wav');
+  };
+
+  // Сжечь карту на экране подготовки → +1 огонёк, слот снова пустой (балласт)
+  const burnPrepCard = (cardId) => {
+    const all = [...drawPileRef.current, ...discardPileRef.current];
+    const card = all.find(c => c.id === cardId);
+    if (!card || !isRealDeckCard(card)) return;
+    const toEmpty = (c) => (c && c.id === cardId) ? createEmptyCard(c.ownerId, 0) : c;
+    setDrawPile(prev => prev.map(toEmpty));
+    setDiscardPile(prev => prev.map(toEmpty));
+    setSoulEmbers(e => e + PREP_BURN_GAIN);
+    playSound('./assets/sfx/ui/card_discard.wav', 0.6);
+  };
+
+  const getTargets = useCallback((card, playerIndex, currentEnemies, comboStep = 0) => {
     const alive = currentEnemies.map((e, i) => ({...e, originalIndex: i})).filter(e => !e.isDead);
     if (alive.length === 0) return [];
+    // comboSplash: бьёт по площади начиная со 2-й карты комбо (comboStep >= 1)
+    if (card.type === 'splash' || (card.comboSplash && comboStep >= 1)) {
+      return currentEnemies.map((e, i) => !e.isDead ? i : -1).filter(i => i !== -1);
+    }
     if (card.priority === 'lowestHp') {
       alive.sort((a, b) => a.hp - b.hp); return [alive[0].originalIndex];
     } else if (card.priority === 'highestHp') {
@@ -2358,23 +2843,43 @@ export default function App() {
   const gainXp = useCallback((amount) => {
     if (!amount || amount <= 0) return;
     setXp(prev => {
-      const total = prev + amount;
-      const cur = xpToNextRef.current;
-      if (total >= cur) {
-        setRewardTitle('УРОВЕНЬ ПОВЫШЕН!');
-        setRewardOptions(buildLevelUpOptions());
-        setShowLevelUp(true); setPlayerLevel(l => l + 1); setMaxMana(m => m + 1);
+      let total = prev + amount;
+      let cur = xpToNextRef.current;
+      let levels = 0;
+      // За один прирост XP можно перешагнуть сразу несколько уровней —
+      // считаем их все, чтобы ни один не потерялся.
+      while (total >= cur) {
+        total -= cur;
+        levels += 1;
+        cur += 50;
+      }
+      if (levels > 0) {
+        setXpToNext(cur); xpToNextRef.current = cur;
+        setPlayerLevel(l => l + levels);
+        setMaxMana(m => m + levels);
         // Рост HP за уровень отряда (вместо отвязанного от статов str→hp)
-        setPlayers(prev => prev.map(p => {
-          const grow = HP_PER_LEVEL[p.id] || 5;
+        setPlayers(prev2 => prev2.map(p => {
+          const grow = (HP_PER_LEVEL[p.id] || 5) * levels;
           return { ...p, baseMaxHp: (p.baseMaxHp ?? p.maxHp) + grow, maxHp: p.maxHp + grow, hp: p.hp > 0 ? p.hp + grow : p.hp };
         }));
-        setXpToNext(cur + 50); xpToNextRef.current = cur + 50;
-        return total - cur;
+        // Кладём КАЖДЫЙ уровень в очередь — попап выбора карт откроется по одному разу на уровень
+        setLevelUpQueue(q => q + levels);
       }
       return total;
     });
   }, []);
+
+  // Драйвер очереди левелапов: пока есть невыбранные уровни и не открыт другой попап —
+  // показываем выбор награды (каждый уровень — отдельный выбор, поочерёдно).
+  useEffect(() => {
+    if (levelUpQueue <= 0 || showLevelUp || slotsPopup) return;
+    const opts = buildLevelUpOptions();
+    if (opts.length === 0) { setLevelUpQueue(0); runPendingTransition(); return; }
+    setRewardTitle('УРОВЕНЬ ПОВЫШЕН!');
+    setRewardOptions(opts);
+    setShowLevelUp(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [levelUpQueue, showLevelUp, slotsPopup]);
 
   const handleXpGained = (id, amount) => {
     playSound('./assets/sfx/game/xp_gain.wav', 0.5);
@@ -2561,15 +3066,18 @@ export default function App() {
   const buildLevelUpOptions = () => {
     const hand = playersRef.current.map(p => p.currentCard).filter(isRealDeckCard);
     const full = [...drawPileRef.current, ...discardPileRef.current, ...hand];
+    const aliveIds = new Set(playersRef.current.filter(p => p.hp > 0).map(p => p.id));
     const candidates = [];
     INITIAL_PLAYERS_DATA.forEach(({ id: pid }) => {
+      if (!aliveIds.has(pid)) return;
       const owned = full.filter(c => c.ownerId === pid && isRealDeckCard(c));
-      const ownedNames = new Set(owned.map(c => c.name));
-      if (owned.length < CARD_POOL_SIZE) {
-        HERO_ABILITIES[pid].skills.forEach(s => {
-          if (!ownedNames.has(s.name)) candidates.push({ kind: 'new', card: s });
-        });
+      const ownedKeys = getOwnedSkillKeys(pid, owned);
+      const unownedSkills = getUnownedSkills(pid, ownedKeys);
+      // Новые карты — только если в колоде есть пустой слот И остались уникальные скиллы
+      if (owned.length < CARD_POOL_SIZE && unownedSkills.length > 0) {
+        unownedSkills.forEach(s => candidates.push({ kind: 'new', card: s }));
       }
+      // Улучшения — только для реально имеющихся карт
       owned.forEach(c => candidates.push({ kind: 'upgrade', card: c }));
     });
     return shuffleArray(candidates).slice(0, 3);
@@ -2585,6 +3093,12 @@ export default function App() {
     }
   };
 
+  // Боец погиб: его карты удаляются из ротации (резерв + рука), в сброс не попадают.
+  const purgeHeroFromDeck = (heroId, currentCard) => {
+    setDrawPile(prev => prev.filter(c => c.ownerId !== heroId));
+    setDiscardPile(prev => prev.filter(c => c.ownerId !== heroId));
+  };
+
   // Повышает уровень карты, где бы она ни находилась (резерв, сброс, руки)
   const upgradeCardById = (cardId) => {
     const bump = c => (c && c.id === cardId) ? { ...c, level: getCardLevel(c) + 1 } : c;
@@ -2593,19 +3107,39 @@ export default function App() {
     setPlayers(prev => prev.map(p => p.currentCard ? { ...p, currentCard: bump(p.currentCard) } : p));
   };
 
-  // Выбор награды на level-up: новая карта в пулл бойца или +1 уровень существующей
+  // Выбор награды на level-up: новая карта в пулл бойца или +1 уровень существующей.
+  // Снимаем один уровень с очереди; следующий выбор откроет эффект-драйвер (если очередь не пуста).
   const selectReward = (option) => {
     playSound('./assets/sfx/game/level_up.wav');
     setShowLevelUp(false);
+    const remaining = Math.max(0, levelUpQueue - 1);
+    setLevelUpQueue(remaining);
 
     if (option.kind === 'upgrade') {
       upgradeCardById(option.card.id);
-      runPendingTransition();
+      // Если очередь опустела — выполняем отложенный переход; иначе эффект покажет след. уровень
+      if (remaining === 0) runPendingTransition();
       return;
     }
 
-    const newCard = { ...option.card, id: `rew_${Date.now()}_${Math.random()}`, level: 1 };
+    // Защита: мёртвым бойцам карты не выдаём (на случай гибели владельца к моменту выбора)
+    const ownerAlive = playersRef.current.some(p => p.id === option.card.ownerId && p.hp > 0);
+    if (!ownerAlive) {
+      if (remaining === 0) runPendingTransition();
+      return;
+    }
+
     const ownerId = option.card.ownerId;
+    const hand = playersRef.current.map(p => p.currentCard).filter(isRealDeckCard);
+    const full = [...drawPileRef.current, ...discardPileRef.current, ...hand];
+    const ownedKeys = getOwnedSkillKeys(ownerId, full.filter(c => c.ownerId === ownerId));
+    // Дубликат: скилл уже есть у героя (любой уровень) — не выдаём повторно
+    if (heroOwnsSkill(ownerId, option.card, ownedKeys)) {
+      if (remaining === 0) runPendingTransition();
+      return;
+    }
+
+    const newCard = { ...option.card, id: `rew_${Date.now()}_${Math.random()}`, level: 1, skillId: option.card.id };
     // Находим ОДНУ конкретную пустую карту бойца (в резерве или сбросе) и заменяем её по id,
     // чтобы не продублировать награду, если пустые есть в обеих стопках
     const targetEmpty = [...drawPileRef.current, ...discardPileRef.current]
@@ -2613,13 +3147,14 @@ export default function App() {
     const replaceById = (pile) => pile.map(c => (targetEmpty && c.id === targetEmpty.id) ? newCard : c);
     setDrawPile(prev => replaceById(prev));
     setDiscardPile(prev => replaceById(prev));
-    // Показываем схему слотов отряда; отложенный переход выполнится при закрытии попапа
+    // Показываем схему слотов отряда; следующий уровень/переход — при закрытии попапа
     setSlotsPopup({ newCardId: newCard.id });
   };
 
   const closeSlotsPopup = () => {
     setSlotsPopup(null);
-    runPendingTransition();
+    // Очередь пуста — выполняем отложенный переход; иначе эффект откроет следующий выбор
+    if (levelUpQueue <= 0) runPendingTransition();
   };
 
   useEffect(() => {
@@ -2628,7 +3163,9 @@ export default function App() {
     // Колода обновляется каждые 3 хода: сброс замешивается среди ВСЕХ существующих карт
     // (резерв + сброс перетасовываются вместе), а не когда резерв опустел.
     const checkAndReshuffle = () => {
-      let currentDraw = [...drawPile]; let currentDiscard = [...discardPile];
+      const deadSet = new Set(players.filter(p => p.hp <= 0).map(p => p.id));
+      let currentDraw = drawPile.filter(c => !deadSet.has(c.ownerId));
+      let currentDiscard = discardPile.filter(c => !deadSet.has(c.ownerId));
       const isRefreshTurn = dealCounterRef.current > 0 && dealCounterRef.current % 3 === 0;
       if (isRefreshTurn && currentDiscard.length > 0) {
         const discRect = discardRef.current?.getBoundingClientRect(); const deckRect = deckRef.current?.getBoundingClientRect();
@@ -2684,7 +3221,17 @@ export default function App() {
     const player = players[playerIndex];
     const effectivePlayer = getEffectivePlayer(player, equipped[player.id]);
     if (turnState !== 'player' || mana < card.cost || player.hp <= 0 || player.hasActed || isAnimating) return;
-    const targetIndices = getTargets(card, playerIndex, enemies);
+
+    const isContinuing = lastPlayedCost !== null && card.cost === lastPlayedCost + 1;
+    const nextComboStreak = isContinuing ? comboStreak + 1 : 0;
+    // comboStep: 0 — первая карта, 1 — вторая (+50%), 2+ — третья (+150%)
+    const comboStep = nextComboStreak;
+    // % прибавка к урону карты в комбо: 2-я карта +50%, 3-я+ +150%
+    const comboDamageMult = COMBO_DAMAGE_MULT[Math.min(comboStep, 2)];
+    // эффекты карты тоже множатся в комбо тем же коэффициентом
+    const comboEffectMult = comboDamageMult;
+
+    const targetIndices = getTargets(card, playerIndex, enemies, comboStep);
     if (targetIndices.length === 0) return;
 
     playSound('./assets/sfx/ui/click.wav', 0.6);
@@ -2704,9 +3251,6 @@ export default function App() {
       }));
     }
 
-    const isContinuing = lastPlayedCost !== null && card.cost === lastPlayedCost + 1;
-    const multiplier = isContinuing ? 1.5 : 1.0;
-    
     if (isContinuing) setComboStreak(s => s + 1); else setComboStreak(0);
     setLastPlayedCost(card.cost);
 
@@ -2735,7 +3279,7 @@ export default function App() {
 
     setTimeout(() => {
       setVfxList([]); 
-      const { damage: baseDamage, critChance } = computeCardDamage(effectivePlayer, card, multiplier);
+      const { damage: baseDamage, critChance } = computeCardDamage(effectivePlayer, card, comboDamageMult);
       const newEnemies = enemies.map(e => ({...e})); let xpToSpawn = []; let lootToSpawn = [];
 
       playSound(getCombatHitSound(card.vfxType || 'slash'));
@@ -2774,9 +3318,9 @@ export default function App() {
            }
         }
 
-        // Наложение вторичного эффекта карты
+        // Наложение вторичного эффекта карты (масштабируется в комбо)
         if (card.secondary && !target.isDead) {
-          const payload = buildSecondaryPayload(effectivePlayer, card);
+          const payload = buildSecondaryPayload(effectivePlayer, card, comboEffectMult);
           if (payload) {
             const { statuses, immediateHpLoss, applied } = applyStatusToEnemy(target.statuses, payload);
             target.statuses = statuses;
@@ -2791,7 +3335,7 @@ export default function App() {
         if (target.hp <= 0 && !target.isDead) {
           target.hp = 0; target.isDead = true;
           xpToSpawn.push({ id: target.id, amount: target.xpReward });
-          const loot = rollLootDrop();
+          const loot = rollLootDrop(sectorRef.current, currentStageRef.current);
           if (loot) lootToSpawn.push({ id: target.id, item: loot });
           playSound('./assets/sfx/combat/death.wav', 0.7);
         }
@@ -2885,7 +3429,7 @@ export default function App() {
         if (e.hp <= 0 && !e.isDead) {
           e.isDead = true; e.hp = 0;
           bleedXp.push({ id: e.id, amount: e.xpReward });
-          const loot = rollLootDrop(); if (loot) bleedLoot.push({ id: e.id, item: loot });
+          const loot = rollLootDrop(sectorRef.current, currentStageRef.current); if (loot) bleedLoot.push({ id: e.id, item: loot });
           playSound('./assets/sfx/combat/death.wav', 0.7);
         }
       }
@@ -2980,7 +3524,7 @@ export default function App() {
                setPlayers(currentPs => currentPs.map(p => {
                   if (!targets.some(t => t.id === p.id)) return p;
                   const newHp = Math.max(0, p.hp - dmg);
-                  if (newHp === 0 && p.currentCard && isDeckCard(p.currentCard)) setDiscardPile(dp => [...dp, p.currentCard]);
+                  if (newHp === 0) purgeHeroFromDeck(p.id, p.currentCard);
                   return { ...p, hp: newHp, currentCard: null };
                }));
 
@@ -3041,7 +3585,7 @@ export default function App() {
             setPlayers(currentPs => currentPs.map(p => {
                if (p.id === target.id) {
                   const newHp = Math.max(0, p.hp - dmg);
-                  if (newHp === 0 && p.currentCard && isDeckCard(p.currentCard)) setDiscardPile(dp => [...dp, p.currentCard]);
+                  if (newHp === 0) purgeHeroFromDeck(p.id, p.currentCard);
                   return { ...p, hp: newHp, currentCard: null };
                }
                return p;
@@ -3069,24 +3613,28 @@ export default function App() {
   }, [turnState, showLevelUp, currentStage]);
 
   const getCardComboStatus = (pId, card) => {
-    if (!card) return { isCandidate: false, willGiveBonus: false };
+    if (!card) return { isCandidate: false, willGiveBonus: false, comboStep: 0, comboPct: 0, willSplash: false };
     const willGiveBonus = lastPlayedCost !== null && card.cost === lastPlayedCost + 1;
+    const comboStep = willGiveBonus ? Math.min(comboStreak + 1, 2) : 0;
+    const comboPct = COMBO_DAMAGE_PCT[comboStep];
+    const willSplash = !!card.comboSplash && comboStep >= 1;
     let isCandidate = false;
     if (willGiveBonus) isCandidate = true;
     else if (lastPlayedCost === null) {
       const hasFollowup = players.some(otherP => otherP.id !== pId && !otherP.hasActed && otherP.currentCard?.cost === card.cost + 1);
       isCandidate = hasFollowup;
     }
-    return { isCandidate, willGiveBonus };
+    return { isCandidate, willGiveBonus, comboStep, comboPct, willSplash };
   };
 
-  const totalDeckSize = DECK_SIZE;
+  const aliveCount = players.filter(p => p.hp > 0).length;
+  const totalDeckSize = aliveCount * CARD_POOL_SIZE;
+  const liveDrawCount = drawPile.filter(c => players.some(p => p.hp > 0 && p.id === c.ownerId)).length;
 
   const currentNode = gameMap.find(n => n.id === currentMapNodeId);
   const currentNodeInfo = getNodeInfo(currentNode?.type);
-  // Фон отражает ТОЛЬКО текущий сектор (не меняется от врага к врагу): синий -> оранжевый
-  // 0 — только холодный синий; 1 — полное смешение с красным (по секторам)
-  const bgIntensity = Math.min(1, Math.max(0, (sector - 1) / 4));
+  // Скорость движения шейдера растёт с продвижением по карте сектора (stage 0..5 → 0..1), плавно.
+  const bgSpeed = Math.min(1, Math.max(0, currentStage / 5));
 
   const mapLinks = useMemo(() => {
     const links = [];
@@ -3166,14 +3714,20 @@ export default function App() {
           </div>
         </div>
       )}
-      <ShaderBackground intensity={bgIntensity} />
-      <ImageBackground imageUrl={bgLocation} />
+      {/* Экран подготовки рисует собственный шейдер+картинку. Чтобы не было двух шейдеров
+          и лишних наложений одновременно, глобальный фон и декор боя под ним отключены. */}
+      {!showPrep && (
+        <>
+          <ShaderBackground hue={bgLocation.hue} sat={bgLocation.sat} speed={bgSpeed} />
+          <ImageBackground imageUrl={bgLocation.url} hue={bgLocation.hue} sat={bgLocation.sat} />
 
-      {/* Декоративные уголки сцены боя: слой над фоном, но под HUD; не пересекают верхний прогрессбар */}
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] right-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleX(-1)' }} />
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleY(-1)' }} />
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scale(-1, -1)' }} />
+          {/* Декоративные уголки сцены боя: слой над фоном, но под HUD; не пересекают верхний прогрессбар */}
+          <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
+          <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] right-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleX(-1)' }} />
+          <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleY(-1)' }} />
+          <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scale(-1, -1)' }} />
+        </>
+      )}
 
       <style>{`
         .custom-scrollbar::-webkit-scrollbar { height: 12px; width: 8px; }
@@ -3274,7 +3828,7 @@ export default function App() {
                 const pos = CHAR_FORMATION[player.id] || { left: 0, top: pIdx * 110 };
                 return (
                   <div key={`field-${player.id}`} ref={el => setAvatarRef(player.id, el)} className={`absolute flex items-center ${transitionClass} ${player.hp <= 0 ? 'opacity-30 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(59,130,246,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: avatarTransform, left: pos.left, top: pos.top }}>
-                    <div className={`relative ${CHAR_ATLASES[player.id] ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`} style={{ transition: 'all 0.15s ease-out' }}>{CHAR_ATLASES[player.id] ? <CharSprite atlas={CHAR_ATLASES[player.id]} size={CHAR_SPRITE_SIZE} /> : String(player.icon)}{isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}</div>
+                    <div className={`relative ${CHAR_ATLASES[player.id] ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`} style={{ transition: 'all 0.15s ease-out' }}>{CHAR_ATLASES[player.id] ? <CharSprite atlas={CHAR_ATLASES[player.id]} size={CHAR_SPRITE_SIZE} {...CHAR_COLORIZE[player.id]} /> : String(player.icon)}{isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}</div>
                   </div>
                 );
               })}
@@ -3315,17 +3869,40 @@ export default function App() {
                 return (
                   <div key={String(enemy.id)} ref={(el) => setEnemyRef(enemy.id, el)} className={`absolute ${transitionClass} ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: moveTransform, right: pos.right, top: pos.top }}>
                     {isSpeaking && <EnemySpeechBubble text={speakingEnemy.text} />}
-                    {!enemy.isDead && enemy.statuses && Object.keys(enemy.statuses).length > 0 && (
-                      <div className="absolute left-1/2 -translate-x-1/2 -top-3 flex gap-1 z-[80] pointer-events-none">
+                    {!enemy.isDead && enemy.statuses && Object.keys(enemy.statuses).filter(k => SECONDARY_EFFECTS[k]).length > 0 && (
+                      <div className="group absolute left-1/2 -translate-x-1/2 -top-3 flex gap-1 z-[80]">
                         {Object.entries(enemy.statuses).map(([key, val]) => {
                           const def = SECONDARY_EFFECTS[key]; if (!def) return null;
                           return (
-                            <div key={key} title={def.label} className="flex items-center bg-slate-900/85 border border-slate-600 rounded-md px-1 py-0.5 text-[11px] leading-none shadow-lg">
+                            <div key={key} className="flex items-center bg-slate-900/85 border border-slate-600 rounded-md px-1 py-0.5 text-[11px] leading-none shadow-lg">
                               <span>{def.icon}</span>
                               {val.remaining ? <span className="ml-0.5 font-black text-white text-[9px]">{val.remaining}</span> : null}
                             </div>
                           );
                         })}
+                        {/* Тултип с краткой инфой о дебаффах, появляется при наведении */}
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-slate-950/95 border border-slate-600 rounded-lg p-2 shadow-2xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity duration-150 pointer-events-none z-[90]">
+                          <div className="flex flex-col gap-1.5">
+                            {Object.entries(enemy.statuses).map(([key, val]) => {
+                              const def = SECONDARY_EFFECTS[key]; if (!def) return null;
+                              return (
+                                <div key={key} className="flex items-start gap-1.5 text-left">
+                                  <span className="text-sm leading-none mt-0.5">{def.icon}</span>
+                                  <div className="flex-1 leading-tight">
+                                    <div className={`text-[10px] font-black uppercase tracking-wide ${def.color}`}>{def.label}{val.remaining ? ` · ${val.remaining} х.` : ''}</div>
+                                    <div className="text-[9px] text-slate-300">{describeStatus(key, val)}</div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {/* Мини HP-бар без цифр */}
+                    {!enemy.isDead && (
+                      <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-14 h-1.5 bg-slate-950/80 rounded-full overflow-hidden border border-black/50 z-[70] pointer-events-none">
+                        <div className="h-full bg-gradient-to-r from-red-700 to-red-500 transition-all duration-300" style={{ width: `${Math.max(0, Math.min(100, (enemy.hp / enemy.maxHp) * 100))}%` }}></div>
                       </div>
                     )}
                     <div className="relative" style={{ transform: 'scaleX(-1)' }}>
@@ -3355,7 +3932,7 @@ export default function App() {
               </div>
               <div className="flex flex-col items-center gap-1.5">
                 <div ref={deckRef} onClick={() => turnState !== 'map' && setShowReserve(true)} className={`w-20 h-28 bg-slate-800 rounded-xl border-2 border-[#1E88E5]/40 flex flex-col items-center justify-center font-black shadow-[0_0_15px_rgba(30,136,229,0.3)] transition-all ${turnState !== 'map' ? 'hover:scale-105 hover:border-[#1E88E5] cursor-help' : 'opacity-50 grayscale'} ${turnState === 'dealing' ? 'border-[#1E88E5] animate-pulse' : ''}`}>
-                   <span className="text-slate-300 drop-shadow-md text-3xl">{String(drawPile.length)}<span className="text-[#1E88E5] text-lg">/{String(totalDeckSize)}</span></span>
+                   <span className="text-slate-300 drop-shadow-md text-3xl">{String(liveDrawCount)}<span className="text-[#1E88E5] text-lg">/{String(totalDeckSize)}</span></span>
                    <span className="text-[9px] uppercase font-black tracking-widest text-[#1E88E5] mt-2">Колода</span>
                 </div>
               </div>
@@ -3593,11 +4170,26 @@ export default function App() {
 
       {/* --- МОДАЛЬНЫЕ ОКНА --- */}
       {turnState === 'gameover' && (
-        <div className="absolute inset-0 z-[2000] bg-red-950/80 flex flex-col items-center justify-center backdrop-blur-xl animate-in fade-in duration-700 p-6">
-           <h1 className="text-8xl font-black text-white drop-shadow-[0_0_40px_rgba(239,68,68,1)] mb-4 tracking-tighter uppercase italic text-center">ОТРЯД ПАЛ</h1>
-           <p className="text-2xl text-red-300 font-bold uppercase tracking-[0.5em] mb-12 text-center">Колода и статы сохранены · возврат в сектор 1</p>
-           <button onClick={() => resetGame(false, false, true)} className="px-16 py-6 bg-white text-red-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">Вернуться на Базу (Stage 0)</button>
-        </div>
+        <DeathScreen
+          items={inventory.filter(Boolean)}
+          startProgress={soulProgress}
+          threshold={EMBER_JUNK_THRESHOLD}
+          onDone={handleDeathDone}
+        />
+      )}
+
+      {showPrep && (
+        <PrepScreen
+          players={players}
+          pools={getHeroPools()}
+          soulEmbers={soulEmbers}
+          soulProgress={soulProgress}
+          emberThreshold={EMBER_JUNK_THRESHOLD}
+          prepCardsBought={prepCardsBought}
+          onBuyCard={buyPrepCard}
+          onBurnCard={burnPrepCard}
+          onStart={() => setShowPrep(false)}
+        />
       )}
 
       {turnState === 'victory' && (
@@ -3628,15 +4220,17 @@ export default function App() {
                 const preview = isUpgrade ? { ...card, level: getCardLevel(card) + 1 } : card;
                 return (
                 <div key={`${card.id}-${kind}-${idx}`} className="relative">
-                  {isUpgrade ? (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 bg-amber-500 text-black text-[10px] font-black px-3 py-1 rounded-full shadow-[0_0_20px_rgba(245,158,11,0.8)] uppercase tracking-widest whitespace-nowrap">▲ Улучшение · ур.{String(getCardLevel(card))} → {String(getCardLevel(card) + 1)}</div>
-                  ) : (
-                    <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-20 bg-sky-500 text-white text-[10px] font-black px-3 py-1 rounded-full shadow-[0_0_20px_rgba(14,165,233,0.8)] uppercase tracking-widest whitespace-nowrap">✦ Новая карта</div>
-                  )}
-                  <TiltWrapper className={`w-48 h-[200px] ${isUpgrade ? 'drop-shadow-[0_0_25px_rgba(245,158,11,0.5)]' : 'drop-shadow-[0_0_25px_rgba(14,165,233,0.4)]'}`}>
-                    <div onClick={() => selectReward(option)} className="w-full h-full cursor-pointer hover:-translate-y-2 transition-transform duration-300">
+                  <TiltWrapper className={`w-48 h-[270px] ${isUpgrade ? 'drop-shadow-[0_0_25px_rgba(245,158,11,0.5)]' : 'drop-shadow-[0_0_25px_rgba(14,165,233,0.4)]'}`}>
+                    <div onClick={() => selectReward(option)} className="w-full h-full cursor-pointer">
                       <AbilityCard card={preview} owner={players.find(p=>p.id===card.ownerId)} mana={maxMana} isDisabled={false} showOwnerLabel={true} comboState={{isCandidate: false, willGiveBonus: false}} />
                     </div>
+                    {/* Плашка — последний ребёнок TiltWrapper: масштабируется вместе с карточкой
+                        (общий transform) и всегда поверх неё (порядок отрисовки + высокий z) */}
+                    {isUpgrade ? (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-[80] bg-amber-500 text-black text-[10px] font-black px-3 py-1 rounded-full shadow-[0_0_20px_rgba(245,158,11,0.8)] uppercase tracking-widest whitespace-nowrap pointer-events-none">▲ Улучшение · ур.{String(getCardLevel(card))} → {String(getCardLevel(card) + 1)}</div>
+                    ) : (
+                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-[80] bg-sky-500 text-white text-[10px] font-black px-3 py-1 rounded-full shadow-[0_0_20px_rgba(14,165,233,0.8)] uppercase tracking-widest whitespace-nowrap pointer-events-none">✦ Новая карта</div>
+                    )}
                   </TiltWrapper>
                 </div>
                 );
@@ -3661,7 +4255,6 @@ export default function App() {
           pools={getHeroPools()}
           drawPile={drawPile}
           discardPile={discardPile}
-          totalDeckSize={totalDeckSize}
           maxMana={maxMana}
           onClose={() => setShowReserve(false)}
         />
