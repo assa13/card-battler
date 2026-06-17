@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from 'react';
 
 // --- 1. КОНСТАНТЫ И НАСТРОЙКИ ---
 
-const MAX_MANA = 5;
+const MAX_MANA = 3;
+const ENEMY_POWER_MULT = 0.5; // глобальный нерф врагов: HP и урон ×0.5
 const NUM_STAGES = 15; 
 const STAGE_WIDTH = 160; 
 
@@ -15,9 +16,9 @@ const RARITIES = {
 
 // HP больше НЕ зависит от статов: базовое значение + рост за уровень + события + предметы
 const INITIAL_PLAYERS_DATA = [
-  { id: 'p1', name: 'Воин', baseMaxHp: 50, hp: 50, maxHp: 50, str: 15, agi: 5, int: 2, icon: '🛡️', bg: 'bg-blue-900', currentCard: null, hasActed: false },
-  { id: 'p2', name: 'Разбойник', baseMaxHp: 35, hp: 35, maxHp: 35, str: 6, agi: 18, int: 4, icon: '🗡️', bg: 'bg-green-900', currentCard: null, hasActed: false },
-  { id: 'p3', name: 'Маг', baseMaxHp: 25, hp: 25, maxHp: 25, str: 2, agi: 6, int: 20, icon: '🔮', bg: 'bg-purple-900', currentCard: null, hasActed: false },
+  { id: 'p1', name: 'Воин', baseMaxHp: 50, hp: 50, maxHp: 50, atk: 0, matk: 0, crit: 0, armor: 0, icon: '🛡️', bg: 'bg-blue-900', currentCard: null, hasActed: false },
+  { id: 'p2', name: 'Разбойник', baseMaxHp: 35, hp: 35, maxHp: 35, atk: 0, matk: 0, crit: 0, armor: 0, icon: '🗡️', bg: 'bg-green-900', currentCard: null, hasActed: false },
+  { id: 'p3', name: 'Маг', baseMaxHp: 25, hp: 25, maxHp: 25, atk: 0, matk: 0, crit: 0, armor: 0, icon: '🔮', bg: 'bg-purple-900', currentCard: null, hasActed: false },
 ];
 
 // Рост максимального HP за уровень отряда (воин — танк, растёт быстрее)
@@ -58,6 +59,20 @@ const CLASS_WEIGHTS = {
   p3: { str: 0.3, dex: 0.4, int: 1.0 },
 };
 
+// Метаданные статов для UI. dex хранится в поле игрока как `agi`.
+const STAT_META = {
+  str: { field: 'str', label: 'Сил', color: 'text-red-400' },
+  dex: { field: 'agi', label: 'Лов', color: 'text-green-400' },
+  int: { field: 'int', label: 'Инт', color: 'text-blue-400' },
+};
+// Фокус-статы героя: те, что реально качают силу его абилок (вес >= 35% от макс).
+const getHeroFocusStats = (heroId) => {
+  const w = CLASS_WEIGHTS[heroId] || {};
+  const max = Math.max(0, ...Object.values(w));
+  if (max <= 0) return ['str', 'dex', 'int'];
+  return ['str', 'dex', 'int'].filter(s => (w[s] || 0) >= max * 0.35);
+};
+
 const INVENTORY_SIZE = 9;
 const LOOT_DROP_CHANCE = 0.65;
 const ITEM_RARITY_WEIGHTS = { COMMON: 68, RARE: 21, EPIC: 9, LEGENDARY: 2 };
@@ -96,9 +111,12 @@ const ITEM_STAT_RANGES = {
 };
 // Кол-во случайных бонусов на предмет по рарности
 const ITEM_BONUS_COUNTS = { COMMON: [1, 1], RARE: [1, 2], EPIC: [2, 3], LEGENDARY: [2, 4] };
-// Возможные типы бонусов предмета
-const ITEM_STAT_TYPES = ['str', 'dex', 'int', 'hp'];
+// Возможные типы бонусов предмета — прямые модификаторы, без привязки к статам:
+// atk  — +% к физическому урону, matk — +% к магическому урону,
+// crit — +% к шансу крита, hp — +к здоровью (плоское).
+const ITEM_STAT_TYPES = ['atk', 'matk', 'crit', 'hp'];
 const ITEM_HP_MULT = 2.5;
+const ITEM_CRIT_MULT = 0.5;
 
 const rollItemStatBundle = (rarity) => {
   const range = ITEM_STAT_RANGES[rarity];
@@ -112,6 +130,7 @@ const rollItemStatBundle = (rarity) => {
     const mult = idx === 0 ? 1 : 0.32 + Math.random() * 0.18;
     let val = Math.max(1, Math.round(base * mult));
     if (stat === 'hp') val = Math.max(4, Math.round(val * ITEM_HP_MULT));
+    else if (stat === 'crit') val = Math.max(1, Math.round(val * ITEM_CRIT_MULT));
     stats[stat] = val;
   });
   return stats;
@@ -432,58 +451,101 @@ const rollLootDrop = (sector = 1, stage = 0) => (Math.random() < LOOT_DROP_CHANC
 const getEffectivePlayer = (player, equippedItem) => {
   if (!player) return player;
   const bonus = equippedItem?.stats || {};
-  const str = player.str + (bonus.str || 0);
-  const agi = player.agi + (bonus.dex || bonus.agi || 0);
-  const int = player.int + (bonus.int || 0);
+  const atk = (player.atk || 0) + (bonus.atk || 0);
+  const matk = (player.matk || 0) + (bonus.matk || 0);
+  const crit = (player.crit || 0) + (bonus.crit || 0);
   const maxHp = (player.baseMaxHp ?? 20) + (bonus.hp || 0);
-  return { ...player, str, agi, int, maxHp };
+  return { ...player, atk, matk, crit, maxHp };
 };
 
-const formatItemStats = (stats = {}) => {
+// Список бонусов предмета: [{ label, display }] — для зелёного отображения в тултипе
+const formatItemStatsList = (stats = {}) => {
   const parts = [];
-  if (stats.str) parts.push(`Сила +${stats.str}`);
-  if (stats.dex || stats.agi) parts.push(`Ловкость +${stats.dex || stats.agi}`);
-  if (stats.int) parts.push(`Инт +${stats.int}`);
-  if (stats.hp) parts.push(`HP +${stats.hp}`);
+  if (stats.atk) parts.push({ label: 'Атака', display: `+${stats.atk}%` });
+  if (stats.matk) parts.push({ label: 'Маг. атака', display: `+${stats.matk}%` });
+  if (stats.crit) parts.push({ label: 'Крит', display: `+${stats.crit}%` });
+  if (stats.hp) parts.push({ label: 'HP', display: `+${stats.hp}` });
+  return parts;
+};
+const formatItemStats = (stats = {}) => {
+  const parts = formatItemStatsList(stats).map(p => `${p.label} ${p.display}`);
   return parts.length ? parts.join(' · ') : 'Без бонусов';
 };
 
-// comboSplash: true — карта бьёт одиночно, но при комбо (2-я карта: +50, 3-я: +150) бьёт по площади.
-// type: 'single' у всех комбо-сплэшей; 'splash' только у базовых (без comboSplash).
+// Цели атаки: all — все враги (дефолт, ~70%), random2 — 2 случайных, strongest — самый сильный
+const CARD_TARGETING = { ALL: 'all', RANDOM2: 'random2', STRONGEST: 'strongest' };
+
+const getCardTargeting = (card) => {
+  if (!card || card.modType) return null;
+  if (card.targeting) return card.targeting;
+  if (card.type === 'splash') return CARD_TARGETING.ALL;
+  if (card.priority === 'highestHp') return CARD_TARGETING.STRONGEST;
+  if (card.priority === 'lowestHp') return CARD_TARGETING.RANDOM2;
+  return CARD_TARGETING.ALL;
+};
+
+const getTargetingLabel = (targeting, short = false) => {
+  switch (targeting) {
+    case CARD_TARGETING.RANDOM2: return short ? 'по 2 случайным' : 'Бьёт 2 случайных врагов';
+    case CARD_TARGETING.STRONGEST: return short ? 'по сильнейшему' : 'Бьёт самого сильного врага';
+    default: return short ? 'по всем врагам' : 'Бьёт всех врагов';
+  }
+};
+
+const pickRandomAliveIndices = (alive, count, seed = null) => {
+  const pool = [...alive];
+  if (seed != null) {
+    let h = 0;
+    const seedStr = String(seed);
+    for (let i = 0; i < seedStr.length; i++) h = ((h << 5) - h + seedStr.charCodeAt(i)) | 0;
+    for (let i = pool.length - 1; i > 0; i--) {
+      h = ((h << 5) - h + i) | 0;
+      const j = Math.abs(h) % (i + 1);
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+  } else {
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+  }
+  return pool.slice(0, Math.min(count, pool.length)).map(e => e.originalIndex);
+};
+
 const HERO_ABILITIES = {
   p1: { 
-    basic: { id: 'b1', name: 'Удар мечом', cost: 0, mult: 1.8, scale: { str: 1.0, dex: 0.2 }, dmgType: 'melee', icon: '⚔️', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'slash' },
+    basic: { id: 'b1', name: 'Удар мечом', cost: 1, mult: 1.8, scale: { str: 1.0, dex: 0.2 }, dmgType: 'melee', icon: '⚔️', targeting: 'all', rarity: 'COMMON', vfxType: 'slash' },
     skills: [
-      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.8, scale: { str: 1.0, dex: 0.15 }, dmgType: 'melee', icon: '🔨', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' }, comboSplash: true },
-      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.7, scale: { str: 0.9, dex: 0.25 }, dmgType: 'melee', icon: '🌪️', type: 'single', priority: 'highestHp', rarity: 'COMMON', vfxType: 'slash', comboSplash: true },
-      { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, mult: 1.6, scale: { str: 1.0, dex: 0.35 }, dmgType: 'melee', icon: '🏃', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'slash' },
-      { id: 's1_4', ownerId: 'p1', name: 'Землетрясение', cost: 4, mult: 1.8, scale: { str: 0.8, int: 0.4 }, dmgType: 'magic', icon: '🌋', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'vuln' }, comboSplash: true }
+      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.8, scale: { str: 1.0, dex: 0.15 }, dmgType: 'melee', icon: '🔨', targeting: 'all', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' } },
+      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.7, scale: { str: 0.9, dex: 0.25 }, dmgType: 'melee', icon: '🌪️', targeting: 'all', rarity: 'COMMON', vfxType: 'slash' },
+      { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, mult: 1.6, scale: { str: 1.0, dex: 0.35 }, dmgType: 'melee', icon: '🏃', targeting: 'strongest', rarity: 'COMMON', vfxType: 'slash' },
+      { id: 's1_4', ownerId: 'p1', name: 'Землетрясение', cost: 4, mult: 1.8, scale: { str: 0.8, int: 0.4 }, dmgType: 'magic', icon: '🌋', targeting: 'all', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'vuln' } }
     ]
   },
   p2: { 
-    basic: { id: 'b2', name: 'Кинжал', cost: 0, mult: 2.0, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🗡️', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'dagger_single' },
+    basic: { id: 'b2', name: 'Кинжал', cost: 0, mult: 2.0, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🗡️', targeting: 'random2', rarity: 'COMMON', vfxType: 'dagger_single' },
     skills: [
-      { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.8, scale: { dex: 1.0, int: 0.25 }, dmgType: 'ranged', icon: '🧪', type: 'single', priority: 'lowestHp', rarity: 'COMMON', vfxType: 'poison', secondary: { effect: 'bleed' } },
-      { id: 's2_2', ownerId: 'p2', name: 'Танец стали', cost: 3, mult: 2.4, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '⚔️', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'daggers', comboSplash: true },
-      { id: 's2_3', ownerId: 'p2', name: 'Теневой шаг', cost: 2, mult: 2.6, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🥷', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'dark_strike', secondary: { effect: 'blind' } },
-      { id: 's2_4', ownerId: 'p2', name: 'Шквал ножей', cost: 3, mult: 2.6, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '🗡️', type: 'single', priority: 'highestHp', rarity: 'EPIC', vfxType: 'daggers', comboSplash: true }
+      { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.8, scale: { dex: 1.0, int: 0.25 }, dmgType: 'ranged', icon: '🧪', targeting: 'random2', rarity: 'COMMON', vfxType: 'poison', secondary: { effect: 'bleed' } },
+      { id: 's2_2', ownerId: 'p2', name: 'Танец стали', cost: 3, mult: 2.4, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '⚔️', targeting: 'all', rarity: 'RARE', vfxType: 'daggers' },
+      { id: 's2_3', ownerId: 'p2', name: 'Теневой шаг', cost: 2, mult: 2.6, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🥷', targeting: 'strongest', rarity: 'RARE', vfxType: 'dark_strike', secondary: { effect: 'blind' } },
+      { id: 's2_4', ownerId: 'p2', name: 'Шквал ножей', cost: 3, mult: 2.6, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '🗡️', targeting: 'all', rarity: 'EPIC', vfxType: 'daggers' }
     ]
   },
   p3: { 
-    basic: { id: 'b3', name: 'Искра', cost: 0, mult: 1.0, scale: { int: 1.0, dex: 0.2 }, dmgType: 'magic', icon: '✨', type: 'single', priority: 'direct', rarity: 'COMMON', vfxType: 'magic_spark' },
+    basic: { id: 'b3', name: 'Искра', cost: 2, mult: 1.0, scale: { int: 1.0, dex: 0.2 }, dmgType: 'magic', icon: '✨', targeting: 'all', rarity: 'COMMON', vfxType: 'magic_spark' },
     skills: [
-      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 2.5, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '☄️', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'fireball', comboSplash: true },
-      { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, scale: { int: 1.0, dex: 0.25 }, dmgType: 'magic', icon: '❄️', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'ice_spike', secondary: { effect: 'mark' } },
-      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, mult: 2.0, scale: { int: 0.8, dex: 0.4 }, dmgType: 'magic', icon: '⚡', type: 'single', priority: 'highestHp', rarity: 'RARE', vfxType: 'lightning', comboSplash: true },
-      { id: 's3_4', ownerId: 'p3', name: 'Черная дыра', cost: 5, mult: 3.2, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '🌌', type: 'single', priority: 'highestHp', rarity: 'LEGENDARY', vfxType: 'dark_void', secondary: { effect: 'weaken' }, comboSplash: true }
+      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 2.5, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '☄️', targeting: 'all', rarity: 'RARE', vfxType: 'fireball' },
+      { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, scale: { int: 1.0, dex: 0.25 }, dmgType: 'magic', icon: '❄️', targeting: 'all', rarity: 'RARE', vfxType: 'ice_spike', secondary: { effect: 'mark' } },
+      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, mult: 2.0, scale: { int: 0.8, dex: 0.4 }, dmgType: 'magic', icon: '⚡', targeting: 'random2', rarity: 'RARE', vfxType: 'lightning' },
+      { id: 's3_4', ownerId: 'p3', name: 'Черная дыра', cost: 5, mult: 3.2, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '🌌', targeting: 'all', rarity: 'LEGENDARY', vfxType: 'dark_void', secondary: { effect: 'weaken' } }
     ]
   }
 };
 
-// Пулл карт бойца: максимум карт (кроме базовой), которые может держать один герой.
-// Колода всегда полная (DECK_SIZE): старт — только «пустые» карты-балласт, пулл наполняется на level-up.
-const CARD_POOL_SIZE = 3;
-const DECK_SIZE = INITIAL_PLAYERS_DATA.length * CARD_POOL_SIZE;
+// Пулл карт бойца: всего слотов на героя. Старт — 1 заполненный (базовая карта) + 3 свободных
+// под будущие карты. «Пустышек»-балласта в колоде нет — только реально существующие карты.
+const CARD_POOL_SIZE = 4;
+const DECK_SIZE = INITIAL_PLAYERS_DATA.length * CARD_POOL_SIZE; // верхний предел (для справки)
 
 // Комбо-бонус к урону по шагу серии: [1-я карта, 2-я, 3-я+] => +0% / +50% / +150%
 const COMBO_DAMAGE_MULT = [1, 1.5, 2.5];
@@ -501,7 +563,7 @@ const EVENT_NARRATIVES = [
 
 const POWERUPS = [
   { id: 'mana', title: 'Осколок Эфира', desc: 'Максимальная мана увеличивается на +1.', icon: '🔵' },
-  { id: 'stats', title: 'Эликсир Мощи', desc: 'Основная характеристика каждого бойца увеличивается на +2%.', icon: '💪' },
+  { id: 'stats', title: 'Эликсир Мощи', desc: 'Атака и магическая атака каждого бойца увеличиваются на +5%.', icon: '💪' },
   { id: 'hp', title: 'Семя Жизни', desc: 'Максимальное здоровье всех героев увеличивается на +50%.', icon: '❤️' },
   { id: 'cards', title: 'Древний Фолиант', desc: 'Выбрать одну из 3 карт: новую или улучшение имеющейся.', icon: '📜' }
 ];
@@ -550,31 +612,28 @@ const getUnownedSkills = (heroId, ownedKeys) =>
 const heroOwnsSkill = (heroId, skill, ownedKeys) =>
   ownedKeys.has(skill.id) || ownedKeys.has(skill.name);
 
-const createEmptyCard = (ownerId, slotIndex) => ({
-  id: `empty_${ownerId}_${slotIndex}`,
-  ownerId,
-  isEmpty: true,
-  name: 'Пусто',
-  icon: '🙨',
-});
-
-const createInitialDeck = () => {
-  const cards = [];
-  INITIAL_PLAYERS_DATA.forEach(({ id }) => {
-    for (let i = 0; i < CARD_POOL_SIZE; i++) cards.push(createEmptyCard(id, i));
-  });
-  return shuffleArray(cards);
+// Стартовая карта героя — его базовая атака как полноценная карта колоды (1-й заполненный слот).
+// id не начинается с 'b', поэтому isRealDeckCard === true (карта считается в пулле).
+const createStarterCard = (heroId) => {
+  const basic = HERO_ABILITIES[heroId].basic;
+  return { ...basic, id: `start_${heroId}`, ownerId: heroId, level: 1, skillId: basic.id, isStarter: true };
 };
 
-// Добивает колоду до DECK_SIZE пустыми картами (на случай старых сохранений)
+// Стартовые универсальные мод-карты: по умолчанию в общей колоде (без владельца).
+const createStarterModCards = () => MOD_CARD_LIST.map(m => ({ ...m, id: `mod_start_${m.modType}`, level: 1 }));
+
+// Старт: каждому герою по 1 реальной карте (базовая) + 2 универсальные мод-карты в общую колоду.
+const createInitialDeck = () => shuffleArray([
+  ...INITIAL_PLAYERS_DATA.map(({ id }) => createStarterCard(id)),
+  ...createStarterModCards(),
+]);
+
+// Гарантирует, что у каждого героя есть хотя бы стартовая карта (без пустышек-балласта)
 const ensureFullDeck = (cards) => {
   const deck = [...cards];
   INITIAL_PLAYERS_DATA.forEach(({ id }) => {
-    const ownerCards = deck.filter(c => c.ownerId === id);
-    const missing = CARD_POOL_SIZE - ownerCards.length;
-    for (let i = 0; i < missing; i++) {
-      deck.push(createEmptyCard(id, ownerCards.length + i));
-    }
+    const hasReal = deck.some(c => c.ownerId === id && isRealDeckCard(c));
+    if (!hasReal) deck.push(createStarterCard(id));
   });
   return deck;
 };
@@ -582,6 +641,17 @@ const ensureFullDeck = (cards) => {
 // Уровень карты — растёт при выборе улучшения на level-up (x2 урона за каждый уровень)
 const getCardLevel = (card) => (card && card.level) || 1;
 const getLevelMultiplier = (card) => Math.pow(2, getCardLevel(card) - 1);
+
+// --- МОДИФИКАЦИОННЫЕ КАРТЫ: универсальные, не привязаны к классу, выдаются любому герою ---
+// armor: +броня герою до конца раунда (сбрасывается при новой раздаче). chain: +к следующей карте в этом ходу игрока.
+const MOD_CARDS = {
+  armor: { id: 'mod_armor', name: 'Закал брони', cost: 0, icon: '🛡️', type: 'self', rarity: 'RARE', vfxType: null, modType: 'armor', modValue: 8 },
+  chain: { id: 'mod_chain', name: 'Усиление цепи', cost: 1, icon: '🔗', type: 'self', rarity: 'RARE', vfxType: null, modType: 'chain', modValue: 12 },
+};
+const MOD_CARD_LIST = Object.values(MOD_CARDS);
+const isModCard = (card) => !!(card && card.modType);
+// Значение мод-карты растёт линейно с уровнем (ур.2 = x2 и т.д.)
+const getModValue = (card) => Math.round((card?.modValue || 0) * getCardLevel(card));
 
 const getPlayerDex = (player) => player?.agi ?? 0;
 
@@ -615,36 +685,55 @@ const formatCardScale = (card) => {
   return parts.join(' ');
 };
 
-// Цвет урона карты по доминирующей характеристике (как в панели статов):
-// сила → красный, ловкость → зелёный, интеллект → синий
+// Цвет урона карты по типу урона: магия → синий, дальний → зелёный, ближний → красный
 const getCardStatColor = (card) => {
-  const s = getCardScale(card);
-  const str = s.str || 0, dex = s.dex || 0, int = s.int || 0;
-  if (int > str && int >= dex) return 'text-blue-400';
-  if (dex > str && dex >= int) return 'text-green-400';
+  const t = getCardDmgType(card);
+  if (t === 'magic') return 'text-blue-400';
+  if (t === 'ranged') return 'text-green-400';
   return 'text-red-400';
 };
 
-// ЕДИНАЯ формула урона: mult × (статы по скейлу карты) × уровень карты × бонус.
-// Никаких глобальных добавок от статов — статы качают только урон карт и их вторичные эффекты.
+// Базовая мощность карты (вместо привязки к статам героя).
+const CARD_BASE_POWER = 15;
+
+// ЕДИНАЯ формула урона: базовая мощность карты × уровень × модификатор предметов × бонус.
+// Урон НЕ зависит от силы/ловкости/интеллекта. Предметы дают прямые модификаторы:
+//   физ. карты усиливаются +Атакой (%), магические — +Магической атакой (%).
 const computeCardDamage = (owner, card, bonus = 1) => {
-  if (!owner || !card) return { damage: 0, critChance: 0 };
-  const scale = getCardScale(card);
-  const str = owner.str ?? 0;
-  const dex = getPlayerDex(owner);
-  const int = owner.int ?? 0;
-
-  const scaledStats =
-    str * (scale.str || 0) +
-    dex * (scale.dex || 0) +
-    int * (scale.int || 0);
-
-  const total = card.mult * scaledStats * getLevelMultiplier(card) * bonus;
-
-  return { damage: Math.max(0, Math.floor(total)), critChance: 0 };
+  if (!card) return { damage: 0, critChance: 0 };
+  const base = (card.mult || 1) * CARD_BASE_POWER * getLevelMultiplier(card);
+  const isMagic = getCardDmgType(card) === 'magic';
+  const atkPct = isMagic ? (owner?.matk || 0) : (owner?.atk || 0);
+  const total = base * (1 + atkPct / 100) * bonus;
+  const critChance = Math.min(0.75, (owner?.crit || 0) / 100);
+  return { damage: Math.max(1, Math.round(total)), critChance };
 };
 
 const getCardDamage = (owner, card, bonus = 1) => computeCardDamage(owner, card, bonus).damage;
+
+// Превью урона при наведении на абилку (без рандомного крита; метка/vuln учитываются)
+const computePreviewDamageOnEnemy = (owner, card, enemy, comboMult = 1, chainBonus = 0) => {
+  let { damage: baseDamage } = computeCardDamage(owner, card, comboMult);
+  if (chainBonus > 0) baseDamage += chainBonus;
+  let dmg = baseDamage;
+  const mark = enemy.statuses?.mark;
+  if (mark) dmg = Math.floor(dmg * 2 * (mark.mult || 1));
+  const vuln = enemy.statuses?.vuln;
+  if (vuln) dmg = Math.floor(dmg * (1 + vuln.amount));
+  return { damage: dmg, isLethal: dmg >= enemy.hp };
+};
+
+// Броня поглощает урон и уменьшается; остаток идёт в HP
+const applyIncomingDamage = (player, rawDmg) => {
+  const armor = player.armor || 0;
+  const absorbed = Math.min(armor, rawDmg);
+  const hpLoss = Math.max(0, rawDmg - absorbed);
+  return {
+    newHp: Math.max(0, player.hp - hpLoss),
+    newArmor: armor - absorbed,
+    hpLoss,
+  };
+};
 
 const rollCardDamage = (owner, card, bonus = 1) => {
   const { damage, critChance } = computeCardDamage(owner, card, bonus);
@@ -654,13 +743,10 @@ const rollCardDamage = (owner, card, bonus = 1) => {
 
 // --- ВТОРИЧНЫЕ ЭФФЕКТЫ АБИЛОК ---
 
-// «Сила» эффекта = значение второстепенного стата владельца
-const getSecondaryStatValue = (owner, effect) => {
-  const stat = SECONDARY_EFFECTS[effect]?.stat;
-  if (stat === 'str') return owner?.str ?? 0;
-  if (stat === 'dex') return getPlayerDex(owner);
-  if (stat === 'int') return owner?.int ?? 0;
-  return 0;
+// База силы вторичных эффектов (отвязана от статов). Растёт с уровнем карты.
+const SECONDARY_BASE_POWER = 14;
+const getSecondaryStatValue = (owner, effect, card) => {
+  return SECONDARY_BASE_POWER * getLevelMultiplier(card || {});
 };
 
 // Краткое описание эффекта с подсчитанной величиной (для тултипа карточки)
@@ -669,7 +755,7 @@ const getSecondaryDesc = (owner, card) => {
   const effect = card.secondary.effect;
   const def = SECONDARY_EFFECTS[effect];
   if (!def) return null;
-  const v = owner ? getSecondaryStatValue(owner, effect) : 0;
+  const v = getSecondaryStatValue(owner, effect, card);
   let valueText = '';
   switch (effect) {
     case 'stun':   valueText = `${Math.round(Math.min(0.75, v * 0.02) * 100)}% шанс`; break;
@@ -686,11 +772,7 @@ const getSecondaryDesc = (owner, card) => {
 // Полное описание карты для UI
 const getCardDescription = (owner, card) => {
   if (!card) return { targetLine: '', effectLine: null };
-  const targetLine = card.type === 'splash'
-    ? 'Бьёт всех врагов'
-    : card.priority === 'lowestHp' ? 'Бьёт самого слабого'
-    : card.priority === 'highestHp' ? 'Бьёт самого живучего'
-    : 'Одиночная цель';
+  const targetLine = getTargetingLabel(getCardTargeting(card));
   const secondary = getSecondaryDesc(owner, card);
   const effectLine = secondary
     ? { icon: secondary.def.icon, label: secondary.def.label, value: secondary.valueText, color: STAT_TEXT_COLOR[secondary.def.stat] }
@@ -705,7 +787,7 @@ const buildSecondaryPayload = (owner, card, comboMult = 1) => {
   const effect = card.secondary.effect;
   const def = SECONDARY_EFFECTS[effect];
   if (!def) return null;
-  const v = getSecondaryStatValue(owner, effect) * comboMult;
+  const v = getSecondaryStatValue(owner, effect, card) * comboMult;
   switch (effect) {
     case 'stun':   return { effect, chance: Math.min(0.95, v * 0.02), duration: def.duration };
     case 'vuln':   return { effect, amount: Math.min(0.80, v * 0.01), duration: def.duration };
@@ -770,11 +852,12 @@ const decrementStatuses = (enemy) => {
   return { ...enemy, statuses: next };
 };
 
-const getTargetText = (type, priority) => {
-  if (type === 'splash') return 'всем врагам.';
-  if (priority === 'lowestHp') return 'самому слабому.';
-  if (priority === 'highestHp') return 'самому здоровому.';
-  return 'атакующим.';
+const getTargetText = (targeting) => {
+  switch (targeting) {
+    case CARD_TARGETING.RANDOM2: return '2 случайным врагам.';
+    case CARD_TARGETING.STRONGEST: return 'самому сильному врагу.';
+    default: return 'всем врагам.';
+  }
 };
 
 // Подпись и иконка текущей ноды (сектора) для плашки в арене
@@ -938,7 +1021,7 @@ const spawnEnemies = (type, stage, sector = 1) => {
   let counter = 0;
   const mk = (prefix, name, baseHp, perStage, icon, xp) => {
     const { dmgMult, attackStyle, vfxType } = ENEMY_TYPES[name] || { dmgMult: 1, attackStyle: 'melee', vfxType: 'enemy' };
-    const hp = Math.round((baseHp + s * perStage) * mult);
+    const hp = Math.round((baseHp + s * perStage) * mult * ENEMY_POWER_MULT);
     return {
       id: `${prefix}_${Date.now()}_${counter++}`,
       name, hp, maxHp: hp, icon, isDead: false,
@@ -980,6 +1063,8 @@ const spawnEnemies = (type, stage, sector = 1) => {
 
 // --- 2. ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ ---
 
+const CardTiltContext = createContext({ x: 0, y: 0, isHovered: false });
+
 const TiltWrapper = ({ children, className, isDisabled, globalShake = {x:0, y:0, rot:0} }) => {
   const [rotation, setRotation] = useState({ x: 0, y: 0 });
   const [glare, setGlare] = useState({ x: 50, y: 50, opacity: 0 });
@@ -993,11 +1078,11 @@ const TiltWrapper = ({ children, className, isDisabled, globalShake = {x:0, y:0,
     const centerX = card.width / 2;
     const centerY = card.height / 2;
 
-    const rotateX = ((centerY - y) / centerY) * 12; 
-    const rotateY = ((x - centerX) / centerX) * 12;
+    const rotateX = ((centerY - y) / centerY) * 16;
+    const rotateY = ((x - centerX) / centerX) * 16;
 
     setRotation({ x: rotateX, y: rotateY });
-    setGlare({ x: (x / card.width) * 100, y: (y / card.height) * 100, opacity: 0.15 });
+    setGlare({ x: (x / card.width) * 100, y: (y / card.height) * 100, opacity: 0.18 });
   };
 
   const handleMouseEnter = () => { if (!isDisabled) setIsHovered(true); };
@@ -1011,16 +1096,26 @@ const TiltWrapper = ({ children, className, isDisabled, globalShake = {x:0, y:0,
   };
 
   return (
+    <CardTiltContext.Provider value={{ x: rotation.x, y: rotation.y, isHovered: isHovered && !isDisabled }}>
     <div 
-      className={`transition-all duration-300 ease-out relative ${className}`}
+      className={`relative ${className}`}
       onMouseMove={handleMouseMove}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       style={{
-        transform: `perspective(1000px) rotateX(${rotation.x + globalShake.rot}deg) rotateY(${rotation.y + globalShake.rot}deg) scale(${isHovered ? 1.05 : 1}) translate(${globalShake.x * 0.5}px, ${globalShake.y * 0.5}px)`,
+        transform: `scale(${isHovered && !isDisabled ? 1.14 : 1}) translate(${globalShake.x * 0.5}px, ${globalShake.y * 0.5}px)`,
+        transition: 'transform 200ms cubic-bezier(0.22, 1, 0.36, 1)',
+        transformStyle: 'preserve-3d',
         zIndex: isHovered ? 50 : 1,
       }}
     >
+      <div
+        className="relative w-full h-full"
+        style={{
+          transform: `perspective(1000px) rotateX(${rotation.x + globalShake.rot}deg) rotateY(${rotation.y + globalShake.rot}deg)`,
+          transformStyle: 'preserve-3d',
+        }}
+      >
       <div 
         className="absolute -inset-[2px] pointer-events-none rounded-2xl z-50 transition-opacity duration-300"
         style={{
@@ -1038,11 +1133,17 @@ const TiltWrapper = ({ children, className, isDisabled, globalShake = {x:0, y:0,
         }}
       />
       {children}
+      </div>
     </div>
+    </CardTiltContext.Provider>
   );
 };
 
-const FlyingCard = ({ startX, startY, endX, endY, isDiscard = false, isReshuffle = false }) => {
+const CARD_DEAL_FLY_MS = 725;
+const CARD_DEAL_STAGGER_MS = 150; // было 300
+const CARD_DEAL_FINISH_PAD_MS = 500; // было 1000
+
+const FlyingCard = ({ startX, startY, endX, endY, isDiscard = false, isReshuffle = false, flyMs = 850 }) => {
   const [style, setStyle] = useState({
     left: `${startX}px`, top: `${startY}px`, transform: 'translate(-50%, -50%) scale(0.2)', opacity: 0,
   });
@@ -1053,11 +1154,11 @@ const FlyingCard = ({ startX, startY, endX, endY, isDiscard = false, isReshuffle
         left: `${endX}px`, top: `${endY}px`,
         transform: `translate(-50%, -50%) scale(${isDiscard || isReshuffle ? 0.3 : 1.0}) rotate(${isReshuffle ? -360 : isDiscard ? 720 : 0}deg)`,
         opacity: 1,
-        transition: `all 850ms ${isDiscard || isReshuffle ? 'cubic-bezier(0.5, -0.5, 0.5, 1.5)' : 'cubic-bezier(0.34, 1.56, 0.64, 1)'}`
+        transition: `all ${flyMs}ms ${isDiscard || isReshuffle ? 'cubic-bezier(0.5, -0.5, 0.5, 1.5)' : 'cubic-bezier(0.16, 1, 0.3, 1)'}`
       });
     }, 20);
     return () => clearTimeout(t);
-  }, [endX, endY, isDiscard, isReshuffle]);
+  }, [endX, endY, isDiscard, isReshuffle, flyMs]);
 
   return (
     <div className={`fixed z-[999] w-40 h-60 border-2 border-amber-400 rounded-xl bg-slate-800 shadow-2xl pointer-events-none ${isReshuffle ? 'brightness-125' : ''}`} style={style}>
@@ -1174,7 +1275,36 @@ const ItemTooltip = ({ item, x, y }) => {
           <div className={`text-[9px] font-bold uppercase ${rarity.text}`}>{rarity.name}</div>
         </div>
       </div>
-      <div className="text-[12px] text-slate-200 leading-relaxed font-medium">{formatItemStats(item.stats)}</div>
+      {(() => {
+        const list = formatItemStatsList(item.stats);
+        if (!list.length) return <div className="text-[12px] text-slate-400 leading-relaxed font-medium">Без бонусов</div>;
+        return (
+          <div className="flex flex-col gap-0.5">
+            {list.map((p, i) => (
+              <div key={i} className="text-[12px] leading-relaxed font-bold flex justify-between">
+                <span className="text-slate-300">{p.label}</span>
+                <span className="text-green-400">{p.display}</span>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+    </div>
+  );
+};
+
+// Крутящийся символ комбо/синергии справа от арены. Две руны вращаются
+// независимо в разные стороны, в центре — номер карты в цепочке комбо.
+const ComboIndicator = ({ count }) => {
+  if (!count) return null;
+  return (
+    <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-[45%] z-30 pointer-events-none flex items-center justify-center w-60 h-60 animate-in fade-in zoom-in-75 duration-300">
+      <img src="./combo_rune_outer.png" alt="" className="absolute inset-0 w-full h-full object-contain opacity-80"
+        style={{ animation: 'comboSpinCW 9s linear infinite', filter: 'drop-shadow(0 0 10px rgba(245,158,11,0.75))' }} />
+      <img src="./combo_rune_inner.png" alt="" className="absolute inset-0 w-full h-full object-contain opacity-90"
+        style={{ animation: 'comboSpinCCW 6s linear infinite', filter: 'drop-shadow(0 0 8px rgba(245,158,11,0.9))' }} />
+      <span key={count} className="relative z-10 text-7xl font-black text-amber-200 drop-shadow-[0_0_12px_rgba(245,158,11,1)]"
+        style={{ animation: 'comboNumPop 0.35s ease-out' }}>{count}</span>
     </div>
   );
 };
@@ -1244,50 +1374,137 @@ const BloodParticle = ({ id, x, y, onComplete }) => {
   return <div className="fixed z-[850] bg-red-500 rounded-full pointer-events-none shadow-[0_0_15px_rgba(239,68,68,1)]" style={{ ...style, width: size, height: size }} />;
 };
 
+// Масштаб VFX атаки по длине комбо: 1-я карта / 2-я / 3-я+
+const COMBO_VFX_SCALE = [1, 1.4, 1.85];
+const COMBO_VFX_PARTICLE_MULT = [1, 1.6, 2.6];
+
+// Эффект «печати» при получении брони / усиления цепи
+const ModStampEffect = ({ id, icon, amount, variant, x, y, onComplete }) => {
+  const onCompleteRef = useRef(onComplete);
+  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
+  useEffect(() => {
+    const t = setTimeout(() => onCompleteRef.current(id), 1300);
+    return () => clearTimeout(t);
+  }, [id]);
+
+  const isArmor = variant === 'armor';
+  const ringColor = isArmor ? 'rgba(56,189,248,0.85)' : 'rgba(251,191,36,0.85)';
+  const glowColor = isArmor ? 'rgba(56,189,248,0.55)' : 'rgba(251,191,36,0.55)';
+
+  return (
+    <div className="fixed z-[980] pointer-events-none" style={{ left: x, top: y }}>
+      <div className="absolute rounded-full border-[10px]" style={{
+        left: 0, top: 0, width: 400, height: 400, marginLeft: -200, marginTop: -200,
+        borderColor: ringColor, animation: 'modStampRing 650ms ease-out forwards',
+      }} />
+      <div className="absolute flex flex-col items-center justify-center" style={{
+        left: 0, top: 0, width: 320, height: 320, marginLeft: -160, marginTop: -160,
+        animation: 'modStampSlam 550ms cubic-bezier(0.22, 1, 0.36, 1) forwards',
+        filter: `drop-shadow(0 0 56px ${glowColor}) drop-shadow(0 16px 0 rgba(0,0,0,0.85))`,
+      }}>
+        <span className="leading-none select-none" style={{ fontSize: 176 }}>{icon}</span>
+        <span className={`font-black text-4xl mt-2 ${isArmor ? 'text-sky-200' : 'text-amber-200'}`}
+          style={{ WebkitTextStroke: '3px rgba(0,0,0,0.9)', textShadow: '4px 4px 0 rgba(0,0,0,1)' }}>
+          +{amount}
+        </span>
+      </div>
+    </div>
+  );
+};
+
+// Прицел с цифрой урона на подсвеченной цели
+const TargetReticle = ({ damage, lethal }) => (
+  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[70]">
+    <div className={`relative w-[72px] h-[72px] ${lethal ? 'text-red-500' : 'text-sky-100'}`}>
+      <div className="absolute left-1/2 top-0 bottom-0 w-[2px] -translate-x-1/2 bg-current opacity-90 rounded-full" />
+      <div className="absolute top-1/2 left-0 right-0 h-[2px] -translate-y-1/2 bg-current opacity-90 rounded-full" />
+      <div className={`absolute inset-2 border-2 rounded-full ${lethal ? 'border-red-500' : 'border-current'} opacity-75`} />
+      <div className={`absolute inset-[18px] border border-dashed rounded-full ${lethal ? 'border-red-400/60' : 'border-white/40'} opacity-60`} />
+      <span
+        className={`absolute inset-0 flex items-center justify-center font-black text-xl tabular-nums ${lethal ? 'text-red-400' : 'text-white'}`}
+        style={{ WebkitTextStroke: '2px rgba(0,0,0,0.95)', textShadow: '0 2px 6px rgba(0,0,0,1)' }}
+      >
+        {damage}
+      </span>
+    </div>
+  </div>
+);
+
+// Бейдж брони на слоте героя
+const HeroArmorBadge = ({ armor }) => (
+  <div className="absolute -top-2.5 -right-2.5 z-40 flex items-center gap-0.5 bg-slate-950/95 border-2 border-sky-500/70 rounded-xl px-2 py-1 shadow-[0_0_14px_rgba(56,189,248,0.45)] pointer-events-none">
+    <span className="text-base leading-none">🛡️</span>
+    <span className="text-sm font-black text-sky-200 tabular-nums leading-none">{armor}</span>
+  </div>
+);
+
 const CombatVfx = ({ vfx }) => {
+  const cs = vfx.comboScale || 1;
+  const tier = vfx.comboTier || 0;
+  const durMs = Math.round(450 * (1 + tier * 0.25));
+  const dur = `${durMs}ms`;
   const [style, setStyle] = useState({ left: vfx.startX, top: vfx.startY, opacity: 0, transform: 'translate(-50%, -50%) scale(0.1)' });
   
   useEffect(() => {
     const t0 = setTimeout(() => {
         let t1;
         if (['magic_spark', 'fireball', 'ice_spike', 'lightning', 'dark_void', 'enemy'].includes(vfx.type)) {
-           setStyle({ left: vfx.startX, top: vfx.startY, opacity: 1, transform: 'translate(-50%, -50%) scale(0.5)' });
+           setStyle({ left: vfx.startX, top: vfx.startY, opacity: 1, transform: `translate(-50%, -50%) scale(${0.5 * cs})` });
            t1 = setTimeout(() => {
-             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: 'translate(-50%, -50%) scale(1.5)', transition: 'all 450ms ease-out' });
+             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: `translate(-50%, -50%) scale(${1.5 * cs})`, transition: `all ${dur} ease-out` });
            }, 20);
         } else if (['slash', 'smash', 'dark_strike'].includes(vfx.type)) {
-           setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: 'translate(-50%, -50%) scale(0.2) rotate(-45deg)' });
+           setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: `translate(-50%, -50%) scale(${0.2 * cs}) rotate(-45deg)` });
            t1 = setTimeout(() => {
-             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 0, transform: 'translate(-50%, -50%) scale(2) rotate(45deg)', transition: 'all 450ms ease-out' });
+             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 0, transform: `translate(-50%, -50%) scale(${2 * cs}) rotate(45deg)`, transition: `all ${dur} ease-out` });
            }, 20);
         } else if (['daggers', 'poison', 'dagger_single', 'arrow'].includes(vfx.type)) {
            const angle = Math.atan2(vfx.endY - vfx.startY, vfx.endX - vfx.startX) * 180 / Math.PI;
-           const scatterX = (vfx.type === 'dagger_single' || vfx.type === 'arrow') ? 0 : (Math.random() - 0.5) * 80;
-           const scatterY = (vfx.type === 'dagger_single' || vfx.type === 'arrow') ? 0 : (Math.random() - 0.5) * 80;
-           setStyle({ left: vfx.startX + scatterX, top: vfx.startY + scatterY, opacity: 1, transform: `translate(-50%, -50%) rotate(${angle + 90}deg)` });
+           const scatter = 80 * cs;
+           const scatterX = (vfx.type === 'dagger_single' || vfx.type === 'arrow') ? 0 : (Math.random() - 0.5) * scatter;
+           const scatterY = (vfx.type === 'dagger_single' || vfx.type === 'arrow') ? 0 : (Math.random() - 0.5) * scatter;
+           setStyle({ left: vfx.startX + scatterX, top: vfx.startY + scatterY, opacity: 1, transform: `translate(-50%, -50%) scale(${cs}) rotate(${angle + 90}deg)` });
            t1 = setTimeout(() => {
-             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: `translate(-50%, -50%) rotate(${angle + 90 + (vfx.type === 'arrow' ? 0 : 1080)}deg)`, transition: 'all 450ms ease-out' });
+             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: `translate(-50%, -50%) scale(${cs}) rotate(${angle + 90 + (vfx.type === 'arrow' ? 0 : 1080)}deg)`, transition: `all ${dur} ease-out` });
            }, 20);
         }
     }, vfx.delay || 0);
     
     return () => clearTimeout(t0);
-  }, [vfx]);
+  }, [vfx, cs, dur]);
 
-  if (vfx.type === 'magic_spark') return <div style={style} className="fixed z-[1000] w-12 h-12 bg-white rounded-full shadow-[0_0_20px_#fff,0_0_40px_#42C0E8,0_0_80px_#E33371] pointer-events-none flex items-center justify-center"><div className="w-8 h-8 bg-[#42C0E8] rounded-full blur-[2px] opacity-90" /></div>;
-  if (vfx.type === 'fireball') return <div style={style} className="fixed z-[1000] w-14 h-14 bg-orange-500 rounded-full shadow-[0_0_40px_#ea580c,inset_0_0_15px_#fef08a] pointer-events-none" />;
-  if (vfx.type === 'ice_spike') return <div style={style} className="fixed z-[1000] text-5xl drop-shadow-[0_0_15px_#06b6d4] pointer-events-none">🧊</div>;
-  if (vfx.type === 'lightning') return <div style={style} className="fixed z-[1000] text-6xl drop-shadow-[0_0_20px_#eab308] pointer-events-none">⚡</div>;
-  if (vfx.type === 'dark_void') return <div style={style} className="fixed z-[1000] w-20 h-20 bg-black rounded-full shadow-[0_0_60px_#9333ea,inset_0_0_20px_#4c1d95] pointer-events-none border-2 border-purple-500" />;
-  if (vfx.type === 'enemy') return <div style={style} className="fixed z-[1000] w-8 h-8 bg-[#D32F2F] rounded-full shadow-[0_0_30px_#D32F2F] pointer-events-none" />;
+  const sparkCount = tier >= 2 ? 8 : tier >= 1 ? 4 : 0;
+  const sparks = sparkCount > 0 ? Array.from({ length: sparkCount }, (_, i) => ({
+    key: i,
+    left: 50 + Math.cos(i * (Math.PI * 2 / sparkCount)) * (40 + tier * 15),
+    top: 50 + Math.sin(i * (Math.PI * 2 / sparkCount)) * (40 + tier * 15),
+    size: 4 + tier * 3,
+  })) : [];
+
+  const wrap = (node) => (
+    <div style={style} className="fixed z-[1000] pointer-events-none flex items-center justify-center">
+      {node}
+      {sparks.map(s => (
+        <div key={s.key} className="absolute rounded-full bg-white opacity-90"
+          style={{ left: `${s.left}%`, top: `${s.top}%`, width: s.size, height: s.size, transform: 'translate(-50%,-50%)', boxShadow: '0 0 8px rgba(255,255,255,0.9)' }} />
+      ))}
+    </div>
+  );
+
+  if (vfx.type === 'magic_spark') return wrap(<div className="w-12 h-12 bg-white rounded-full shadow-[0_0_20px_#fff,0_0_40px_#42C0E8,0_0_80px_#E33371] flex items-center justify-center" style={{ transform: `scale(${cs})` }}><div className="w-8 h-8 bg-[#42C0E8] rounded-full blur-[2px] opacity-90" /></div>);
+  if (vfx.type === 'fireball') return wrap(<div className="bg-orange-500 rounded-full shadow-[0_0_40px_#ea580c,inset_0_0_15px_#fef08a]" style={{ width: 56 * cs, height: 56 * cs }} />);
+  if (vfx.type === 'ice_spike') return wrap(<div className="drop-shadow-[0_0_15px_#06b6d4]" style={{ fontSize: `${48 * cs}px` }}>🧊</div>);
+  if (vfx.type === 'lightning') return wrap(<div className="drop-shadow-[0_0_20px_#eab308]" style={{ fontSize: `${60 * cs}px` }}>⚡</div>);
+  if (vfx.type === 'dark_void') return wrap(<div className="bg-black rounded-full shadow-[0_0_60px_#9333ea,inset_0_0_20px_#4c1d95] border-2 border-purple-500" style={{ width: 80 * cs, height: 80 * cs }} />);
+  if (vfx.type === 'enemy') return wrap(<div className="bg-[#D32F2F] rounded-full shadow-[0_0_30px_#D32F2F]" style={{ width: 32 * cs, height: 32 * cs }} />);
   
-  if (vfx.type === 'slash') return <div style={style} className="fixed z-[1000] w-48 h-48 border-t-[16px] border-r-[16px] border-white rounded-full shadow-[0_0_20px_#1E88E5] pointer-events-none" />;
-  if (vfx.type === 'smash') return <div style={style} className="fixed z-[1000] w-64 h-64 border-t-[24px] border-r-[24px] border-amber-500 rounded-full shadow-[0_0_40px_#d97706] pointer-events-none" />;
-  if (vfx.type === 'dark_strike') return <div style={style} className="fixed z-[1000] w-56 h-56 border-t-[20px] border-r-[20px] border-purple-900 rounded-full shadow-[0_0_30px_#000] pointer-events-none" />;
+  if (vfx.type === 'slash') return wrap(<div className="border-t-[16px] border-r-[16px] border-white rounded-full shadow-[0_0_20px_#1E88E5]" style={{ width: 192 * cs, height: 192 * cs }} />);
+  if (vfx.type === 'smash') return wrap(<div className="border-t-[24px] border-r-[24px] border-amber-500 rounded-full shadow-[0_0_40px_#d97706]" style={{ width: 256 * cs, height: 256 * cs }} />);
+  if (vfx.type === 'dark_strike') return wrap(<div className="border-t-[20px] border-r-[20px] border-purple-900 rounded-full shadow-[0_0_30px_#000]" style={{ width: 224 * cs, height: 224 * cs }} />);
   
-  if (vfx.type === 'dagger_single' || vfx.type === 'daggers') return <div style={style} className="fixed z-[1000] text-4xl drop-shadow-[0_0_10px_#36B373] pointer-events-none">🗡️</div>;
-  if (vfx.type === 'arrow') return <div style={style} className="fixed z-[1000] text-3xl drop-shadow-[0_0_8px_#94a3b8] pointer-events-none">🏹</div>;
-  if (vfx.type === 'poison') return <div style={style} className="fixed z-[1000] text-4xl drop-shadow-[0_0_20px_#22c55e] pointer-events-none">🧪</div>;
+  if (vfx.type === 'dagger_single' || vfx.type === 'daggers') return wrap(<div className="drop-shadow-[0_0_10px_#36B373]" style={{ fontSize: `${36 * cs}px` }}>🗡️</div>);
+  if (vfx.type === 'arrow') return wrap(<div className="drop-shadow-[0_0_8px_#94a3b8]" style={{ fontSize: `${28 * cs}px` }}>🏹</div>);
+  if (vfx.type === 'poison') return wrap(<div className="drop-shadow-[0_0_20px_#22c55e]" style={{ fontSize: `${36 * cs}px` }}>🧪</div>);
 
   return null;
 };
@@ -1569,8 +1786,9 @@ const ImageBackground = ({ imageUrl, hue, sat, opacity = 1, embedded = false }) 
   );
 };
 
-const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = false, comboState, growDamage = false }) => {
+const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = false, comboState, growDamage = false, chainBonus = 0 }) => {
   const [grow, setGrow] = useState(false);
+  const tilt = useContext(CardTiltContext);
   useEffect(() => {
     if (!growDamage) return;
     const t0 = setTimeout(() => setGrow(true), 60);
@@ -1580,48 +1798,82 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
 
   if (!card) return null;
   const rarity = RARITIES[card.rarity] || RARITIES.COMMON;
-  const { isCandidate, willGiveBonus, comboStep = 0, comboPct = 0, willSplash = false } = comboState;
+  const { isCandidate, willGiveBonus, comboStep = 0, comboPct = 0 } = comboState;
+  const targeting = getCardTargeting(card);
   const level = getCardLevel(card);
-  
-  let dmg = owner ? getCardDamage(owner, card) : 0;
-  if (willGiveBonus) dmg = Math.floor(dmg * COMBO_DAMAGE_MULT[Math.min(comboStep, 2)]);
+  const mod = isModCard(card);
+  // Значение мод-карты с учётом комбо-скейла (если карта — следующее звено цепочки)
+  const modBase = getModValue(card);
+  const modAmount = (mod && willGiveBonus) ? Math.round(modBase * COMBO_DAMAGE_MULT[Math.min(comboStep, 2)]) : modBase;
+
+  const calcDmg = (o) => {
+    if (mod || !o) return 0;
+    let d = getCardDamage(o, card);
+    if (willGiveBonus) d = Math.floor(d * COMBO_DAMAGE_MULT[Math.min(comboStep, 2)]);
+    if (chainBonus > 0) d += chainBonus;
+    return d;
+  };
+  const dmg = calcDmg(owner);
+  const buffedByChain = !mod && chainBonus > 0;
   const statColor = getCardStatColor(card);
   const base = getCardDescription(owner, card);
-  // В комбо удар по площади у comboSplash-карт
-  const targetLine = willSplash ? '💥 Бьёт всех врагов' : base.targetLine;
   const effectLine = base.effectLine;
+  // Цель — текстом в тот же абзац (без отдельного блока)
+  const targetSuffix = getTargetingLabel(targeting, true);
 
   const displayRarityName = showOwnerLabel && owner ? `${rarity.name} - ${owner.name}` : rarity.name;
+  const parallaxX = tilt.y * 0.5;
+  const parallaxY = -tilt.x * 0.5;
 
   return (
-    <div className={`w-full h-full border ${rarity.border} rounded-2xl flex flex-col overflow-hidden transition-all duration-300 relative shadow-inner bg-[#45475a] ${isCandidate && !isDisabled ? 'ring-2 ring-yellow-400 shadow-[0_0_30px_rgba(250,204,21,0.6)]' : ''} ${!isDisabled ? 'group-hover:brightness-110' : ''}`}>
+    <div className={`w-full h-full border ${rarity.border} rounded-2xl flex flex-col overflow-hidden relative shadow-inner bg-[#45475a] ${isCandidate && !isDisabled ? 'ring-2 ring-yellow-400 shadow-[0_0_30px_rgba(250,204,21,0.6)]' : ''}`}>
       <div className={`${rarity.header} py-1.5 px-2.5 border-b border-black/20 flex items-center justify-between shadow-md`}>
         <span className={`font-bold text-[11px] ${rarity.text} uppercase tracking-wider truncate drop-shadow-md`}>{String(card.name)}{level > 1 && <span className="text-amber-300"> ур.{String(level)}</span>}</span>
         <div className={`w-[22px] h-[22px] rounded-full flex items-center justify-center font-black text-[10px] border-2 border-white/20 shadow-lg text-white ${mana < card.cost ? 'bg-red-500' : 'bg-[#1E88E5]'}`}>{String(card.cost)}</div>
       </div>
-      <div className="flex-1 flex flex-col items-center justify-center relative p-1 bg-[#373945] min-h-[40px]">
+      <div className="flex-1 flex flex-col items-center justify-center relative p-1 bg-[#373945] min-h-[40px] overflow-visible" style={{ transformStyle: 'preserve-3d' }}>
         {isCandidate && (<div className="absolute top-1 left-1 bg-yellow-400 text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">COMBO{willGiveBonus && comboPct > 0 ? ` +${comboPct}%` : '!'}</div>)}
-        {willSplash && (<div className="absolute top-1 right-1 bg-orange-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg z-10">💥 AoE</div>)}
-        <span className="text-[1.35rem] drop-shadow-2xl group-hover:scale-110 transition-transform duration-500">{String(card.icon)}</span>
+        <span
+          className="drop-shadow-2xl select-none leading-none"
+          style={{
+            fontSize: '2.03rem',
+            transform: `translate3d(${parallaxX}px, ${parallaxY}px, 0)`,
+            transition: 'none',
+          }}
+        >{String(card.icon)}</span>
       </div>
       <div className="text-center leading-none bg-[#50546d] border-t border-slate-600/30 px-2 pt-4 pb-2 flex flex-col justify-center gap-0.5 min-h-[76px] relative">
         <div className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full ${rarity.badgeBg} shadow-md z-10 whitespace-nowrap`}>
           <span className="text-[10px] font-black italic text-[#FFFFE0] uppercase tracking-wide drop-shadow-sm">{displayRarityName}</span>
         </div>
-        <p className="text-[11px] text-slate-100 font-semibold leading-none">
-          Наносит{' '}
-          <span
-            className={`font-black text-[13px] transition-all duration-500 ${grow ? 'text-green-400' : (willGiveBonus ? 'text-yellow-400' : statColor)}`}
-            style={{ display: 'inline-block', transform: grow ? 'scale(1.4)' : 'scale(1)', textShadow: grow ? '0 0 14px rgba(34,197,94,0.95)' : 'none' }}
-          >{String(dmg)}</span>{' '}
-          урона
-        </p>
-        {effectLine && (
-          <p className={`text-[10px] font-bold leading-none ${effectLine.color}`}>
-            {effectLine.icon} {effectLine.label}{effectLine.value ? `: ${effectLine.value}` : ''}
-          </p>
+        {mod ? (
+          <>
+            <p className="text-[11px] text-slate-100 font-semibold leading-tight">
+              {card.modType === 'armor' ? (
+                <>Броня <span className={`font-black text-[14px] ${willGiveBonus ? 'text-yellow-400' : 'text-sky-300'}`}>+{modAmount}</span></>
+              ) : (
+                <>След. карта <span className={`font-black text-[14px] ${willGiveBonus ? 'text-yellow-400' : 'text-amber-300'}`}>+{modAmount}</span> урона</>
+              )}
+            </p>
+            <p className="text-[10px] leading-none mt-0.5 text-slate-400">{card.modType === 'armor' ? 'Снижает урон до конца раунда' : 'Бонус к следующей карте в этом ходу'}</p>
+          </>
+        ) : (
+          <>
+            <p className="text-[11px] text-slate-100 font-semibold leading-tight">
+              Наносит{' '}
+              <span
+                className={`font-black text-[13px] transition-all duration-300 ${grow ? 'text-green-400' : (willGiveBonus ? 'text-yellow-400' : (buffedByChain ? 'text-amber-300' : statColor))}`}
+                style={{ display: 'inline-block', transform: grow ? 'scale(1.4)' : 'scale(1)', textShadow: grow ? '0 0 14px rgba(34,197,94,0.95)' : 'none' }}
+              >{String(dmg)}</span>{' '}
+              урона <span className="text-slate-300">{targetSuffix}</span>
+            </p>
+            {effectLine && (
+              <p className={`text-[10px] font-bold leading-none mt-0.5 ${effectLine.color}`}>
+                {effectLine.icon} {effectLine.label}{effectLine.value ? `: ${effectLine.value}` : ''}
+              </p>
+            )}
+          </>
         )}
-        <p className={`text-[10px] leading-none mt-0.5 ${willSplash ? 'text-orange-400 font-bold' : 'text-slate-400'}`}>{targetLine}</p>
       </div>
     </div>
   );
@@ -1929,6 +2181,7 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
                         <div key={i} className="relative group w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5" style={{ borderColor: glow, boxShadow: `inset 0 0 12px ${glow}33` }}>
                           <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
                           <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
+                          {!card.isStarter && (
                           <button
                             type="button"
                             onClick={() => soulEmbers >= PREP_BURN_COST && onBurnCard(card.id)}
@@ -1936,6 +2189,7 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
                             title={soulEmbers >= PREP_BURN_COST ? 'Сжечь карту (1 🔥)' : 'Нужен 1 огонёк души'}
                             className={`absolute -top-2 -right-2 w-6 h-6 rounded-full border text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 hover:scale-110 transition-all shadow-lg z-10 ${soulEmbers >= PREP_BURN_COST ? 'bg-red-900 border-red-500 cursor-pointer' : 'bg-slate-800 border-slate-600 opacity-40 cursor-not-allowed'}`}
                           >🔥</button>
+                          )}
                         </div>
                       );
                     }
@@ -2062,7 +2316,7 @@ const CardRevealOverlay = ({ card, owner, bgHue = 260, bgSat = 60, onDismiss }) 
 
 // --- ОКНО КОЛОДЫ: пуллы бойцов + живая очередь ротации карт ---
 
-const DeckWindow = ({ players, pools, drawPile, discardPile, maxMana, onClose }) => {
+const DeckWindow = ({ players, pools, drawPile, onClose }) => {
   // Двусторонняя подсветка: слот бойца <-> карта в очереди + тултип с реальной картой
   const [hoverId, setHoverId] = useState(null);
   const [tooltip, setTooltip] = useState(null); // { card, x, top, bottom }
@@ -2078,8 +2332,6 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, maxMana, onClose })
   // в колоде — закреплены в хвосте секции (в ротации не участвуют, не двигаются).
   // Живые карты показываются в реальном порядке drawPile со сквозной нумерацией.
   const deadIds = new Set(players.filter(p => p.hp <= 0).map(p => p.id));
-  const aliveCount = players.length - deadIds.size;
-  const liveDiscard = discardPile.filter(c => !deadIds.has(c.ownerId));
 
   let queueNum = 0;
   const handSlots = players.map(p => {
@@ -2092,24 +2344,10 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, maxMana, onClose })
     };
   });
 
-  // По 2 позиции ротации на живого бойца (3-я карта в руке)
-  const liveDeckLen = aliveCount * (CARD_POOL_SIZE - 1);
-  const liveDraw = drawPile.filter(c => !deadIds.has(c.ownerId));
-  const deckSlots = liveDraw.slice(0, liveDeckLen).map(c => ({ card: c, num: ++queueNum }));
-  while (deckSlots.length < liveDeckLen) deckSlots.push({ gone: true, num: ++queueNum });
-  // Хвост очереди: статичные черепа павших (по 2 на бойца), без номеров
-  players.filter(p => p.hp <= 0).forEach(p => {
-    for (let k = 0; k < CARD_POOL_SIZE - 1; k++) deckSlots.push({ isDead: true, player: p });
-  });
-
-  const discardSlotCount = Math.max(1, aliveCount);
-  const recentDiscards = liveDiscard.slice(-discardSlotCount);
-  const discardSlots = Array.from({ length: discardSlotCount }, (_, i) => {
-    const startIdx = discardSlotCount - recentDiscards.length;
-    const card = i >= startIdx ? recentDiscards[i - startIdx] : null;
-    const opacity = discardSlotCount === 1 ? 1 : 0.35 + i * (0.65 / Math.max(1, discardSlotCount - 1));
-    return { card, opacity };
-  });
+  // Очередь = реальные карты резерва живых бойцов (без пустышек и паддинга);
+  // в реальном порядке drawPile со сквозной нумерацией после руки.
+  const liveDraw = drawPile.filter(c => !deadIds.has(c.ownerId) && isRealDeckCard(c));
+  const deckSlots = liveDraw.map(c => ({ card: c, num: ++queueNum }));
 
   return (
     <div className="absolute inset-0 z-[1100] bg-black/45 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in duration-300 p-10">
@@ -2117,7 +2355,7 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, maxMana, onClose })
         <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
            <div>
              <h2 className="text-3xl font-black text-white uppercase tracking-tighter italic">Колода</h2>
-             <p className="text-xs text-slate-500 uppercase tracking-widest mt-1">Пулл карт отряда · {String(CARD_POOL_SIZE)} слота на бойца · карт {String(DECK_SIZE)}</p>
+             <p className="text-xs text-slate-500 uppercase tracking-widest mt-1">Пулл карт отряда · {String(CARD_POOL_SIZE)} слота на бойца · карт {String(Object.values(pools).reduce((a, arr) => a + arr.length, 0))}</p>
            </div>
            <button onClick={onClose} className="w-12 h-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-white hover:bg-red-900 hover:border-red-500 transition-all group">
              <span className="text-2xl group-hover:scale-125 transition-transform">✕</span>
@@ -2222,44 +2460,6 @@ const DeckWindow = ({ players, pools, drawPile, discardPile, maxMana, onClose })
                  );
                })}
 
-               {/* Разделитель колода | сброс */}
-               <div className="w-px h-16 bg-slate-700 mx-2 shrink-0"></div>
-
-               {/* Секция «Сброс» */}
-               <div className="flex flex-col items-center gap-2">
-                 <p className="text-[10px] text-red-400 uppercase tracking-[0.3em] font-black">Сброс</p>
-                 <div className="flex gap-3">
-               {discardSlots.map(({ card, opacity }, i) => {
-                 const isHover = card && hoverId === card.id;
-                 if (!card) {
-                   return (
-                     <div key={`d-pad-${i}`} className="relative w-16 h-20 rounded-xl border-2 border-red-900/40 bg-gradient-to-br from-red-950/30 to-slate-950 flex items-center justify-center" style={{ opacity }}>
-                       <span className="text-2xl text-red-400/40">⧖</span>
-                     </div>
-                   );
-                 }
-                 const showFace = isRealDeckCard(card);
-                 return (
-                   <div
-                     key={`d-${card.id}-${i}`}
-                     onMouseEnter={showFace ? (e) => handleHoverCard(card, e) : undefined}
-                     onMouseLeave={showFace ? () => handleHoverCard(null, null) : undefined}
-                     className={`relative w-16 h-20 rounded-xl border-2 bg-red-950/60 flex flex-col items-center justify-center gap-0.5 transition-transform duration-150 ${isHover ? 'scale-110 z-10' : ''}`}
-                     style={{ borderColor: '#ef4444', boxShadow: isHover ? '0 0 25px #ef4444' : 'inset 0 0 12px #ef444433', opacity: isHover ? 1 : opacity }}
-                   >
-                     {showFace ? (
-                       <>
-                         <span className="text-2xl drop-shadow-lg" style={{ filter: 'grayscale(0.4)' }}>{String(card.icon)}</span>
-                         <span className="text-[9px] font-black uppercase text-red-400">ур.{String(getCardLevel(card))}</span>
-                       </>
-                     ) : (
-                       <span className="text-2xl text-red-400/70">🙨</span>
-                     )}
-                   </div>
-                 );
-               })}
-                 </div>
-               </div>
              </div>
            </div>
         </div>
@@ -2428,7 +2628,7 @@ export default function App() {
   const [players, setPlayers] = useState(() => INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p })));
   const [enemies, setEnemies] = useState([]);
   
-  const [maxMana, setMaxMana] = useState(5);
+  const [maxMana, setMaxMana] = useState(MAX_MANA);
   const [mana, setMana] = useState(0); 
   const [turnState, setTurnState] = useState('map'); 
   
@@ -2493,6 +2693,7 @@ export default function App() {
   const [flyingCards, setFlyingCards] = useState([]);
   const [damagePopups, setDamagePopups] = useState([]);
   const [vfxList, setVfxList] = useState([]);
+  const [modStamps, setModStamps] = useState([]);
   const [bloodParticles, setBloodParticles] = useState([]);
   const [flashingTargets, setFlashingTargets] = useState([]);
 
@@ -2500,6 +2701,10 @@ export default function App() {
   const [flash, setFlash] = useState(false);
   const [lastPlayedCost, setLastPlayedCost] = useState(null);
   const [comboStreak, setComboStreak] = useState(0);
+  // Число для крутящегося символа комбо справа от арены (0 = скрыт).
+  const [comboCount, setComboCount] = useState(0);
+  // Бонус к мощности следующей карты в цепочке (от мод-карты «Усиление цепи»).
+  const [chainAttackBonus, setChainAttackBonus] = useState(0);
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenError, setFullscreenError] = useState(false);
@@ -2738,6 +2943,9 @@ export default function App() {
     } else {
        const spawnedEnemies = spawnEnemies(node.type, node.stage, sector);
        setEnemies(spawnedEnemies);
+       // Новый бой: броня и бонус цепи обнуляются
+       setPlayers(prev => prev.map(p => ({ ...p, armor: 0 })));
+       setChainAttackBonus(0);
        setTurnState('dealing');
        
        // Логика выкрикивания случайного оскорбления
@@ -2758,15 +2966,11 @@ export default function App() {
      if (powerupId === 'mana') {
         setMaxMana(m => m + 1);
      } else if (powerupId === 'stats') {
-        setPlayers(prev => prev.map(p => {
-           let updated = { ...p };
-           if (p.id === 'p1') updated.str = Math.round(updated.str * 1.02);
-           if (p.id === 'p2') updated.agi = Math.round(updated.agi * 1.02);
-           if (p.id === 'p3') updated.int = Math.round(updated.int * 1.02);
-           const maxHp = getMaxHpFromStats(updated);
-           const hpGain = maxHp - p.maxHp;
-           return syncPlayerMaxHp({ ...updated, hp: p.hp + Math.max(0, hpGain) });
-        }));
+        setPlayers(prev => prev.map(p => ({
+           ...p,
+           atk: (p.atk || 0) + 5,
+           matk: (p.matk || 0) + 5,
+        })));
      } else if (powerupId === 'hp') {
         setPlayers(prev => prev.map(p => {
            const bonus = Math.floor(p.maxHp * 0.5);
@@ -2795,10 +2999,10 @@ export default function App() {
     if (turnState !== 'player' || player.hp <= 0 || !player.currentCard || player.hasActed || isAnimating || showLevelUp || turnState === 'victory_wait') return;
     playSound('./assets/sfx/ui/hover.wav', 0.4);
     setHoveredPlayerId(player.id);
+    // Мод-карты (баффы) не целят врагов — подсветку целей пропускаем
+    if (isModCard(player.currentCard)) { setHoveredTargetIds([]); return; }
     // Считаем шаг комбо так же, как playCard: если карта продолжит серию — шаг +1
-    const willCombo = lastPlayedCost !== null && player.currentCard.cost === lastPlayedCost + 1;
-    const prospectiveStep = willCombo ? comboStreak + 1 : 0;
-    const targetIndices = getTargets(player.currentCard, playerIndex, enemies, prospectiveStep);
+    const targetIndices = getTargets(player.currentCard, playerIndex, enemies, { preview: true });
     setHoveredTargetIds(targetIndices.map(idx => enemies[idx].id));
   };
 
@@ -2819,7 +3023,7 @@ export default function App() {
       setPlayers(INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p }, fromDeath ? equipped[p.id] : null)));
       // Уровень/опыт обнуляются. xpToNextRef синхронизируем тут же: он обновляется
       // отложенным эффектом, иначе первый gainXp после смерти взял бы старый порог.
-      setXp(0); setXpToNext(60); xpToNextRef.current = 60; setPlayerLevel(1); setMaxMana(5);
+      setXp(0); setXpToNext(60); xpToNextRef.current = 60; setPlayerLevel(1); setMaxMana(MAX_MANA);
       setDrawPile(createInitialDeck()); setDiscardPile([]);
       setInventory(Array(INVENTORY_SIZE).fill(null));
       if (fullReset) setEquipped({ p1: null, p2: null, p3: null });
@@ -2829,6 +3033,7 @@ export default function App() {
       setPlayers(prev => prev.map(p => syncPlayerMaxHp({
         ...p,
         hp: getMaxHpFromStats(p, equipped[p.id]),
+        armor: 0,
         currentCard: null,
         hasActed: false,
         justDealt: false,
@@ -2837,7 +3042,7 @@ export default function App() {
       setDiscardPile([]);
     }
 
-    setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setDamagePopups([]); setFlyingXps([]); setFlyingItems([]); setShowLevelUp(false); setSlotsPopup(null); setLevelUpQueue(0); setRewardOptions([]);
+    setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setComboCount(0); setChainAttackBonus(0); setDamagePopups([]); setFlyingXps([]); setFlyingItems([]); setShowLevelUp(false); setSlotsPopup(null); setLevelUpQueue(0); setRewardOptions([]);
     setDragSrcIdx(null); setDragOverPlayerId(null); setItemTooltip(null);
     setShowCraft(false); setCraftSlots([null, null, null]); setCraftWarning('');
     setCurrentEvent(null);
@@ -2875,49 +3080,60 @@ export default function App() {
   const buyPrepCard = (heroId) => {
     const price = getPrepSlotPrice(prepCardsBought);
     if (prepCardsBought >= PREP_MAX_BUYS || soulEmbers < price) return;
-    const owned = [...drawPileRef.current, ...discardPileRef.current].filter(c => c.ownerId === heroId && isRealDeckCard(c));
+    const all = [...drawPileRef.current, ...discardPileRef.current];
+    const owned = all.filter(c => c.ownerId === heroId && isRealDeckCard(c));
     const ownedKeys = getOwnedSkillKeys(heroId, owned);
-    const options = getUnownedSkills(heroId, ownedKeys);
+    // Скиллы — только в свободный слот пулла героя. Мод-карты универсальны: не занимают
+    // персональные слоты, учитываются глобально (по всей колоде).
+    const skillOptions = owned.length >= CARD_POOL_SIZE ? [] : getUnownedSkills(heroId, ownedKeys);
+    const ownedModTypes = new Set(all.filter(isModCard).map(c => c.modType));
+    const modOptions = MOD_CARD_LIST.filter(m => !ownedModTypes.has(m.modType));
+    const options = [...skillOptions, ...modOptions];
     if (options.length === 0) return;
-    const targetEmpty = drawPileRef.current.find(c => isEmptyCard(c) && c.ownerId === heroId);
-    if (!targetEmpty) return;
-    const skill = options[Math.floor(Math.random() * options.length)];
-    const newCard = { ...skill, id: `prep_${Date.now()}_${Math.random()}`, level: 1, skillId: skill.id };
-    setDrawPile(prev => prev.map(c => c.id === targetEmpty.id ? newCard : c));
+    const pick = options[Math.floor(Math.random() * options.length)];
+    const isMod = isModCard(pick);
+    // Мод-карта — без ownerId (попадает в общую колоду, придёт в руку по очереди раздачи).
+    const newCard = isMod
+      ? { ...pick, id: `mod_${Date.now()}_${Math.random()}`, level: 1 }
+      : { ...pick, id: `prep_${Date.now()}_${Math.random()}`, level: 1, skillId: pick.id };
+    setDrawPile(prev => [...prev, newCard]);
     setSoulEmbers(e => e - price);
     setPrepCardsBought(c => c + 1);
-    const owner = players.find(p => p.id === heroId);
+    const owner = isMod ? null : players.find(p => p.id === heroId);
     setCardReveal({ card: newCard, owner });
   };
 
-  // Сжечь карту на экране подготовки → −1 огонёк, слот снова пустой (балласт)
+  // Сжечь карту на экране подготовки → −1 огонёк, карта удаляется из колоды (слот освобождается).
+  // Стартовую (базовую) карту сжечь нельзя.
   const burnPrepCard = (cardId) => {
     if (soulEmbers < PREP_BURN_COST) return;
     const all = [...drawPileRef.current, ...discardPileRef.current];
     const card = all.find(c => c.id === cardId);
-    if (!card || !isRealDeckCard(card)) return;
-    const toEmpty = (c) => (c && c.id === cardId) ? createEmptyCard(c.ownerId, 0) : c;
-    setDrawPile(prev => prev.map(toEmpty));
-    setDiscardPile(prev => prev.map(toEmpty));
+    if (!card || !isRealDeckCard(card) || card.isStarter) return;
+    setDrawPile(prev => prev.filter(c => c.id !== cardId));
+    setDiscardPile(prev => prev.filter(c => c.id !== cardId));
     setSoulEmbers(e => e - PREP_BURN_COST);
     playSound('./assets/sfx/ui/card_discard.wav', 0.6);
   };
 
-  const getTargets = useCallback((card, playerIndex, currentEnemies, comboStep = 0) => {
-    const alive = currentEnemies.map((e, i) => ({...e, originalIndex: i})).filter(e => !e.isDead);
+  const getTargets = useCallback((card, playerIndex, currentEnemies, { preview = false } = {}) => {
+    const alive = currentEnemies.map((e, i) => ({ ...e, originalIndex: i })).filter(e => !e.isDead);
     if (alive.length === 0) return [];
-    // comboSplash: бьёт по площади начиная со 2-й карты комбо (comboStep >= 1)
-    if (card.type === 'splash' || (card.comboSplash && comboStep >= 1)) {
-      return currentEnemies.map((e, i) => !e.isDead ? i : -1).filter(i => i !== -1);
+
+    const targeting = getCardTargeting(card) || CARD_TARGETING.ALL;
+
+    if (targeting === CARD_TARGETING.ALL) {
+      return alive.map(e => e.originalIndex);
     }
-    if (card.priority === 'lowestHp') {
-      alive.sort((a, b) => a.hp - b.hp); return [alive[0].originalIndex];
-    } else if (card.priority === 'highestHp') {
-      alive.sort((a, b) => b.hp - a.hp); return [alive[0].originalIndex];
-    } else {
-      if (!currentEnemies[playerIndex]?.isDead && currentEnemies[playerIndex]) return [playerIndex];
+    if (targeting === CARD_TARGETING.STRONGEST) {
+      alive.sort((a, b) => (b.maxHp - a.maxHp) || (b.hp - a.hp));
       return [alive[0].originalIndex];
     }
+    // random2: при наведении — стабильный превью-сид, при розыгрыше — настоящий рандом
+    const seed = preview
+      ? `${card.id}_${card.ownerId || playerIndex}_${alive.map(e => e.id).join('_')}`
+      : null;
+    return pickRandomAliveIndices(alive, 2, seed);
   }, []);
 
   const triggerImpact = (damageValue) => {
@@ -2951,7 +3167,6 @@ export default function App() {
       if (levels > 0) {
         setXpToNext(cur); xpToNextRef.current = cur;
         setPlayerLevel(l => l + levels);
-        setMaxMana(m => m + levels);
         // Рост HP за уровень отряда (вместо отвязанного от статов str→hp)
         setPlayers(prev2 => prev2.map(p => {
           const grow = (HP_PER_LEVEL[p.id] || 5) * levels;
@@ -3168,13 +3383,22 @@ export default function App() {
       const owned = full.filter(c => c.ownerId === pid && isRealDeckCard(c));
       const ownedKeys = getOwnedSkillKeys(pid, owned);
       const unownedSkills = getUnownedSkills(pid, ownedKeys);
-      // Новые карты — только если в колоде есть пустой слот И остались уникальные скиллы
-      if (owned.length < CARD_POOL_SIZE && unownedSkills.length > 0) {
+      // Новые скиллы — только если есть свободный слот пулла героя
+      if (owned.length < CARD_POOL_SIZE) {
         unownedSkills.forEach(s => candidates.push({ kind: 'new', card: s }));
       }
-      // Улучшения — только для реально имеющихся карт
+      // Улучшения — только для реально имеющихся карт героя
       owned.forEach(c => candidates.push({ kind: 'upgrade', card: c }));
     });
+    // Универсальные мод-карты: общие, не в слотах героев. Новые — глобально (без ownerId);
+    // улучшения — для уже имеющихся в колоде мод-карт.
+    if (aliveIds.size > 0) {
+      const deckMods = full.filter(isModCard);
+      const ownedModTypes = new Set(deckMods.map(c => c.modType));
+      MOD_CARD_LIST.filter(m => !ownedModTypes.has(m.modType))
+        .forEach(m => candidates.push({ kind: 'new', card: { ...m } }));
+      deckMods.forEach(c => candidates.push({ kind: 'upgrade', card: c }));
+    }
     return shuffleArray(candidates).slice(0, 3);
   };
 
@@ -3217,6 +3441,20 @@ export default function App() {
       return;
     }
 
+    // Мод-карта (универсальная): без владельца, в общую колоду; дедуп — глобальный по modType
+    if (isModCard(option.card)) {
+      const hand = playersRef.current.map(p => p.currentCard).filter(Boolean);
+      const all = [...drawPileRef.current, ...discardPileRef.current, ...hand];
+      if (all.some(c => isModCard(c) && c.modType === option.card.modType)) {
+        if (remaining === 0) runPendingTransition();
+        return;
+      }
+      const newCard = { ...option.card, id: `mod_${Date.now()}_${Math.random()}`, level: 1 };
+      setDrawPile(prev => [...prev, newCard]);
+      setSlotsPopup({ newCardId: newCard.id });
+      return;
+    }
+
     // Защита: мёртвым бойцам карты не выдаём (на случай гибели владельца к моменту выбора)
     const ownerAlive = playersRef.current.some(p => p.id === option.card.ownerId && p.hp > 0);
     if (!ownerAlive) {
@@ -3235,13 +3473,8 @@ export default function App() {
     }
 
     const newCard = { ...option.card, id: `rew_${Date.now()}_${Math.random()}`, level: 1, skillId: option.card.id };
-    // Находим ОДНУ конкретную пустую карту бойца (в резерве или сбросе) и заменяем её по id,
-    // чтобы не продублировать награду, если пустые есть в обеих стопках
-    const targetEmpty = [...drawPileRef.current, ...discardPileRef.current]
-      .find(c => isEmptyCard(c) && c.ownerId === ownerId);
-    const replaceById = (pile) => pile.map(c => (targetEmpty && c.id === targetEmpty.id) ? newCard : c);
-    setDrawPile(prev => replaceById(prev));
-    setDiscardPile(prev => replaceById(prev));
+    // Колода без балласта: новая карта просто добавляется в резерв (в свободный слот пулла)
+    setDrawPile(prev => [...prev, newCard]);
     // Показываем схему слотов отряда; следующий уровень/переход — при закрытии попапа
     setSlotsPopup({ newCardId: newCard.id });
   };
@@ -3252,9 +3485,22 @@ export default function App() {
     if (levelUpQueue <= 0) runPendingTransition();
   };
 
+  const endPlayerPhase = useCallback(() => {
+    setTurnState(ts => {
+      if (ts !== 'player') return ts;
+      playSound('./assets/sfx/game/enemy_turn.wav', 0.6);
+      return 'enemy';
+    });
+    setChainAttackBonus(0);
+    setComboCount(0);
+  }, []);
+
   useEffect(() => {
     if (turnState !== 'dealing' || showLevelUp) return;
-    setLastPlayedCost(null); setComboStreak(0);
+    setLastPlayedCost(null); setComboStreak(0); setComboCount(0); setChainAttackBonus(0);
+    // Броня от мод-карт действует только в рамках текущего раунда (ход игрока + ответ врага)
+    setPlayers(prev => prev.map(p => ({ ...p, armor: 0 })));
+    actingRef.current = new Set();
     // Колода обновляется каждые 3 хода: сброс замешивается среди ВСЕХ существующих карт
     // (резерв + сброс перетасовываются вместе), а не когда резерв опустел.
     const checkAndReshuffle = () => {
@@ -3280,11 +3526,11 @@ export default function App() {
     const { currentDraw, currentDiscard } = checkAndReshuffle();
     dealCounterRef.current += 1;
     const tempDraw = [...currentDraw]; const assignments = {};
-    const emptiesToDiscard = [];
     const alivePlayers = players.filter(p => p.hp > 0);
     alivePlayers.forEach(p => {
       if (tempDraw.length > 0) {
-        const candidateIndex = tempDraw.findIndex(c => c.ownerId === p.id);
+        // Герой берёт первую в очереди карту, которая ИЛИ его, ИЛИ универсальная мод-карта (без владельца)
+        const candidateIndex = tempDraw.findIndex(c => c.ownerId === p.id || (isModCard(c) && !c.ownerId));
         if (candidateIndex !== -1) { assignments[p.id] = tempDraw.splice(candidateIndex, 1)[0]; }
       }
     });
@@ -3292,30 +3538,89 @@ export default function App() {
     players.forEach(p => {
       if (p.hp <= 0) return;
       const drawn = assignments[p.id];
-      let cardToDeal;
-      if (drawn && isEmptyCard(drawn)) {
-        cardToDeal = HERO_ABILITIES[p.id].basic;
-        emptiesToDiscard.push(drawn);
-      } else if (drawn) {
-        cardToDeal = drawn;
-      } else {
-        cardToDeal = HERO_ABILITIES[p.id].basic;
-      }
+      // Колода без балласта: если в резерве нет карты этого героя на этот ход —
+      // бесплатно выдаём базовую атаку (карты вернутся при обновлении колоды).
+      const cardToDeal = drawn || HERO_ABILITIES[p.id].basic;
       const slotRect = slotRefs.current[p.id]?.getBoundingClientRect();
       if (deckRect && slotRect) {
         const flyId = `deal_${p.id}_${Date.now()}`;
-        setTimeout(() => { playSound('./assets/sfx/ui/card_deal.wav', 0.5); setFlyingCards(prev => [...prev, { id: flyId, startX: deckRect.left + deckRect.width/2, startY: deckRect.top + deckRect.height/2, endX: slotRect.left + slotRect.width/2, endY: slotRect.top + slotRect.height * 0.75 }]); }, delay);
-        setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setPlayers(prev => prev.map(hero => hero.id === p.id ? { ...hero, currentCard: cardToDeal, justDealt: true } : hero)); }, delay + 850); 
+        setTimeout(() => { playSound('./assets/sfx/ui/card_deal.wav', 0.5); setFlyingCards(prev => [...prev, { id: flyId, startX: deckRect.left + deckRect.width/2, startY: deckRect.top + deckRect.height/2, endX: slotRect.left + slotRect.width/2, endY: slotRect.top + slotRect.height * 0.75, flyMs: CARD_DEAL_FLY_MS }]); }, delay);
+        setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setPlayers(prev => prev.map(hero => hero.id === p.id ? { ...hero, currentCard: cardToDeal, justDealt: true } : hero)); }, delay + CARD_DEAL_FLY_MS); 
       }
-      delay += 300; 
+      delay += CARD_DEAL_STAGGER_MS; 
     });
-    setTimeout(() => { playSound('./assets/sfx/game/mana_restore.wav', 0.5); setDrawPile(tempDraw); setDiscardPile([...currentDiscard, ...emptiesToDiscard]); setPlayers(prev => prev.map(p => ({ ...p, hasActed: false, justDealt: false }))); setMana(maxMana); setTurnState('player'); }, delay + 1000); 
+    setTimeout(() => { playSound('./assets/sfx/game/mana_restore.wav', 0.5); setDrawPile(tempDraw); setDiscardPile(currentDiscard); setPlayers(prev => prev.map(p => ({ ...p, hasActed: false, justDealt: false }))); setMana(maxMana); setTurnState('player'); }, delay + CARD_DEAL_FINISH_PAD_MS);
   }, [turnState, showLevelUp, maxMana]);
+
+  // Розыгрыш мод-карты (бафф): без цели по врагу, лёгкая анимация, участвует в цепочке комбо.
+  const playModCard = (playerIndex, card) => {
+    const player = players[playerIndex];
+    if (actingRef.current.has(player.id) || manaRef.current < card.cost) return;
+    actingRef.current.add(player.id);
+    const isContinuing = lastPlayedCost !== null && card.cost === lastPlayedCost + 1;
+    const nextComboStreak = isContinuing ? comboStreak + 1 : 0;
+
+    playSound('./assets/sfx/ui/click.wav', 0.6);
+    manaRef.current -= card.cost; setMana(manaRef.current);
+
+    // Эффект мод-карты тоже множится в комбо тем же коэффициентом, что урон (2-я +50%, 3-я +150%)
+    const comboStep = nextComboStreak;
+    const comboMult = COMBO_DAMAGE_MULT[Math.min(comboStep, 2)];
+    const amount = Math.round(getModValue(card) * comboMult);
+    const aRect = avatarRefs.current[player.id]?.getBoundingClientRect();
+    if (aRect) {
+      setModStamps(prev => [...prev, {
+        id: `stamp_${Date.now()}_${player.id}`,
+        icon: card.modType === 'armor' ? '🛡️' : '🔗',
+        amount,
+        variant: card.modType,
+        x: aRect.left + aRect.width / 2,
+        y: aRect.top + aRect.height / 2,
+      }]);
+    }
+    if (card.modType === 'armor') {
+      setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, armor: (p.armor || 0) + amount, currentCard: null, hasActed: true } : p));
+      playSound('./assets/sfx/game/mana_restore.wav', 0.4);
+    } else { // chain
+      setChainAttackBonus(b => b + amount);
+      setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, currentCard: null, hasActed: true } : p));
+      playSound('./assets/sfx/ui/click.wav', 0.5);
+    }
+
+    // Бухгалтерия комбо: мод-карты тоже звено цепочки
+    if (isContinuing) setComboStreak(s => s + 1); else setComboStreak(0);
+    setLastPlayedCost(card.cost);
+    {
+      const chainPos = nextComboStreak + 1;
+      const hasFollowup = players.some(o => o.id !== player.id && o.hp > 0 && !o.hasActed && o.currentCard && o.currentCard.cost === card.cost + 1);
+      setComboCount((chainPos >= 2 || hasFollowup) ? chainPos : 0);
+    }
+
+    // Карта в сброс (с анимацией полёта)
+    if (isRealDeckCard(card)) {
+      const slotRect = slotRefs.current[player.id]?.getBoundingClientRect();
+      const discardRect = discardRef.current?.getBoundingClientRect();
+      if (slotRect && discardRect) {
+        const flyId = `disc_${Date.now()}`;
+        playSound('./assets/sfx/ui/card_discard.wav', 0.4);
+        setFlyingCards(prev => [...prev, { id: flyId, startX: slotRect.left + slotRect.width / 2, startY: slotRect.top + slotRect.height * 0.75, endX: discardRect.left + discardRect.width / 2, endY: discardRect.top + discardRect.height / 2, isDiscard: true }]);
+        setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setDiscardPile(prev => [...prev, card]); }, 850);
+      } else {
+        setDiscardPile(prev => [...prev, card]);
+      }
+    }
+  };
 
   const playCard = (playerIndex, card) => {
     const player = players[playerIndex];
     const effectivePlayer = getEffectivePlayer(player, equipped[player.id]);
-    if (turnState !== 'player' || mana < card.cost || player.hp <= 0 || player.hasActed || isAnimating) return;
+    // Ввод не блокируется анимациями: гварды синхронные (actingRef/manaRef)
+    if (turnState !== 'player' || manaRef.current < card.cost || player.hp <= 0 || player.hasActed || actingRef.current.has(player.id)) return;
+    if (isModCard(card)) { playModCard(playerIndex, card); return; }
+    actingRef.current.add(player.id);
+
+    // Бонус к мощности от мод-карты «Усиление цепи» — применяется к этой (следующей) карте
+    const chainBonusAtPlay = chainAttackBonus;
 
     const isContinuing = lastPlayedCost !== null && card.cost === lastPlayedCost + 1;
     const nextComboStreak = isContinuing ? comboStreak + 1 : 0;
@@ -3326,18 +3631,23 @@ export default function App() {
     // эффекты карты тоже множатся в комбо тем же коэффициентом
     const comboEffectMult = comboDamageMult;
 
-    const targetIndices = getTargets(card, playerIndex, enemies, comboStep);
-    if (targetIndices.length === 0) return;
+    const targetIndices = getTargets(card, playerIndex, enemiesRef.current);
+    if (targetIndices.length === 0) { actingRef.current.delete(player.id); return; }
 
     playSound('./assets/sfx/ui/click.wav', 0.6);
-    setIsAnimating(true); setMana(m => m - card.cost); setAnimatingPlayerId(player.id); setAnimatingTargetIds(targetIndices.map(idx => enemies[idx].id));
+    // Ману тратим синхронно (manaRef), помечаем ход бойца сразу — чтобы быстрые клики
+    // не перерасходовали ману и авто-завершение хода видело статус мгновенно.
+    manaRef.current -= card.cost; setMana(manaRef.current);
+    const playSlotRect = slotRefs.current[player.id]?.getBoundingClientRect();
+    setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, currentCard: null, hasActed: true } : p));
+    setAnimatingPlayerId(player.id); setAnimatingTargetIds(targetIndices.map(idx => enemiesRef.current[idx]?.id).filter(Boolean));
 
     // Вычисляем вектор прыжка игрока. Сначала сбрасываем translate в 0,
     // затем через rAF устанавливаем цель — браузер animates transition плавно.
     setAttackTranslate({ dx: 0, dy: 0 });
     {
       const aRect = avatarRefs.current[player.id]?.getBoundingClientRect();
-      const firstTargetId = targetIndices.length > 0 ? enemies[targetIndices[0]].id : null;
+      const firstTargetId = targetIndices.length > 0 ? enemiesRef.current[targetIndices[0]]?.id : null;
       const tRect = firstTargetId ? enemyRefs.current[firstTargetId]?.getBoundingClientRect() : null;
       const leapDx = aRect && tRect ? (tRect.left + tRect.width/2) - (aRect.left + aRect.width/2) : 200;
       const leapDy = aRect && tRect ? (tRect.top  + tRect.height/2) - (aRect.top  + aRect.height/2) : 0;
@@ -3348,23 +3658,36 @@ export default function App() {
 
     if (isContinuing) setComboStreak(s => s + 1); else setComboStreak(0);
     setLastPlayedCost(card.cost);
+    // Символ комбо: 1-based позиция в цепочке. Не показываем, если у карты нет
+    // потенциальных звеньев — т.е. одиночная карта (поз. 1) без бойца,
+    // способного продолжить цепочку (есть карта стоимостью cost+1).
+    {
+      const chainPos = nextComboStreak + 1;
+      const hasFollowup = players.some(o => o.id !== player.id && o.hp > 0 && !o.hasActed && o.currentCard && o.currentCard.cost === card.cost + 1);
+      setComboCount((chainPos >= 2 || hasFollowup) ? chainPos : 0);
+    }
 
     const aRect = avatarRefs.current[player.id]?.getBoundingClientRect();
+    const comboTier = Math.min(comboStep, 2);
+    const comboScale = COMBO_VFX_SCALE[comboTier];
+    const particleMult = COMBO_VFX_PARTICLE_MULT[comboTier];
     const vfxArr = [];
     targetIndices.forEach(idx => {
-       const tRect = enemyRefs.current[enemies[idx].id]?.getBoundingClientRect();
+       const tRect = enemyRefs.current[enemiesRef.current[idx]?.id]?.getBoundingClientRect();
        if (aRect && tRect) {
           const baseVfx = {
              startX: aRect.left + aRect.width/2, startY: aRect.top + aRect.height/2,
-             endX: tRect.left + tRect.width/2, endY: tRect.top + tRect.height/2
+             endX: tRect.left + tRect.width/2, endY: tRect.top + tRect.height/2,
+             comboScale, comboTier,
           };
           
           let vfxCount = 1;
           const type = card.vfxType || 'slash';
-          if (type === 'daggers' || type === 'poison') vfxCount = 12;
+          if (type === 'daggers' || type === 'poison') vfxCount = Math.max(1, Math.round(12 * particleMult));
+          else vfxCount = Math.max(1, Math.round((1 + comboTier * 3) * particleMult));
           
           for (let k = 0; k < vfxCount; k++) {
-             vfxArr.push({ id: Math.random(), type, delay: k * (vfxCount > 1 ? 15 : 0), ...baseVfx });
+             vfxArr.push({ id: Math.random(), type, delay: k * (vfxCount > 1 ? Math.max(8, Math.round(15 / particleMult)) : 0), ...baseVfx });
           }
        }
     });
@@ -3374,12 +3697,15 @@ export default function App() {
 
     setTimeout(() => {
       setVfxList([]); 
-      const { damage: baseDamage, critChance } = computeCardDamage(effectivePlayer, card, comboDamageMult);
-      const newEnemies = enemies.map(e => ({...e})); let xpToSpawn = []; let lootToSpawn = [];
+      let { damage: baseDamage, critChance } = computeCardDamage(effectivePlayer, card, comboDamageMult);
+      // Бонус от «Усиления цепи» добавляется к мощности этой карты и тратится
+      if (chainBonusAtPlay > 0) { baseDamage += chainBonusAtPlay; setChainAttackBonus(0); }
+      // База — актуальное состояние врагов из рефа (важно при параллельных розыгрышах)
+      const newEnemies = enemiesRef.current.map(e => ({...e})); let xpToSpawn = []; let lootToSpawn = [];
 
       playSound(getCombatHitSound(card.vfxType || 'slash'));
 
-      const hitEnemyIds = targetIndices.map(idx => enemies[idx].id);
+      const hitEnemyIds = targetIndices.map(idx => newEnemies[idx]?.id).filter(Boolean);
       setFlashingTargets(prev => [...prev, ...hitEnemyIds]);
       setTimeout(() => setFlashingTargets(prev => prev.filter(id => !hitEnemyIds.includes(id))), 250);
 
@@ -3441,8 +3767,11 @@ export default function App() {
       setBloodParticles(prev => [...prev, ...newBlood]);
       if (statusPopups.length) setTimeout(() => setDamagePopups(prev => [...prev, ...statusPopups]), 260);
 
-      setEnemies(newEnemies); setAnimatingPlayerId(null); 
-            setTimeout(() => setAnimatingTargetIds([]), 350);
+      // Синхронно обновляем реф, чтобы параллельный розыгрыш видел свежий HP врагов
+      enemiesRef.current = newEnemies; setEnemies(newEnemies);
+      // Сбрасываем прыжок только если с тех пор не начал бить другой боец
+      setAnimatingPlayerId(prev => prev === player.id ? null : prev);
+      setTimeout(() => setAnimatingTargetIds([]), 350);
       setHoveredPlayerId(null); setHoveredTargetIds([]);
       
       xpToSpawn.forEach(xpData => {
@@ -3468,7 +3797,6 @@ export default function App() {
       if (allDead) { setTurnState('victory_wait'); }
 
       const finish = () => {
-        setIsAnimating(false);
         if (allDead) {
           setCompletedNodes(prev => [...prev, currentMapNodeId]);
           setTimeout(() => {
@@ -3483,15 +3811,15 @@ export default function App() {
       };
 
       if (isRealDeckCard(card)) {
-        const slotRect = slotRefs.current[player.id]?.getBoundingClientRect(); const discardRect = discardRef.current?.getBoundingClientRect();
-        setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, currentCard: null, hasActed: true } : p));
-        if (slotRect && discardRect) {
+        // currentCard/hasActed уже сброшены синхронно при розыгрыше; здесь только анимация сброса
+        const discardRect = discardRef.current?.getBoundingClientRect();
+        if (playSlotRect && discardRect) {
           const flyId = `disc_${Date.now()}`;
           playSound('./assets/sfx/ui/card_discard.wav', 0.4);
-          setFlyingCards(prev => [...prev, { id: flyId, startX: slotRect.left + slotRect.width/2, startY: slotRect.top + slotRect.height * 0.75, endX: discardRect.left + discardRect.width/2, endY: discardRect.top + discardRect.height/2, isDiscard: true }]);
+          setFlyingCards(prev => [...prev, { id: flyId, startX: playSlotRect.left + playSlotRect.width/2, startY: playSlotRect.top + playSlotRect.height * 0.75, endX: discardRect.left + discardRect.width/2, endY: discardRect.top + discardRect.height/2, isDiscard: true }]);
           setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setDiscardPile(prev => [...prev, card]); finish(); }, 850);
         } else { setDiscardPile(prev => [...prev, card]); finish(); }
-      } else { setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, currentCard: null, hasActed: true } : p)); finish(); }
+      } else { finish(); }
     }, 300); 
   };
 
@@ -3499,11 +3827,27 @@ export default function App() {
   useEffect(() => { playersRef.current = players; }, [players]);
   const enemiesRef = useRef(enemies);
   useEffect(() => { enemiesRef.current = enemies; }, [enemies]);
+  // Синхронные источники истины для мгновенного (асинхронного) розыгрыша карт без блокировки ввода:
+  // manaRef — чтобы быстрые клики не перерасходовали ману; actingRef — чтобы один герой не сыграл дважды.
+  const manaRef = useRef(mana);
+  useEffect(() => { manaRef.current = mana; }, [mana]);
+  const actingRef = useRef(new Set());
   const drawPileRef = useRef(drawPile);
   useEffect(() => { drawPileRef.current = drawPile; }, [drawPile]);
   const discardPileRef = useRef(discardPile);
   useEffect(() => { discardPileRef.current = discardPile; }, [discardPile]);
   useEffect(() => { showLevelUpRef.current = showLevelUp; }, [showLevelUp]);
+
+  // Авто-завершение хода: как только ни один живой боец не может сделать легальный ход
+  // (нет маны / разыграны все карты), фаза игрока автоматически переходит к врагу.
+  // Небольшая задержка — чтобы дать долететь урону последней карты и сработать проверке победы.
+  useEffect(() => {
+    if (turnState !== 'player' || showLevelUp) return;
+    const canAct = players.some(p => p.hp > 0 && !p.hasActed && p.currentCard && mana >= (p.currentCard.cost || 0));
+    if (canAct) return;
+    const t = setTimeout(endPlayerPhase, 500);
+    return () => clearTimeout(t);
+  }, [players, mana, turnState, showLevelUp, endPlayerPhase]);
 
   useEffect(() => {
     if (turnState !== 'enemy' || showLevelUp) return;
@@ -3571,7 +3915,7 @@ export default function App() {
             return;
          }
 
-         const base = Math.floor(Math.random() * 8) + 8 + (currentStage * 3);
+         const base = Math.floor((Math.random() * 8 + 8 + (currentStage * 3)) * ENEMY_POWER_MULT);
          const weakenAtk = st.weaken?.atk || 0;
          const dmg = Math.max(1, Math.round(base * (enemy.dmgMult || 1.0) * (1 - weakenAtk)));
          const style = enemy.attackStyle || 'melee';
@@ -3612,17 +3956,20 @@ export default function App() {
                targets.forEach(t => {
                   const pRect = avatarRefs.current[t.id]?.getBoundingClientRect();
                   if (pRect) {
-                     setDamagePopups(dp => [...dp, { id: Math.random(), value: dmg, x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 }]);
-                     const nb = []; for (let i=0; i<20; i++) nb.push({ id: Math.random(), x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 });
-                     setBloodParticles(prev => [...prev, ...nb]);
+                     const { hpLoss } = applyIncomingDamage(t, dmg);
+                     if (hpLoss > 0) {
+                       setDamagePopups(dp => [...dp, { id: Math.random(), value: hpLoss, x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 }]);
+                       const nb = []; for (let i=0; i<20; i++) nb.push({ id: Math.random(), x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 });
+                       setBloodParticles(prev => [...prev, ...nb]);
+                     }
                   }
                });
 
                setPlayers(currentPs => currentPs.map(p => {
                   if (!targets.some(t => t.id === p.id)) return p;
-                  const newHp = Math.max(0, p.hp - dmg);
+                  const { newHp, newArmor } = applyIncomingDamage(p, dmg);
                   if (newHp === 0) purgeHeroFromDeck(p.id, p.currentCard);
-                  return { ...p, hp: newHp, currentCard: null };
+                  return { ...p, hp: newHp, armor: newArmor, currentCard: null };
                }));
 
                setAnimatingEnemyId(null);
@@ -3675,17 +4022,20 @@ export default function App() {
             setTimeout(() => setFlashingTargets(prev => prev.filter(id => id !== target.id)), 250);
 
             if (pRect) {
-               setDamagePopups(dp => [...dp, { id: Math.random(), value: dmg, x: pRect.left + pRect.width / 2, y: pRect.top + pRect.height / 2 }]);
-               const newBlood = [];
-               for(let i=0; i<30; i++) newBlood.push({ id: Math.random(), x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 });
-               setBloodParticles(prev => [...prev, ...newBlood]);
+               const { hpLoss } = applyIncomingDamage(target, dmg);
+               if (hpLoss > 0) {
+                 setDamagePopups(dp => [...dp, { id: Math.random(), value: hpLoss, x: pRect.left + pRect.width / 2, y: pRect.top + pRect.height / 2 }]);
+                 const newBlood = [];
+                 for(let i=0; i<30; i++) newBlood.push({ id: Math.random(), x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 });
+                 setBloodParticles(prev => [...prev, ...newBlood]);
+               }
             }
 
             setPlayers(currentPs => currentPs.map(p => {
                if (p.id === target.id) {
-                  const newHp = Math.max(0, p.hp - dmg);
+                  const { newHp, newArmor } = applyIncomingDamage(p, dmg);
                   if (newHp === 0) purgeHeroFromDeck(p.id, p.currentCard);
-                  return { ...p, hp: newHp, currentCard: null };
+                  return { ...p, hp: newHp, armor: newArmor, currentCard: null };
                }
                return p;
             }));
@@ -3712,23 +4062,39 @@ export default function App() {
   }, [turnState, showLevelUp, currentStage]);
 
   const getCardComboStatus = (pId, card) => {
-    if (!card) return { isCandidate: false, willGiveBonus: false, comboStep: 0, comboPct: 0, willSplash: false };
+    if (!card) return { isCandidate: false, willGiveBonus: false, comboStep: 0, comboPct: 0 };
     const willGiveBonus = lastPlayedCost !== null && card.cost === lastPlayedCost + 1;
     const comboStep = willGiveBonus ? Math.min(comboStreak + 1, 2) : 0;
     const comboPct = COMBO_DAMAGE_PCT[comboStep];
-    const willSplash = !!card.comboSplash && comboStep >= 1;
-    let isCandidate = false;
-    if (willGiveBonus) isCandidate = true;
-    else if (lastPlayedCost === null) {
-      const hasFollowup = players.some(otherP => otherP.id !== pId && !otherP.hasActed && otherP.currentCard?.cost === card.cost + 1);
-      isCandidate = hasFollowup;
-    }
-    return { isCandidate, willGiveBonus, comboStep, comboPct, willSplash };
+    const isCandidate = willGiveBonus;
+    return { isCandidate, willGiveBonus, comboStep, comboPct };
   };
 
+  const hoverTargetPreview = useMemo(() => {
+    if (!hoveredPlayerId || hoveredTargetIds.length === 0) return {};
+    const player = players.find(p => p.id === hoveredPlayerId);
+    if (!player?.currentCard || isModCard(player.currentCard)) return {};
+    const eff = getEffectivePlayer(player, equipped[player.id]);
+    const isContinuing = lastPlayedCost !== null && player.currentCard.cost === lastPlayedCost + 1;
+    const comboStep = isContinuing ? comboStreak + 1 : 0;
+    const comboMult = COMBO_DAMAGE_MULT[Math.min(comboStep, 2)];
+    const map = {};
+    hoveredTargetIds.forEach(id => {
+      const enemy = enemies.find(e => e.id === id);
+      if (enemy && !enemy.isDead) {
+        map[id] = computePreviewDamageOnEnemy(eff, player.currentCard, enemy, comboMult, chainAttackBonus);
+      }
+    });
+    return map;
+  }, [hoveredPlayerId, hoveredTargetIds, players, enemies, equipped, lastPlayedCost, comboStreak, chainAttackBonus]);
+
   const aliveCount = players.filter(p => p.hp > 0).length;
-  const totalDeckSize = aliveCount * CARD_POOL_SIZE;
-  const liveDrawCount = drawPile.filter(c => players.some(p => p.hp > 0 && p.id === c.ownerId)).length;
+  // Счётчик колоды: реальные карты живых бойцов. Числитель — в резерве, знаменатель — всего.
+  // Реальная карта в колоде: либо принадлежит живому герою, либо это универсальная мод-карта (без владельца)
+  const aliveOwnsReal = (c) => isRealDeckCard(c) && ((isModCard(c) && !c.ownerId) || players.some(p => p.hp > 0 && p.id === c.ownerId));
+  const liveHandReal = players.filter(p => p.hp > 0).map(p => p.currentCard).filter(c => c && isRealDeckCard(c));
+  const liveDrawCount = drawPile.filter(aliveOwnsReal).length;
+  const totalDeckSize = liveDrawCount + discardPile.filter(aliveOwnsReal).length + liveHandReal.length;
 
   const currentNode = gameMap.find(n => n.id === currentMapNodeId);
   const currentNodeInfo = getNodeInfo(currentNode?.type);
@@ -3844,6 +4210,39 @@ export default function App() {
           0%, 100% { filter: none; }
           50% { filter: brightness(0.6) sepia(1) hue-rotate(-32deg) saturate(250%); }
         }
+        @keyframes modStampSlam {
+          0%   { opacity: 0; transform: scale(2.6) rotate(-14deg); }
+          18%  { opacity: 1; transform: scale(2.6) rotate(-14deg); }
+          55%  { opacity: 1; transform: scale(0.88) rotate(3deg); }
+          72%  { transform: scale(1.12) rotate(-2deg); }
+          88%  { transform: scale(1) rotate(0deg); }
+          100% { opacity: 0; transform: scale(0.95) rotate(0deg); }
+        }
+        @keyframes modStampRing {
+          0%   { opacity: 0.95; transform: scale(0.25); }
+          100% { opacity: 0; transform: scale(2.4); }
+        }
+        @keyframes comboSpinCW { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes comboSpinCCW { from { transform: rotate(0deg); } to { transform: rotate(-360deg); } }
+        @keyframes comboNumPop { 0% { transform: scale(0.2); opacity: 0; } 55% { transform: scale(1.35); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes slotPushLeft {
+          0%   { transform: translateX(0) rotate(0deg); }
+          55%  { transform: translateX(-18px) rotate(-1.75deg); }
+          78%  { transform: translateX(-18px) rotate(0.875deg); }
+          100% { transform: translateX(-18px) rotate(0deg); }
+        }
+        @keyframes slotPushRight {
+          0%   { transform: translateX(0) rotate(0deg); }
+          55%  { transform: translateX(18px) rotate(1.75deg); }
+          78%  { transform: translateX(18px) rotate(-0.875deg); }
+          100% { transform: translateX(18px) rotate(0deg); }
+        }
+        .card-nudge-wrap {
+          transform-origin: center bottom;
+          transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+        }
+        .card-nudge-wrap.slot-push-left  { animation: slotPushLeft  0.65s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+        .card-nudge-wrap.slot-push-right { animation: slotPushRight 0.65s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
       `}</style>
       <div 
         ref={appRef} 
@@ -3897,6 +4296,9 @@ export default function App() {
       </div>
 
       {vfxList.map(v => <CombatVfx key={v.id} vfx={v} />)}
+      {modStamps.map(s => (
+        <ModStampEffect key={s.id} {...s} onComplete={(id) => setModStamps(prev => prev.filter(x => x.id !== id))} />
+      ))}
       {flyingCards.map(fc => <FlyingCard key={fc.id} {...fc} />)}
       {flyingXps.map(fx => <FlyingXp key={fx.id} {...fx} onComplete={handleXpGained} />)}
       {flyingItems.map(fi => <FlyingItem key={fi.id} {...fi} onComplete={handleItemLanded} />)}
@@ -3908,6 +4310,7 @@ export default function App() {
       <div className="flex w-full max-w-5xl justify-center relative z-0 p-1 py-4 my-auto">
         <div className="flex-1 flex flex-col justify-start w-full relative">
           <div className="bg-slate-950/60 py-10 px-16 rounded-[40px] border border-slate-800/60 shadow-[0_0_30px_rgba(0,0,0,0.5)] flex justify-between items-center relative h-[355px] overflow-visible backdrop-blur-md">
+            <ComboIndicator count={comboCount} />
             <div className="absolute top-2 left-1/2 -translate-x-1/2 flex flex-col items-center">
                <div className="bg-slate-700 text-white px-6 py-1 rounded-full font-black text-sm shadow-[0_0_20px_rgba(0,0,0,0.5)] border-2 border-slate-500 uppercase italic tracking-tighter flex items-center gap-2"><span className="not-italic">{currentNodeInfo.icon}</span>{currentNodeInfo.label}</div>
                <div className="w-[120px] h-[2px] bg-gradient-to-r from-transparent via-slate-500/50 to-transparent mt-2"></div>
@@ -3942,6 +4345,7 @@ export default function App() {
             <div className="relative w-1/2 z-10 h-full overflow-visible">
               {enemies.map((enemy, eIdx) => {
                 const isHoveredTarget = hoveredTargetIds.includes(enemy.id); 
+                const targetPreview = hoverTargetPreview[enemy.id];
                 const isBeingAttacked = animatingTargetIds.includes(enemy.id); 
                 const isAttacking = animatingEnemyId === enemy.id;
                 const isSpeaking = speakingEnemy && speakingEnemy.id === enemy.id && !enemy.isDead;
@@ -4013,7 +4417,9 @@ export default function App() {
                         style={{ animation: isSpeaking && !isBeingAttacked && !isAttacking ? 'speechWobble 0.4s ease-in-out infinite' : (lowHp && !isBeingAttacked && !isAttacking && !flashingTargets.includes(enemy.id) ? 'lowHpPulse 0.9s ease-in-out infinite' : 'none'), transition: 'all 0.15s ease-out' }}
                       >
                         {enemyAtlas ? <CharSprite atlas={enemyAtlas} size={enemySize} /> : String(enemy.icon)}
-                        {isHoveredTarget && !isAnimating && <div className="absolute -inset-2 border-2 border-red-500 rounded-full animate-ping opacity-40"></div>}
+                        {isHoveredTarget && !isAnimating && targetPreview && (
+                          <TargetReticle damage={targetPreview.damage} lethal={targetPreview.isLethal} />
+                        )}
                         {isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}
                       </div>
                     </div>
@@ -4041,28 +4447,34 @@ export default function App() {
             </div>
 
             <div className="flex justify-center gap-3 flex-1 translate-y-[10px]">
-              {players.map((p, i) => {
-                const card = p.currentCard; const isDead = p.hp <= 0; const isDisabled = turnState !== 'player' || mana < (card?.cost || 0) || isDead || p.hasActed || isAnimating || showLevelUp || turnState === 'map' || turnState === 'victory_wait'; const comboStatus = getCardComboStatus(p.id, card);
+              {(() => {
+                const hoveredSlotIdx = hoveredPlayerId ? players.findIndex(pl => pl.id === hoveredPlayerId) : -1;
+                return players.map((p, i) => {
+                const card = p.currentCard; const isDead = p.hp <= 0; const isDisabled = turnState !== 'player' || mana < (card?.cost || 0) || isDead || p.hasActed || showLevelUp || turnState === 'map' || turnState === 'victory_wait'; const comboStatus = getCardComboStatus(p.id, card);
                 const eff = getEffectivePlayer(p, equipped[p.id]);
                 const eqItem = equipped[p.id];
-                const renderStat = (base, effective, color) => effective > base
-                  ? <span className={`text-xs font-bold ${color}`}>{String(effective)}<span className="text-[8px] text-green-400 ml-0.5">+{effective - base}</span></span>
-                  : <span className={`text-xs font-bold ${color}`}>{String(base)}</span>;
+                const isSlotHovered = hoveredSlotIdx === i;
+                const slotNeighborClass = hoveredSlotIdx !== -1 && !isSlotHovered && !isDead
+                  ? (i < hoveredSlotIdx ? 'slot-push-left' : 'slot-push-right')
+                  : '';
                 return (
-                  <div key={p.id} className="flex flex-col items-center">
-                  <TiltWrapper isDisabled={isDisabled} globalShake={shake} className="w-52 h-[290px] relative z-10">
+                  <div key={p.id} className="flex flex-col items-center" style={{ zIndex: isSlotHovered ? 40 : slotNeighborClass ? 5 : 10 }}>
+                  <div className={`card-nudge-wrap w-52 ${slotNeighborClass}`}>
+                  <TiltWrapper isDisabled={isDisabled} globalShake={shake} className={`w-52 h-[290px] relative z-10 rounded-2xl transition-shadow duration-300 ${comboStatus.willGiveBonus && !isDisabled ? 'shadow-[0_0_34px_8px_rgba(250,204,21,0.65)] animate-pulse' : ''}`}>
+                    {(p.armor || 0) > 0 && <HeroArmorBadge armor={p.armor} />}
                     <div ref={(el) => setSlotRef(p.id, el)} onClick={() => !isDisabled && card && playCard(i, card)} onMouseEnter={() => handleCardHover(i)} onMouseLeave={() => { setHoveredPlayerId(null); setHoveredTargetIds([]); }} className={`w-full h-full bg-slate-800 border-2 rounded-2xl flex flex-col overflow-hidden relative group ${isDead ? 'border-slate-700 opacity-40 grayscale scale-95' : 'border-slate-600 shadow-2xl shadow-black/80'} ${!isDisabled ? 'cursor-pointer hover:border-[#1E88E5]' : ''}`}>
                       <div className={`${p.bg} py-1.5 px-3 border-b border-white/10 flex justify-between items-center`}><span className="text-sm">{String(p.icon)}</span><span className="font-black uppercase tracking-tighter text-[10px] text-white">{String(p.name)}</span><span className="text-[8px] font-mono text-red-400">{String(p.hp)}/{String(eff.maxHp)} HP</span></div>
-                      <div className="p-1.5 bg-slate-900/50 flex flex-col gap-1.5"><div className="h-1.5 bg-slate-950 rounded-full overflow-hidden shadow-inner"><div className="h-full bg-[#D32F2F] transition-all duration-500" style={{ width: `${(p.hp/eff.maxHp)*100}%` }}></div></div><div className="flex justify-between border-t border-white/5 pt-1 px-1"><div className="flex flex-col items-center w-1/3"><span className="text-[7px] text-slate-500 font-bold uppercase">Сил</span>{renderStat(p.str, eff.str, 'text-red-400')}</div><div className="flex flex-col items-center border-l border-r border-slate-800 px-2"><span className="text-[7px] text-slate-500 font-bold uppercase">Лов</span>{renderStat(p.agi, eff.agi, 'text-green-400')}</div><div className="flex flex-col items-center w-1/3"><span className="text-[7px] text-slate-500 font-bold uppercase">Инт</span>{renderStat(p.int, eff.int, 'text-blue-400')}</div></div></div>
-                      <div className="p-1.5 bg-slate-950 relative flex flex-col items-center justify-center flex-1 min-h-[190px]">
+                      <div className="p-1.5 bg-slate-900/50"><div className="h-1.5 bg-slate-950 rounded-full overflow-hidden shadow-inner"><div className="h-full bg-[#D32F2F] transition-all duration-500" style={{ width: `${(p.hp/eff.maxHp)*100}%` }}></div></div></div>
+                      <div className="p-1.5 bg-slate-950 relative flex flex-col items-center justify-center flex-1 min-h-[190px] overflow-visible" style={{ transformStyle: 'preserve-3d' }}>
                         {isDead ? <span className="text-[9px] uppercase text-slate-600 font-black tracking-widest">Павший</span> : !card && p.hasActed ? (
                           <div className="flex flex-col items-center opacity-30 animate-pulse"><span className="text-4xl text-[#1E88E5]">⏳</span><span className="text-[8px] uppercase font-black mt-2 tracking-widest text-center leading-tight text-white">Ход завершен</span></div>
                         ) : card ? (
-                          <AbilityCard card={card} owner={eff} mana={mana} maxMana={maxMana} isDisabled={isDisabled} comboState={comboStatus} />
+                          <AbilityCard card={card} owner={eff} mana={mana} maxMana={maxMana} isDisabled={isDisabled} comboState={comboStatus} chainBonus={chainAttackBonus} />
                         ) : <div className="w-full h-full border-2 border-dashed border-slate-800 rounded-xl flex items-center justify-center text-[#1E88E5]/40 font-black italic">...</div>}
                       </div>
                     </div>
                   </TiltWrapper>
+                  </div>
                   {!isDead && (
                     <ItemSlot
                       item={eqItem}
@@ -4080,11 +4492,12 @@ export default function App() {
                   )}
                   </div>
                 );
-              })}
+              });
+              })()}
             </div>
 
             <div className="flex flex-col justify-end gap-6 items-center mb-[19px] w-32 -translate-y-[60px]">
-              <button onClick={() => { playSound('./assets/sfx/game/enemy_turn.wav', 0.6); setTurnState('enemy'); }} disabled={turnState !== 'player' || isAnimating || showLevelUp || turnState === 'map' || turnState === 'victory_wait'} className="w-full py-4 bg-[#D32F2F] hover:bg-red-700 disabled:opacity-50 disabled:bg-red-900 disabled:cursor-not-allowed rounded-2xl font-black uppercase tracking-widest text-[9px] transition-all shadow-[0_0_20px_rgba(211,47,47,0.4)] border border-red-500 hover:scale-105 active:scale-95 text-white">{turnState === 'dealing' ? 'ЖДИТЕ' : turnState === 'player' ? 'ЗАВЕРШИТЬ' : 'ВРАГ...'}</button>
+              <button onClick={endPlayerPhase} disabled={turnState !== 'player' || showLevelUp || turnState === 'map' || turnState === 'victory_wait'} className="w-full py-4 bg-[#D32F2F] hover:bg-red-700 disabled:opacity-50 disabled:bg-red-900 disabled:cursor-not-allowed rounded-2xl font-black uppercase tracking-widest text-[9px] transition-all shadow-[0_0_20px_rgba(211,47,47,0.4)] border border-red-500 hover:scale-105 active:scale-95 text-white">{turnState === 'dealing' ? 'ЖДИТЕ' : turnState === 'player' ? 'ЗАВЕРШИТЬ' : 'ВРАГ...'}</button>
               <div className="flex flex-col items-center">
                 <div ref={discardRef} className="w-20 h-28 bg-slate-900/60 rounded-xl border-2 border-slate-700 border-dashed flex items-center justify-center font-black text-3xl opacity-60 transition-all hover:opacity-100 shadow-inner overflow-hidden">
                    <span className="text-[#D32F2F] drop-shadow-md">{String(discardPile.length)}</span>
@@ -4366,8 +4779,6 @@ export default function App() {
           players={players}
           pools={getHeroPools()}
           drawPile={drawPile}
-          discardPile={discardPile}
-          maxMana={maxMana}
           onClose={() => setShowReserve(false)}
         />
       )}
