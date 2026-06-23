@@ -1375,8 +1375,11 @@ const BloodParticle = ({ id, x, y, onComplete }) => {
 };
 
 // Масштаб VFX атаки по длине комбо: 1-я карта / 2-я / 3-я+
-const COMBO_VFX_SCALE = [1, 1.4, 1.85];
-const COMBO_VFX_PARTICLE_MULT = [1, 1.6, 2.6];
+const COMBO_VFX_SCALE = [1, 1.35, 1.65];
+const VFX_MULTI_TYPES = new Set(['daggers', 'poison']);
+const COMBO_VFX_PARTICLE_COUNT = [6, 9, 12];
+const COMBO_VFX_DUR_MS = [420, 460, 500];
+const COMBO_BLOOD_COUNT = [18, 14, 10];
 
 // Эффект «печати» при получении брони / усиления цепи
 const ModStampEffect = ({ id, icon, amount, variant, x, y, onComplete }) => {
@@ -1441,44 +1444,60 @@ const HeroArmorBadge = ({ armor }) => (
 const CombatVfx = ({ vfx }) => {
   const cs = vfx.comboScale || 1;
   const tier = vfx.comboTier || 0;
-  const durMs = Math.round(450 * (1 + tier * 0.25));
-  const dur = `${durMs}ms`;
-  const [style, setStyle] = useState({ left: vfx.startX, top: vfx.startY, opacity: 0, transform: 'translate(-50%, -50%) scale(0.1)' });
-  
-  useEffect(() => {
-    const t0 = setTimeout(() => {
-        let t1;
-        if (['magic_spark', 'fireball', 'ice_spike', 'lightning', 'dark_void', 'enemy'].includes(vfx.type)) {
-           setStyle({ left: vfx.startX, top: vfx.startY, opacity: 1, transform: `translate(-50%, -50%) scale(${0.5 * cs})` });
-           t1 = setTimeout(() => {
-             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: `translate(-50%, -50%) scale(${1.5 * cs})`, transition: `all ${dur} ease-out` });
-           }, 20);
-        } else if (['slash', 'smash', 'dark_strike'].includes(vfx.type)) {
-           setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: `translate(-50%, -50%) scale(${0.2 * cs}) rotate(-45deg)` });
-           t1 = setTimeout(() => {
-             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 0, transform: `translate(-50%, -50%) scale(${2 * cs}) rotate(45deg)`, transition: `all ${dur} ease-out` });
-           }, 20);
-        } else if (['daggers', 'poison', 'dagger_single', 'arrow'].includes(vfx.type)) {
-           const angle = Math.atan2(vfx.endY - vfx.startY, vfx.endX - vfx.startX) * 180 / Math.PI;
-           const scatter = 80 * cs;
-           const scatterX = (vfx.type === 'dagger_single' || vfx.type === 'arrow') ? 0 : (Math.random() - 0.5) * scatter;
-           const scatterY = (vfx.type === 'dagger_single' || vfx.type === 'arrow') ? 0 : (Math.random() - 0.5) * scatter;
-           setStyle({ left: vfx.startX + scatterX, top: vfx.startY + scatterY, opacity: 1, transform: `translate(-50%, -50%) scale(${cs}) rotate(${angle + 90}deg)` });
-           t1 = setTimeout(() => {
-             setStyle({ left: vfx.endX, top: vfx.endY, opacity: 1, transform: `translate(-50%, -50%) scale(${cs}) rotate(${angle + 90 + (vfx.type === 'arrow' ? 0 : 1080)}deg)`, transition: `all ${dur} ease-out` });
-           }, 20);
-        }
-    }, vfx.delay || 0);
-    
-    return () => clearTimeout(t0);
-  }, [vfx, cs, dur]);
+  const durMs = COMBO_VFX_DUR_MS[tier] || 420;
+  const tx = vfx.endX - vfx.startX;
+  const ty = vfx.endY - vfx.startY;
+  const isTravel = ['magic_spark', 'fireball', 'ice_spike', 'lightning', 'dark_void', 'enemy', 'daggers', 'poison', 'dagger_single', 'arrow'].includes(vfx.type);
+  const originX = isTravel ? vfx.startX + (vfx.scatterX || 0) : vfx.endX;
+  const originY = isTravel ? vfx.startY + (vfx.scatterY || 0) : vfx.endY;
 
-  const sparkCount = tier >= 2 ? 8 : tier >= 1 ? 4 : 0;
+  const baseStyle = {
+    left: originX,
+    top: originY,
+    willChange: 'transform, opacity',
+  };
+
+  const [style, setStyle] = useState({
+    ...baseStyle,
+    opacity: 0,
+    transform: 'translate(-50%, -50%) translate3d(0,0,0) scale(0.1)',
+  });
+
+  useEffect(() => {
+    const timers = [];
+    const run = (fn, ms) => { const t = setTimeout(fn, ms); timers.push(t); };
+    const tf = (dx, dy, scale, rot = '') =>
+      `translate(-50%, -50%) translate3d(${dx}px, ${dy}px, 0) scale(${scale})${rot ? ` ${rot}` : ''}`;
+    const trans = `transform ${durMs}ms ease-out, opacity ${Math.min(durMs, 320)}ms ease-out`;
+
+    run(() => {
+      if (['magic_spark', 'fireball', 'ice_spike', 'lightning', 'dark_void', 'enemy'].includes(vfx.type)) {
+        setStyle(s => ({ ...s, opacity: 1, transform: tf(0, 0, 0.5 * cs) }));
+        run(() => setStyle(s => ({ ...s, opacity: 1, transform: tf(tx, ty, 1.5 * cs), transition: trans })), 20);
+      } else if (['slash', 'smash', 'dark_strike'].includes(vfx.type)) {
+        setStyle(s => ({ ...s, opacity: 1, transform: tf(0, 0, 0.2 * cs, 'rotate(-45deg)') }));
+        run(() => setStyle(s => ({ ...s, opacity: 0, transform: tf(0, 0, 2 * cs, 'rotate(45deg)'), transition: trans })), 20);
+      } else if (['daggers', 'poison', 'dagger_single', 'arrow'].includes(vfx.type)) {
+        const angle = Math.atan2(ty, tx) * 180 / Math.PI;
+        const spin = vfx.type === 'arrow' ? 0 : 360;
+        setStyle(s => ({ ...s, opacity: 1, transform: tf(0, 0, cs, `rotate(${angle + 90}deg)`) }));
+        run(() => setStyle(s => ({
+          ...s, opacity: 1,
+          transform: tf(tx, ty, cs, `rotate(${angle + 90 + spin}deg)`),
+          transition: trans,
+        })), 20);
+      }
+    }, vfx.delay || 0);
+
+    return () => timers.forEach(clearTimeout);
+  }, [vfx, cs, durMs, tx, ty]);
+
+  const sparkCount = vfx.showSparks ? (tier >= 2 ? 4 : tier >= 1 ? 3 : 0) : 0;
   const sparks = sparkCount > 0 ? Array.from({ length: sparkCount }, (_, i) => ({
     key: i,
-    left: 50 + Math.cos(i * (Math.PI * 2 / sparkCount)) * (40 + tier * 15),
-    top: 50 + Math.sin(i * (Math.PI * 2 / sparkCount)) * (40 + tier * 15),
-    size: 4 + tier * 3,
+    left: 50 + Math.cos(i * (Math.PI * 2 / sparkCount)) * (36 + tier * 10),
+    top: 50 + Math.sin(i * (Math.PI * 2 / sparkCount)) * (36 + tier * 10),
+    size: 3 + tier * 2,
   })) : [];
 
   const wrap = (node) => (
@@ -1486,7 +1505,7 @@ const CombatVfx = ({ vfx }) => {
       {node}
       {sparks.map(s => (
         <div key={s.key} className="absolute rounded-full bg-white opacity-90"
-          style={{ left: `${s.left}%`, top: `${s.top}%`, width: s.size, height: s.size, transform: 'translate(-50%,-50%)', boxShadow: '0 0 8px rgba(255,255,255,0.9)' }} />
+          style={{ left: `${s.left}%`, top: `${s.top}%`, width: s.size, height: s.size, transform: 'translate(-50%,-50%)', boxShadow: '0 0 6px rgba(255,255,255,0.8)' }} />
       ))}
     </div>
   );
@@ -3670,7 +3689,6 @@ export default function App() {
     const aRect = avatarRefs.current[player.id]?.getBoundingClientRect();
     const comboTier = Math.min(comboStep, 2);
     const comboScale = COMBO_VFX_SCALE[comboTier];
-    const particleMult = COMBO_VFX_PARTICLE_MULT[comboTier];
     const vfxArr = [];
     targetIndices.forEach(idx => {
        const tRect = enemyRefs.current[enemiesRef.current[idx]?.id]?.getBoundingClientRect();
@@ -3680,14 +3698,21 @@ export default function App() {
              endX: tRect.left + tRect.width/2, endY: tRect.top + tRect.height/2,
              comboScale, comboTier,
           };
-          
-          let vfxCount = 1;
           const type = card.vfxType || 'slash';
-          if (type === 'daggers' || type === 'poison') vfxCount = Math.max(1, Math.round(12 * particleMult));
-          else vfxCount = Math.max(1, Math.round((1 + comboTier * 3) * particleMult));
-          
+          const vfxCount = VFX_MULTI_TYPES.has(type) ? COMBO_VFX_PARTICLE_COUNT[comboTier] : 1;
+          const stagger = vfxCount > 1 ? Math.max(10, Math.round(18 / (comboTier + 1))) : 0;
+          const scatterR = VFX_MULTI_TYPES.has(type) ? 72 * comboScale : 0;
+
           for (let k = 0; k < vfxCount; k++) {
-             vfxArr.push({ id: Math.random(), type, delay: k * (vfxCount > 1 ? Math.max(8, Math.round(15 / particleMult)) : 0), ...baseVfx });
+             vfxArr.push({
+               id: Math.random(),
+               type,
+               delay: k * stagger,
+               showSparks: k === 0,
+               scatterX: scatterR ? (Math.random() - 0.5) * scatterR : 0,
+               scatterY: scatterR ? (Math.random() - 0.5) * scatterR : 0,
+               ...baseVfx,
+             });
           }
        }
     });
@@ -3734,7 +3759,8 @@ export default function App() {
         const eRect = enemyRefs.current[target.id]?.getBoundingClientRect();
         if (eRect) {
            setDamagePopups(prev => [...prev, { id: Math.random(), value: dmg, isCrit, x: eRect.left + eRect.width / 2, y: eRect.top + eRect.height / 2 }]);
-           for(let i=0; i<30; i++) {
+           const bloodN = COMBO_BLOOD_COUNT[comboTier] || 18;
+           for(let i=0; i<bloodN; i++) {
               newBlood.push({ id: Math.random(), x: eRect.left + eRect.width/2, y: eRect.top + eRect.height/2 });
            }
         }
