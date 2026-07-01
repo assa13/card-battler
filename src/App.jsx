@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from 'react';
+import TavernHubScreen from './TavernHubScreen';
 
 // --- 1. КОНСТАНТЫ И НАСТРОЙКИ ---
 
@@ -27,17 +28,16 @@ const HP_PER_LEVEL = { p1: 8, p2: 6, p3: 4 };
 // Цветовые акценты бойцов (для подсветки слотов руки в экране колоды)
 const HERO_ACCENT = { p1: '#3b82f6', p2: '#22c55e', p3: '#a855f7' };
 
-// Вторичные эффекты абилок. Каждый масштабируется от ВТОРОСТЕПЕННОГО стата владельца.
+// Вторичные эффекты абилок. Сила отвязана от статов — считается от SECONDARY_BASE_POWER × уровень × combo.
 // duration — в ХОДАХ врага (тикает, когда враги ходят). mark — без длительности (до первого удара).
 const SECONDARY_EFFECTS = {
-  stun:   { stat: 'dex', icon: '💫', color: 'text-amber-300', label: 'Оглушение',      duration: 1 },
-  vuln:   { stat: 'int', icon: '🛡️', color: 'text-blue-400',  label: 'Пробитие брони', duration: 2 },
-  bleed:  { stat: 'str', icon: '🩸', color: 'text-red-400',   label: 'Кровотечение',   duration: 3 },
-  blind:  { stat: 'int', icon: '🌀', color: 'text-blue-400',  label: 'Ослепление',     duration: 2 },
-  weaken: { stat: 'str', icon: '⬇️', color: 'text-red-400',   label: 'Ослабление',     duration: 2 },
-  mark:   { stat: 'dex', icon: '🎯', color: 'text-green-400', label: 'Метка',          duration: 0 },
+  stun:   { icon: '💫', color: 'text-amber-300', label: 'Оглушение',      duration: 1 },
+  vuln:   { icon: '🛡️', color: 'text-blue-400',  label: 'Пробитие брони', duration: 2 },
+  bleed:  { icon: '🩸', color: 'text-red-400',   label: 'Кровотечение',   duration: 3 },
+  blind:  { icon: '🌀', color: 'text-blue-400',  label: 'Ослепление',     duration: 2 },
+  weaken: { icon: '⬇️', color: 'text-red-400',   label: 'Ослабление',     duration: 2 },
+  mark:   { icon: '🎯', color: 'text-green-400', label: 'Метка',          duration: 0 },
 };
-const STAT_TEXT_COLOR = { str: 'text-red-400', dex: 'text-green-400', int: 'text-blue-400' };
 
 // Краткое описание дебаффа врага для тултипа при наведении
 const describeStatus = (key, val = {}) => {
@@ -50,27 +50,6 @@ const describeStatus = (key, val = {}) => {
     case 'mark':   return `Следующий удар ×${val.mult || 1}`;
     default:       return '';
   }
-};
-
-// Классовые веса (для справки / будущей экипировки)
-const CLASS_WEIGHTS = {
-  p1: { str: 1.0, dex: 0.35, int: 0.2 },
-  p2: { str: 0.45, dex: 1.0, int: 0.3 },
-  p3: { str: 0.3, dex: 0.4, int: 1.0 },
-};
-
-// Метаданные статов для UI. dex хранится в поле игрока как `agi`.
-const STAT_META = {
-  str: { field: 'str', label: 'Сил', color: 'text-red-400' },
-  dex: { field: 'agi', label: 'Лов', color: 'text-green-400' },
-  int: { field: 'int', label: 'Инт', color: 'text-blue-400' },
-};
-// Фокус-статы героя: те, что реально качают силу его абилок (вес >= 35% от макс).
-const getHeroFocusStats = (heroId) => {
-  const w = CLASS_WEIGHTS[heroId] || {};
-  const max = Math.max(0, ...Object.values(w));
-  if (max <= 0) return ['str', 'dex', 'int'];
-  return ['str', 'dex', 'int'].filter(s => (w[s] || 0) >= max * 0.35);
 };
 
 const INVENTORY_SIZE = 9;
@@ -123,7 +102,14 @@ const rollItemStatBundle = (rarity) => {
   const roll = () => Math.floor(Math.random() * (range.max - range.min + 1)) + range.min;
   const [minC, maxC] = ITEM_BONUS_COUNTS[rarity] || [1, 1];
   const count = minC + Math.floor(Math.random() * (maxC - minC + 1));
-  const picked = shuffleArray(ITEM_STAT_TYPES).slice(0, count);
+  // GDD 6.2: atk и matk взаимоисключающие — предмет либо «оружие воина», либо «инструмент мага».
+  // Сначала фиксируем тип урона (50/50), затем чистим противоположный из пула возможных бонусов.
+  const damageStat = Math.random() < 0.5 ? 'atk' : 'matk';
+  const excluded = damageStat === 'atk' ? 'matk' : 'atk';
+  const availablePool = ITEM_STAT_TYPES.filter(s => s !== excluded);
+  // Гарантируем, что первый (главный) бонус — именно выбранный тип урона, чтобы фокус предмета был очевиден.
+  const others = shuffleArray(availablePool.filter(s => s !== damageStat));
+  const picked = [damageStat, ...others].slice(0, Math.min(count, availablePool.length));
   const stats = {};
   picked.forEach((stat, idx) => {
     const base = roll();
@@ -147,34 +133,34 @@ const ITEM_RARITY_PREFIX = {
 // Распределение пирамидой: больше всего обычных, меньше редких/эпиков, мало легендарок.
 const ITEM_TEMPLATES = [
   // COMMON (11)
-  { name: 'Инструменты палача', icon: 'item_11.png', focus: 'str', rarity: 'COMMON' },
-  { name: 'Запас зелий', icon: 'item_13.png', focus: 'dex', rarity: 'COMMON' },
-  { name: 'Статуя горгульи', icon: 'item_14.png', focus: 'str', rarity: 'COMMON' },
-  { name: 'Зловещий кинжал', icon: 'item_20.png', focus: 'dex', rarity: 'COMMON' },
-  { name: 'Ступка алхимика', icon: 'item_31.png', focus: 'int', rarity: 'COMMON' },
-  { name: 'Кожаная перчатка', icon: 'item_34.png', focus: 'dex', rarity: 'COMMON' },
-  { name: 'Связка ключей', icon: 'item_36.png', focus: 'dex', rarity: 'COMMON' },
-  { name: 'Проклятые монеты', icon: 'item_39.png', focus: 'dex', rarity: 'COMMON' },
-  { name: 'Канделябр', icon: 'item_41.png', focus: 'int', rarity: 'COMMON' },
-  { name: 'Забытая шестерня', icon: 'item_43.png', focus: 'str', rarity: 'COMMON' },
-  { name: 'Свиток нетопыря', icon: 'item_45.png', focus: 'int', rarity: 'COMMON' },
+  { name: 'Инструменты палача', icon: 'item_11.webp', focus: 'str', rarity: 'COMMON' },
+  { name: 'Запас зелий', icon: 'item_13.webp', focus: 'dex', rarity: 'COMMON' },
+  { name: 'Статуя горгульи', icon: 'item_14.webp', focus: 'str', rarity: 'COMMON' },
+  { name: 'Зловещий кинжал', icon: 'item_20.webp', focus: 'dex', rarity: 'COMMON' },
+  { name: 'Ступка алхимика', icon: 'item_31.webp', focus: 'int', rarity: 'COMMON' },
+  { name: 'Кожаная перчатка', icon: 'item_34.webp', focus: 'dex', rarity: 'COMMON' },
+  { name: 'Связка ключей', icon: 'item_36.webp', focus: 'dex', rarity: 'COMMON' },
+  { name: 'Проклятые монеты', icon: 'item_39.webp', focus: 'dex', rarity: 'COMMON' },
+  { name: 'Канделябр', icon: 'item_41.webp', focus: 'int', rarity: 'COMMON' },
+  { name: 'Забытая шестерня', icon: 'item_43.webp', focus: 'str', rarity: 'COMMON' },
+  { name: 'Свиток нетопыря', icon: 'item_45.webp', focus: 'int', rarity: 'COMMON' },
   // RARE (7)
-  { name: 'Астролябия', icon: 'item_15.png', focus: 'int', rarity: 'RARE' },
-  { name: 'Кости предков', icon: 'item_30.png', focus: 'str', rarity: 'RARE' },
-  { name: 'Букет аконита', icon: 'item_32.png', focus: 'int', rarity: 'RARE' },
-  { name: 'Рунические камни', icon: 'item_33.png', focus: 'int', rarity: 'RARE' },
-  { name: 'Фляга с ядом', icon: 'item_38.png', focus: 'dex', rarity: 'RARE' },
-  { name: 'Ржавые кандалы', icon: 'item_42.png', focus: 'str', rarity: 'RARE' },
-  { name: 'Перо и чернила', icon: 'item_44.png', focus: 'int', rarity: 'RARE' },
+  { name: 'Астролябия', icon: 'item_15.webp', focus: 'int', rarity: 'RARE' },
+  { name: 'Кости предков', icon: 'item_30.webp', focus: 'str', rarity: 'RARE' },
+  { name: 'Букет аконита', icon: 'item_32.webp', focus: 'int', rarity: 'RARE' },
+  { name: 'Рунические камни', icon: 'item_33.webp', focus: 'int', rarity: 'RARE' },
+  { name: 'Фляга с ядом', icon: 'item_38.webp', focus: 'dex', rarity: 'RARE' },
+  { name: 'Ржавые кандалы', icon: 'item_42.webp', focus: 'str', rarity: 'RARE' },
+  { name: 'Перо и чернила', icon: 'item_44.webp', focus: 'int', rarity: 'RARE' },
   // EPIC (5)
-  { name: 'Древний гримуар', icon: 'item_10.png', focus: 'int', rarity: 'EPIC' },
-  { name: 'Череп ворона', icon: 'item_12.png', focus: 'int', rarity: 'EPIC' },
-  { name: 'Терновый венец', icon: 'item_25.png', focus: 'int', rarity: 'EPIC' },
-  { name: 'Рутиловый кристалл', icon: 'item_35.png', focus: 'int', rarity: 'EPIC' },
-  { name: 'Крылатый череп', icon: 'item_37.png', focus: 'str', rarity: 'EPIC' },
+  { name: 'Древний гримуар', icon: 'item_10.webp', focus: 'int', rarity: 'EPIC' },
+  { name: 'Череп ворона', icon: 'item_12.webp', focus: 'int', rarity: 'EPIC' },
+  { name: 'Терновый венец', icon: 'item_25.webp', focus: 'int', rarity: 'EPIC' },
+  { name: 'Рутиловый кристалл', icon: 'item_35.webp', focus: 'int', rarity: 'EPIC' },
+  { name: 'Крылатый череп', icon: 'item_37.webp', focus: 'str', rarity: 'EPIC' },
   // LEGENDARY (2)
-  { name: 'Зеркало скорби', icon: 'item_40.png', focus: 'int', rarity: 'LEGENDARY' },
-  { name: 'Проклятый гроб', icon: 'item_46.png', focus: 'str', rarity: 'LEGENDARY' },
+  { name: 'Зеркало скорби', icon: 'item_40.webp', focus: 'int', rarity: 'LEGENDARY' },
+  { name: 'Проклятый гроб', icon: 'item_46.webp', focus: 'str', rarity: 'LEGENDARY' },
 ];
 
 // Цвет тинта по рарности — позволяет «перекрашивать» базовую иконку под новую рарность
@@ -188,7 +174,7 @@ const RARITY_TINT = {
 const getItemIconUrl = (icon) => `./icons/${icon}`;
 
 // Иконка предмета с опциональным цветным оверлеем (тинтом) для перекрашенной рарности
-const ItemIcon = ({ item, className = '', imgClassName = 'w-full h-full object-cover' }) => {
+const ItemIcon = React.memo(({ item, className = '', imgClassName = 'w-full h-full object-cover' }) => {
   if (!item) return null;
   const tint = item.tinted ? RARITY_TINT[item.rarity] : null;
   return (
@@ -201,13 +187,13 @@ const ItemIcon = ({ item, className = '', imgClassName = 'w-full h-full object-c
       )}
     </div>
   );
-};
+});
 
 // Атласы idle-анимаций персонажей игрока: спрайт-лист 1280x1280, кадр 320x320, сетка 4x4
 const CHAR_ATLASES = {
-  p1: { url: './chars/warrior_atlas.png', cols: 4, rows: 4, frameCount: 15, fps: 7.5 },
-  p2: { url: './chars/rogue_atlas.png',   cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
-  p3: { url: './chars/priest_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  p1: { url: './chars/warrior_atlas.webp', cols: 4, rows: 4, frameCount: 15, fps: 7.5 },
+  p2: { url: './chars/rogue_atlas.webp',   cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  p3: { url: './chars/priest_atlas.webp',  cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
 };
 // Hue/Sat (Photoshop Colorize) для героев: p1 — воин, p2 — разбойник, p3 — маг.
 const CHAR_COLORIZE = {
@@ -233,15 +219,15 @@ const CHAR_FORMATION = {
 
 // Атласы врагов (спрайты зеркалятся через scaleX(-1))
 const ENEMY_ATLASES = {
-  'Гоблин':     { url: './chars/goblin_atlas.png',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
-  'Волк':       { url: './chars/wolf_atlas.png',       cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
-  'Бандит':     { url: './chars/bandit_atlas.png',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
-  'Орк':        { url: './chars/orc_atlas.png',        cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
-  'Зомби':      { url: './chars/zombie_atlas.png',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
-  'Слизень':    { url: './chars/squish_atlas.png',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
-  'Стрелок':    { url: './chars/shooter_atlas.png',    cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
-  'Тёмный маг': { url: './chars/dark_mage_atlas.png',  cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
-  'Глаз':       { url: './chars/eye_atlas.png',        cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Гоблин':     { url: './chars/goblin_atlas.webp',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Волк':       { url: './chars/wolf_atlas.webp',       cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Бандит':     { url: './chars/bandit_atlas.webp',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Орк':        { url: './chars/orc_atlas.webp',        cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Зомби':      { url: './chars/zombie_atlas.webp',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Слизень':    { url: './chars/squish_atlas.webp',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Стрелок':    { url: './chars/shooter_atlas.webp',    cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Тёмный маг': { url: './chars/dark_mage_atlas.webp',  cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  'Глаз':       { url: './chars/eye_atlas.webp',        cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
 };
 
 // Роли врагов: стиль атаки и множитель урона
@@ -268,7 +254,7 @@ const ENEMY_FORMATIONS = {
 };
 
 // Анимированный спрайт из атласа. Покраска — CSS filter на видимый кадр, без оверлея поверх.
-const CharSprite = ({ atlas, size = 110, className = '', style = {}, hue, sat }) => {
+const CharSprite = React.memo(({ atlas, size = 110, className = '', style = {}, hue, sat }) => {
   const [frame, setFrame] = useState(0);
   useEffect(() => {
     if (!atlas) return;
@@ -310,11 +296,11 @@ const CharSprite = ({ atlas, size = 110, className = '', style = {}, hue, sat })
       />
     </div>
   );
-};
+});
 
 // Мини HP-бар врага: прямоугольный, скрыт по умолчанию, всплывает при получении урона
 // и плавно исчезает. Двухслойная анимация: белый «откушенный» кусок сужается до текущего HP.
-const EnemyHpBar = ({ hp, maxHp }) => {
+const EnemyHpBar = React.memo(({ hp, maxHp }) => {
   const pct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
   const [visible, setVisible] = useState(false);
   const [ghostPct, setGhostPct] = useState(pct);
@@ -348,7 +334,7 @@ const EnemyHpBar = ({ hp, maxHp }) => {
       <div className="absolute inset-y-0 left-0 bg-gradient-to-r from-red-700 to-red-500" style={{ width: `${pct}%` }} />
     </div>
   );
-};
+});
 
 // Пузырь речи врага: белый с красной обводкой и хвостиком над спрайтом.
 // Сдвигается внутрь, если упирается в верх/край экрана, чтобы всегда был виден.
@@ -512,32 +498,35 @@ const pickRandomAliveIndices = (alive, count, seed = null) => {
   return pool.slice(0, Math.min(count, pool.length)).map(e => e.originalIndex);
 };
 
+// GDD 3.2: чёткие архетипы. Воин — Джаггернаут (тяжёлые одиночные удары, CC, скейл от брони).
+// Разбойник — Тысяча порезов (дешёвые мульти-удары, кровотечение, мостики комбо).
+// Маг — Катализатор (дорогие нюки, метка/дебаффы, спред эффектов).
 const HERO_ABILITIES = {
-  p1: { 
-    basic: { id: 'b1', name: 'Удар мечом', cost: 1, mult: 1.8, scale: { str: 1.0, dex: 0.2 }, dmgType: 'melee', icon: '⚔️', targeting: 'all', rarity: 'COMMON', vfxType: 'slash' },
+  p1: {
+    basic: { id: 'b1', name: 'Удар мечом', cost: 1, mult: 1.8, dmgType: 'melee', icon: '⚔️', targeting: 'all', rarity: 'COMMON', vfxType: 'slash' },
     skills: [
-      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.8, scale: { str: 1.0, dex: 0.15 }, dmgType: 'melee', icon: '🔨', targeting: 'all', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' } },
-      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.7, scale: { str: 0.9, dex: 0.25 }, dmgType: 'melee', icon: '🌪️', targeting: 'all', rarity: 'COMMON', vfxType: 'slash' },
-      { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, mult: 1.6, scale: { str: 1.0, dex: 0.35 }, dmgType: 'melee', icon: '🏃', targeting: 'strongest', rarity: 'COMMON', vfxType: 'slash' },
-      { id: 's1_4', ownerId: 'p1', name: 'Землетрясение', cost: 4, mult: 1.8, scale: { str: 0.8, int: 0.4 }, dmgType: 'magic', icon: '🌋', targeting: 'all', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'vuln' } }
+      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.8, dmgType: 'melee', icon: '🔨', targeting: 'strongest', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' } },
+      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.7, dmgType: 'melee', icon: '🌪️', targeting: 'all', rarity: 'COMMON', vfxType: 'slash' },
+      { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, mult: 1.6, dmgType: 'melee', icon: '🏃', targeting: 'strongest', rarity: 'COMMON', vfxType: 'slash', secondary: { effect: 'vuln' } },
+      { id: 's1_4', ownerId: 'p1', name: 'Берсерк', cost: 3, mult: 3.0, dmgType: 'melee', icon: '🪓', targeting: 'all', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' } }
     ]
   },
-  p2: { 
-    basic: { id: 'b2', name: 'Кинжал', cost: 0, mult: 2.0, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🗡️', targeting: 'random2', rarity: 'COMMON', vfxType: 'dagger_single' },
+  p2: {
+    basic: { id: 'b2', name: 'Кинжал', cost: 0, mult: 2.0, dmgType: 'ranged', icon: '🗡️', targeting: 'random2', rarity: 'COMMON', vfxType: 'dagger_single' },
     skills: [
-      { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.8, scale: { dex: 1.0, int: 0.25 }, dmgType: 'ranged', icon: '🧪', targeting: 'random2', rarity: 'COMMON', vfxType: 'poison', secondary: { effect: 'bleed' } },
-      { id: 's2_2', ownerId: 'p2', name: 'Танец стали', cost: 3, mult: 2.4, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '⚔️', targeting: 'all', rarity: 'RARE', vfxType: 'daggers' },
-      { id: 's2_3', ownerId: 'p2', name: 'Теневой шаг', cost: 2, mult: 2.6, scale: { dex: 1.0, str: 0.35 }, dmgType: 'ranged', icon: '🥷', targeting: 'strongest', rarity: 'RARE', vfxType: 'dark_strike', secondary: { effect: 'blind' } },
-      { id: 's2_4', ownerId: 'p2', name: 'Шквал ножей', cost: 3, mult: 2.6, scale: { dex: 0.8, int: 0.4 }, dmgType: 'ranged', icon: '🗡️', targeting: 'all', rarity: 'EPIC', vfxType: 'daggers' }
+      { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.8, dmgType: 'ranged', icon: '🧪', targeting: 'random2', rarity: 'COMMON', vfxType: 'poison', secondary: { effect: 'bleed' } },
+      { id: 's2_2', ownerId: 'p2', name: 'Тысяча порезов', cost: 1, mult: 1.4, dmgType: 'ranged', icon: '✂️', targeting: 'all', rarity: 'RARE', vfxType: 'daggers', secondary: { effect: 'bleed' } },
+      { id: 's2_3', ownerId: 'p2', name: 'Танец стали', cost: 2, mult: 2.2, dmgType: 'ranged', icon: '⚔️', targeting: 'all', rarity: 'RARE', vfxType: 'daggers' },
+      { id: 's2_4', ownerId: 'p2', name: 'Кровопускание', cost: 3, mult: 2.6, dmgType: 'ranged', icon: '🩸', targeting: 'all', rarity: 'EPIC', vfxType: 'daggers', secondary: { effect: 'bleed' } }
     ]
   },
-  p3: { 
-    basic: { id: 'b3', name: 'Искра', cost: 2, mult: 1.0, scale: { int: 1.0, dex: 0.2 }, dmgType: 'magic', icon: '✨', targeting: 'all', rarity: 'COMMON', vfxType: 'magic_spark' },
+  p3: {
+    basic: { id: 'b3', name: 'Искра', cost: 2, mult: 1.0, dmgType: 'magic', icon: '✨', targeting: 'all', rarity: 'COMMON', vfxType: 'magic_spark' },
     skills: [
-      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 2.5, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '☄️', targeting: 'all', rarity: 'RARE', vfxType: 'fireball' },
-      { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, scale: { int: 1.0, dex: 0.25 }, dmgType: 'magic', icon: '❄️', targeting: 'all', rarity: 'RARE', vfxType: 'ice_spike', secondary: { effect: 'mark' } },
-      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, mult: 2.0, scale: { int: 0.8, dex: 0.4 }, dmgType: 'magic', icon: '⚡', targeting: 'random2', rarity: 'RARE', vfxType: 'lightning' },
-      { id: 's3_4', ownerId: 'p3', name: 'Черная дыра', cost: 5, mult: 3.2, scale: { int: 1.0, str: 0.3 }, dmgType: 'magic', icon: '🌌', targeting: 'all', rarity: 'LEGENDARY', vfxType: 'dark_void', secondary: { effect: 'weaken' } }
+      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 2.5, dmgType: 'magic', icon: '☄️', targeting: 'all', rarity: 'RARE', vfxType: 'fireball' },
+      { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, dmgType: 'magic', icon: '❄️', targeting: 'all', rarity: 'RARE', vfxType: 'ice_spike', secondary: { effect: 'mark' } },
+      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, mult: 2.0, dmgType: 'magic', icon: '⚡', targeting: 'random2', rarity: 'RARE', vfxType: 'lightning', secondary: { effect: 'vuln' } },
+      { id: 's3_4', ownerId: 'p3', name: 'Чёрная дыра', cost: 5, mult: 3.2, dmgType: 'magic', icon: '🌌', targeting: 'all', rarity: 'LEGENDARY', vfxType: 'dark_void', secondary: { effect: 'weaken' } }
     ]
   }
 };
@@ -582,7 +571,16 @@ const ENEMY_INSULTS = [
   "Гниды ебаные, на куски порву!"
 ];
 
-const shuffleArray = (array) => [...array].sort(() => Math.random() - 0.5);
+// Fisher–Yates. `sort(() => random-0.5)` статистически смещён и портит
+// баланс раздачи карт/лута/наград — не использовать.
+const shuffleArray = (array) => {
+  const a = [...array];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+};
 
 const isBasicCard = (card) => card && card.id.startsWith('b');
 const isEmptyCard = (card) => card && card.isEmpty;
@@ -653,8 +651,6 @@ const isModCard = (card) => !!(card && card.modType);
 // Значение мод-карты растёт линейно с уровнем (ур.2 = x2 и т.д.)
 const getModValue = (card) => Math.round((card?.modValue || 0) * getCardLevel(card));
 
-const getPlayerDex = (player) => player?.agi ?? 0;
-
 const getMaxHpFromStats = (player, equippedItem = null) => {
   return (player.baseMaxHp ?? 20) + (equippedItem?.stats?.hp || 0);
 };
@@ -664,26 +660,7 @@ const syncPlayerMaxHp = (player, equippedItem = null) => {
   return { ...player, maxHp, hp: Math.min(player.hp, maxHp) };
 };
 
-const getCardScale = (card) => {
-  if (card?.scale) return card.scale;
-  if (card?.stat === 'agi') return { dex: 1.0, str: 0.35 };
-  if (card?.stat === 'int') return { int: 1.0, str: 0.3 };
-  return { str: 1.0, dex: 0.2 };
-};
-
 const getCardDmgType = (card) => card?.dmgType || 'melee';
-
-// Случайного крита больше нет: крит существует только через 🎯 Метку мага
-const getCritChance = () => 0;
-
-const formatCardScale = (card) => {
-  const s = getCardScale(card);
-  const parts = [];
-  if (s.str) parts.push(`STR×${Math.round(s.str * 100)}%`);
-  if (s.dex) parts.push(`DEX×${Math.round(s.dex * 100)}%`);
-  if (s.int) parts.push(`INT×${Math.round(s.int * 100)}%`);
-  return parts.join(' ');
-};
 
 // Цвет урона карты по типу урона: магия → синий, дальний → зелёный, ближний → красный
 const getCardStatColor = (card) => {
@@ -775,7 +752,7 @@ const getCardDescription = (owner, card) => {
   const targetLine = getTargetingLabel(getCardTargeting(card));
   const secondary = getSecondaryDesc(owner, card);
   const effectLine = secondary
-    ? { icon: secondary.def.icon, label: secondary.def.label, value: secondary.valueText, color: STAT_TEXT_COLOR[secondary.def.stat] }
+    ? { icon: secondary.def.icon, label: secondary.def.label, value: secondary.valueText, color: secondary.def.color }
     : null;
   return { targetLine, effectLine };
 };
@@ -1143,7 +1120,7 @@ const CARD_DEAL_FLY_MS = 725;
 const CARD_DEAL_STAGGER_MS = 150; // было 300
 const CARD_DEAL_FINISH_PAD_MS = 500; // было 1000
 
-const FlyingCard = ({ startX, startY, endX, endY, isDiscard = false, isReshuffle = false, flyMs = 850 }) => {
+const FlyingCard = React.memo(({ startX, startY, endX, endY, isDiscard = false, isReshuffle = false, flyMs = 850 }) => {
   const [style, setStyle] = useState({
     left: `${startX}px`, top: `${startY}px`, transform: 'translate(-50%, -50%) scale(0.2)', opacity: 0,
   });
@@ -1168,9 +1145,9 @@ const FlyingCard = ({ startX, startY, endX, endY, isDiscard = false, isReshuffle
       </div>
     </div>
   );
-};
+});
 
-const DamagePopup = ({ id, value, x, y, isCrit, text, color, onComplete }) => {
+const DamagePopup = React.memo(({ id, value, x, y, isCrit, text, color, onComplete }) => {
   const isStatus = !!text;
   const [offset, setOffset] = useState(0);
   const [opacity, setOpacity] = useState(1);
@@ -1206,9 +1183,9 @@ const DamagePopup = ({ id, value, x, y, isCrit, text, color, onComplete }) => {
       {isCrit ? `${String(value)} CRIT!` : String(value)}
     </div>
   );
-};
+});
 
-const FlyingXp = ({ id, amount, startX, startY, endX, endY, onComplete }) => {
+const FlyingXp = React.memo(({ id, amount, startX, startY, endX, endY, onComplete }) => {
   const [pos, setPos] = useState({ x: startX, y: startY, opacity: 1, scale: 1 });
   
   const onCompleteRef = useRef(onComplete);
@@ -1226,9 +1203,9 @@ const FlyingXp = ({ id, amount, startX, startY, endX, endY, onComplete }) => {
       +{String(amount)}
     </div>
   );
-};
+});
 
-const FlyingItem = ({ id, item, startX, startY, endX, endY, onComplete }) => {
+const FlyingItem = React.memo(({ id, item, startX, startY, endX, endY, onComplete }) => {
   const [pos, setPos] = useState({ x: startX, y: startY, scale: 1.2, rotate: 0 });
   const [flash, setFlash] = useState(0);
   const [fade, setFade] = useState(1);
@@ -1253,9 +1230,9 @@ const FlyingItem = ({ id, item, startX, startY, endX, endY, onComplete }) => {
       </div>
     </div>
   );
-};
+});
 
-const ItemTooltip = ({ item, x, y }) => {
+const ItemTooltip = React.memo(({ item, x, y }) => {
   if (!item) return null;
   const rarity = RARITIES[item.rarity] || RARITIES.COMMON;
   const TT_H = 130; // ориентировочная высота тултипа
@@ -1291,25 +1268,25 @@ const ItemTooltip = ({ item, x, y }) => {
       })()}
     </div>
   );
-};
+});
 
 // Крутящийся символ комбо/синергии справа от арены. Две руны вращаются
 // независимо в разные стороны, в центре — номер карты в цепочке комбо.
-const ComboIndicator = ({ count }) => {
+const ComboIndicator = React.memo(({ count }) => {
   if (!count) return null;
   return (
     <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-[45%] z-30 pointer-events-none flex items-center justify-center w-60 h-60 animate-in fade-in zoom-in-75 duration-300">
-      <img src="./combo_rune_outer.png" alt="" className="absolute inset-0 w-full h-full object-contain opacity-80"
+      <img src="./combo_rune_outer.webp" alt="" className="absolute inset-0 w-full h-full object-contain opacity-80"
         style={{ animation: 'comboSpinCW 9s linear infinite', filter: 'drop-shadow(0 0 10px rgba(245,158,11,0.75))' }} />
-      <img src="./combo_rune_inner.png" alt="" className="absolute inset-0 w-full h-full object-contain opacity-90"
+      <img src="./combo_rune_inner.webp" alt="" className="absolute inset-0 w-full h-full object-contain opacity-90"
         style={{ animation: 'comboSpinCCW 6s linear infinite', filter: 'drop-shadow(0 0 8px rgba(245,158,11,0.9))' }} />
       <span key={count} className="relative z-10 text-7xl font-black text-amber-200 drop-shadow-[0_0_12px_rgba(245,158,11,1)]"
         style={{ animation: 'comboNumPop 0.35s ease-out' }}>{count}</span>
     </div>
   );
-};
+});
 
-const ItemSlot = ({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLeave, size = 'md', draggable: isDraggable, onDragStart, onDragOver, onDragLeave, onDrop, isDragOver, equip = false }) => {
+const ItemSlot = React.memo(({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLeave, size = 'md', draggable: isDraggable, onDragStart, onDragOver, onDragLeave, onDrop, isDragOver, equip = false }) => {
   const sizeClass = size === 'sm' ? 'w-[64px] h-[64px]' : 'w-[52px] h-[52px]';
   const rarity = item ? (RARITIES[item.rarity] || RARITIES.COMMON) : null;
   const emptyClass = equip
@@ -1342,9 +1319,9 @@ const ItemSlot = ({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLe
       )}
     </div>
   );
-};
+});
 
-const BloodParticle = ({ id, x, y, onComplete }) => {
+const BloodParticle = React.memo(({ id, x, y, onComplete }) => {
   const size = useMemo(() => 6 + Math.random() * 12, []);
   const [style, setStyle] = useState({ left: x, top: y, opacity: 1, transform: 'translate(-50%, -50%) scale(0.1)' });
   
@@ -1372,7 +1349,7 @@ const BloodParticle = ({ id, x, y, onComplete }) => {
   }, [x, y, id]);
 
   return <div className="fixed z-[850] bg-red-500 rounded-full pointer-events-none shadow-[0_0_15px_rgba(239,68,68,1)]" style={{ ...style, width: size, height: size }} />;
-};
+});
 
 // Масштаб VFX атаки по длине комбо: 1-я карта / 2-я / 3-я+
 const COMBO_VFX_SCALE = [1, 1.35, 1.65];
@@ -1433,13 +1410,28 @@ const TargetReticle = ({ damage, lethal }) => (
   </div>
 );
 
-// Бейдж брони на слоте героя
-const HeroArmorBadge = ({ armor }) => (
-  <div className="absolute -top-2.5 -right-2.5 z-40 flex items-center gap-0.5 bg-slate-950/95 border-2 border-sky-500/70 rounded-xl px-2 py-1 shadow-[0_0_14px_rgba(56,189,248,0.45)] pointer-events-none">
-    <span className="text-base leading-none">🛡️</span>
-    <span className="text-sm font-black text-sky-200 tabular-nums leading-none">{armor}</span>
-  </div>
-);
+// Бейджи мод-эффектов поверх спрайта героя на поле боя (GDD 2.3 / 3.4)
+const HeroFieldBadges = ({ armor, chainBonus }) => {
+  const showArmor = armor > 0;
+  const showChain = chainBonus > 0;
+  if (!showArmor && !showChain) return null;
+  return (
+    <div className="absolute inset-0 z-[60] pointer-events-none flex flex-col items-center justify-start gap-1">
+      {showArmor && (
+        <div className="flex items-center gap-0.5 bg-slate-950/95 border-2 border-sky-500/70 rounded-xl px-2 py-1 shadow-[0_0_14px_rgba(56,189,248,0.45)] -translate-y-3">
+          <span className="text-base leading-none">🛡️</span>
+          <span className="text-sm font-black text-sky-200 tabular-nums leading-none">{armor}</span>
+        </div>
+      )}
+      {showChain && (
+        <div className="flex items-center gap-0.5 bg-slate-950/95 border-2 border-amber-500/70 rounded-xl px-2 py-1 shadow-[0_0_14px_rgba(251,191,36,0.45)] -translate-y-3">
+          <span className="text-base leading-none">🔗</span>
+          <span className="text-sm font-black text-amber-200 tabular-nums leading-none">+{chainBonus}</span>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const CombatVfx = ({ vfx }) => {
   const cs = vfx.comboScale || 1;
@@ -1510,17 +1502,66 @@ const CombatVfx = ({ vfx }) => {
     </div>
   );
 
+  const heroId = vfx.heroId;
+
+  // --- Маг (p3): фиолетовое + черепа ---
+  if (heroId === 'p3') {
+    if (vfx.type === 'magic_spark') return wrap(
+      <div className="rounded-full bg-purple-300 shadow-[0_0_20px_#fff,0_0_40px_#a855f7,0_0_80px_#581c87] flex items-center justify-center" style={{ width: 56 * cs, height: 56 * cs }}>
+        <span className="drop-shadow-[0_0_10px_#a855f7]" style={{ fontSize: `${28 * cs}px` }}>💀</span>
+      </div>
+    );
+    if (vfx.type === 'fireball') return wrap(
+      <div className="drop-shadow-[0_0_28px_#a855f7]" style={{ fontSize: `${56 * cs}px`, filter: `drop-shadow(0 0 ${20 * cs}px #7e22ce) drop-shadow(0 0 ${10 * cs}px #c084fc)` }}>💀</div>
+    );
+    if (vfx.type === 'ice_spike') return wrap(
+      <div style={{ fontSize: `${50 * cs}px`, filter: `drop-shadow(0 0 ${14 * cs}px #a855f7) drop-shadow(0 0 ${6 * cs}px #f5d0fe)` }}>💀</div>
+    );
+    if (vfx.type === 'lightning') return wrap(
+      <div style={{ fontSize: `${62 * cs}px`, filter: `drop-shadow(0 0 ${22 * cs}px #c084fc) drop-shadow(0 0 ${8 * cs}px #581c87)` }}>⚡</div>
+    );
+    if (vfx.type === 'dark_void') return wrap(
+      <div className="rounded-full bg-black border-2 border-purple-400 shadow-[0_0_70px_#a855f7,inset_0_0_24px_#3b0764] flex items-center justify-center" style={{ width: 96 * cs, height: 96 * cs }}>
+        <span style={{ fontSize: `${44 * cs}px`, filter: `drop-shadow(0 0 ${10 * cs}px #c084fc)` }}>💀</span>
+      </div>
+    );
+  }
+
+  // --- Воин (p1): красное + огонь ---
+  if (heroId === 'p1') {
+    if (vfx.type === 'slash') return wrap(
+      <div className="border-t-[18px] border-r-[18px] border-red-400 rounded-full shadow-[0_0_30px_#ef4444,0_0_60px_#7f1d1d]" style={{ width: 200 * cs, height: 200 * cs }} />
+    );
+    if (vfx.type === 'smash') return wrap(
+      <div className="flex items-center justify-center" style={{ width: 260 * cs, height: 260 * cs }}>
+        <div className="absolute border-t-[24px] border-r-[24px] border-orange-500 rounded-full shadow-[0_0_50px_#ea580c,0_0_90px_#7f1d1d]" style={{ width: 260 * cs, height: 260 * cs }} />
+        <span style={{ fontSize: `${64 * cs}px`, filter: `drop-shadow(0 0 ${18 * cs}px #f59e0b)` }}>🔥</span>
+      </div>
+    );
+  }
+
+  // --- Разбойник (p2): зелёное ---
+  if (heroId === 'p2') {
+    if (vfx.type === 'dagger_single' || vfx.type === 'daggers') return wrap(
+      <div style={{ fontSize: `${38 * cs}px`, filter: `drop-shadow(0 0 ${12 * cs}px #22c55e) drop-shadow(0 0 ${4 * cs}px #4ade80)` }}>🗡️</div>
+    );
+    if (vfx.type === 'poison') return wrap(
+      <div style={{ fontSize: `${38 * cs}px`, filter: `drop-shadow(0 0 ${20 * cs}px #16a34a) drop-shadow(0 0 ${8 * cs}px #86efac)` }}>🧪</div>
+    );
+  }
+
+  // --- Враги / дефолт ---
   if (vfx.type === 'magic_spark') return wrap(<div className="w-12 h-12 bg-white rounded-full shadow-[0_0_20px_#fff,0_0_40px_#42C0E8,0_0_80px_#E33371] flex items-center justify-center" style={{ transform: `scale(${cs})` }}><div className="w-8 h-8 bg-[#42C0E8] rounded-full blur-[2px] opacity-90" /></div>);
   if (vfx.type === 'fireball') return wrap(<div className="bg-orange-500 rounded-full shadow-[0_0_40px_#ea580c,inset_0_0_15px_#fef08a]" style={{ width: 56 * cs, height: 56 * cs }} />);
   if (vfx.type === 'ice_spike') return wrap(<div className="drop-shadow-[0_0_15px_#06b6d4]" style={{ fontSize: `${48 * cs}px` }}>🧊</div>);
   if (vfx.type === 'lightning') return wrap(<div className="drop-shadow-[0_0_20px_#eab308]" style={{ fontSize: `${60 * cs}px` }}>⚡</div>);
   if (vfx.type === 'dark_void') return wrap(<div className="bg-black rounded-full shadow-[0_0_60px_#9333ea,inset_0_0_20px_#4c1d95] border-2 border-purple-500" style={{ width: 80 * cs, height: 80 * cs }} />);
   if (vfx.type === 'enemy') return wrap(<div className="bg-[#D32F2F] rounded-full shadow-[0_0_30px_#D32F2F]" style={{ width: 32 * cs, height: 32 * cs }} />);
-  
+
   if (vfx.type === 'slash') return wrap(<div className="border-t-[16px] border-r-[16px] border-white rounded-full shadow-[0_0_20px_#1E88E5]" style={{ width: 192 * cs, height: 192 * cs }} />);
   if (vfx.type === 'smash') return wrap(<div className="border-t-[24px] border-r-[24px] border-amber-500 rounded-full shadow-[0_0_40px_#d97706]" style={{ width: 256 * cs, height: 256 * cs }} />);
   if (vfx.type === 'dark_strike') return wrap(<div className="border-t-[20px] border-r-[20px] border-purple-900 rounded-full shadow-[0_0_30px_#000]" style={{ width: 224 * cs, height: 224 * cs }} />);
-  
+
   if (vfx.type === 'dagger_single' || vfx.type === 'daggers') return wrap(<div className="drop-shadow-[0_0_10px_#36B373]" style={{ fontSize: `${36 * cs}px` }}>🗡️</div>);
   if (vfx.type === 'arrow') return wrap(<div className="drop-shadow-[0_0_8px_#94a3b8]" style={{ fontSize: `${28 * cs}px` }}>🏹</div>);
   if (vfx.type === 'poison') return wrap(<div className="drop-shadow-[0_0_20px_#22c55e]" style={{ fontSize: `${36 * cs}px` }}>🧪</div>);
@@ -1740,13 +1781,13 @@ const hslToRgb01 = (h, s, l) => {
   return [r + m, g + m, b + m];
 };
 
-const BG_MASK_URL = './bg/mask.png';
+const BG_MASK_URL = './bg/mask.webp';
 // ЧБ пиксель-арт локации. Красятся на лету через mix-blend-mode: color —
 // аналог Hue/Saturation (Colorize) из Photoshop: hue/sat берутся из оверлея, яркость из картинки.
 const BG_LOCATION_SETS = [
-  { name: 'cemetery',      hue: 191, sat: 25, images: ['./bg/locations/cemetery_01.png', './bg/locations/cemetery_02.png', './bg/locations/cemetery_03.png'] },
-  { name: 'torture',       hue: 14,  sat: 20, images: ['./bg/locations/torture_01.png', './bg/locations/torture_02.png', './bg/locations/torture_03.png'] },
-  { name: 'dungeon_reach', hue: 304, sat: 30, images: ['./bg/locations/dungeon_reach_01.png', './bg/locations/dungeon_reach_02.png', './bg/locations/dungeon_reach_03.png'] },
+  { name: 'cemetery',      hue: 191, sat: 25, images: ['./bg/locations/cemetery_01.webp', './bg/locations/cemetery_02.webp', './bg/locations/cemetery_03.webp'] },
+  { name: 'torture',       hue: 14,  sat: 20, images: ['./bg/locations/torture_01.webp', './bg/locations/torture_02.webp', './bg/locations/torture_03.webp'] },
+  { name: 'dungeon_reach', hue: 304, sat: 30, images: ['./bg/locations/dungeon_reach_01.webp', './bg/locations/dungeon_reach_02.webp', './bg/locations/dungeon_reach_03.webp'] },
 ];
 // Сектор = один набор: сектор 1 — cemetery, 2 — torture, 3 — dungeon_reach, после третьего цикл.
 // Цифра картинки (01/02/03) растёт с дистанцией, пройденной по карте сектора (stage 1–5 → 01/01/02/02/03).
@@ -1925,7 +1966,7 @@ const PRELOAD_ASSETS = [
   './assets/sfx/ui/card_discard.wav',
   './assets/sfx/ui/click.wav',
   './assets/sfx/ui/hover.wav',
-  './corner.png',
+  './corner.webp',
   // Атласы спрайтов: прогреваем заранее, чтобы враги/бойцы не подгружались рывками в бою
   ...Object.values(CHAR_ATLASES).map(a => a.url),
   ...Object.values(ENEMY_ATLASES).map(a => a.url),
@@ -2136,7 +2177,7 @@ const DeathScreen = ({ items, startProgress = 0, threshold = EMBER_JUNK_THRESHOL
 
 // --- ЭКРАН ПОДГОТОВКИ: покупка стартовых карт за огоньки души ---
 
-const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThreshold = EMBER_JUNK_THRESHOLD, prepCardsBought, onBuyCard, onBurnCard, onStart }) => {
+const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThreshold = EMBER_JUNK_THRESHOLD, prepCardsBought, onBuyCard, onBurnCard, onStart, fromTavern = false, onClose }) => {
   const phrase = useMemo(() => GOTHIC_PHRASES[Math.floor(Math.random() * GOTHIC_PHRASES.length)], []);
   const bgSplash = useMemo(() => pickColdSplash(), []);
 
@@ -2240,8 +2281,26 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
           })}
         </div>
 
-        <button type="button" onClick={onStart} className="px-16 py-5 bg-white text-slate-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">Старт</button>
+        {fromTavern ? (
+          <button type="button" onClick={onClose ?? onStart} className="px-16 py-5 bg-white text-slate-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">ОК</button>
+        ) : (
+          <button type="button" onClick={onStart} className="px-16 py-5 bg-white text-slate-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">Старт</button>
+        )}
       </div>
+
+      {/* Режим «оверлей поверх таверны»: крестик закрытия. */}
+      {fromTavern && (
+        <button
+          type="button"
+          onClick={onClose ?? onStart}
+          className="absolute top-4 right-4 z-30 w-12 h-12 flex items-center justify-center
+                     rounded-full bg-black/60 hover:bg-black/85 text-white text-3xl font-black
+                     border border-white/20 hover:border-white/40 transition-all shadow-lg"
+          aria-label="Закрыть"
+        >
+          ×
+        </button>
+      )}
     </div>
   );
 };
@@ -2249,86 +2308,121 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
 // --- СЕКВЕНЦИЯ РАСКРЫТИЯ ПОЛУЧЕННОЙ КАРТЫ (открытие слота) ---
 // Фаза 1: карта появляется рубашкой к игроку. Фаза 2: саспенс — масштаб нарастает
 // (easeInCubic). Фаза 3: на пике карта переворачивается, показывая лицо. Длительность ~3с.
+// GDD 9.3: «snappy» reveal — 0.7 s total, прерываемый кликом/пробелом.
+// 0.00s slam-in (overshoot scale) → 0.25s auto-flip + tier-colored flash → 0.70s settled+interactable.
 const CardRevealOverlay = ({ card, owner, bgHue = 260, bgSat = 60, onDismiss }) => {
-  const [scale, setScale] = useState(0.4);
+  const [slammed, setSlammed] = useState(false);
   const [flipped, setFlipped] = useState(false);
-  const [showPrompt, setShowPrompt] = useState(false);
+  const [flash, setFlash] = useState(false);
+  const [settled, setSettled] = useState(false);
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
-  const [shake, setShake] = useState({ x: 0, y: 0, rot: 0 });
-  const canDismissRef = useRef(false);
+  const timersRef = useRef([]);
+  const skippedRef = useRef(false);
+
+  // Мгновенно проматывает анимацию в конечное состояние, не вызывая dismiss.
+  const skipAnimation = () => {
+    if (skippedRef.current) return;
+    skippedRef.current = true;
+    timersRef.current.forEach(clearTimeout);
+    timersRef.current = [];
+    setSlammed(true);
+    setFlipped(true);
+    setFlash(false);
+    setSettled(true);
+  };
 
   useEffect(() => {
     playSound('./assets/sfx/ui/card_deal.wav', 0.5);
-    const GROW_MS = 1850;
-    const start = performance.now();
-    let raf;
-    const tick = (now) => {
-      const t = Math.min(1, (now - start) / GROW_MS);
-      const eased = t * t * t; // easeInCubic — нарастание «напряжения»
-      setScale(0.4 + eased * 0.6);
-      // Шейк нарастает по мере увеличения карты (фаза «саспенса», карта ещё рубашкой)
-      const amp = t * t * 9; // амплитуда растёт квадратично
-      setShake({
-        x: (Math.random() - 0.5) * 2 * amp,
-        y: (Math.random() - 0.5) * 2 * amp,
-        rot: (Math.random() - 0.5) * 2 * amp * 0.35,
-      });
-      if (t < 1) raf = requestAnimationFrame(tick);
-      else setShake({ x: 0, y: 0, rot: 0 });
-    };
-    raf = requestAnimationFrame(tick);
-    const tFlip = setTimeout(() => { setFlipped(true); setShake({ x: 0, y: 0, rot: 0 }); playSound('./assets/sfx/game/level_up.wav'); }, GROW_MS);
-    const tPrompt = setTimeout(() => { setShowPrompt(true); canDismissRef.current = true; }, 3000);
-    return () => { cancelAnimationFrame(raf); clearTimeout(tFlip); clearTimeout(tPrompt); };
+    const add = (fn, ms) => { const id = setTimeout(fn, ms); timersRef.current.push(id); };
+    add(() => setSlammed(true), 16);
+    add(() => { setFlipped(true); setFlash(true); playSound('./assets/sfx/game/level_up.wav'); }, 250);
+    add(() => setFlash(false), 600);
+    add(() => setSettled(true), 700);
+    return () => { timersRef.current.forEach(clearTimeout); timersRef.current = []; };
   }, []);
 
   useEffect(() => {
-    const handler = () => { if (canDismissRef.current) onDismiss(); };
+    const handler = () => {
+      // settled — анимация доиграла либо была пропущена. До этого момента клик/клавиша
+      // только пропускает анимацию; после — сразу закрывает overlay.
+      if (!settled) { skipAnimation(); return; }
+      onDismiss();
+    };
     window.addEventListener('keydown', handler);
     window.addEventListener('pointerdown', handler);
     return () => { window.removeEventListener('keydown', handler); window.removeEventListener('pointerdown', handler); };
-  }, [onDismiss]);
+  }, [onDismiss, settled]);
 
   const handleMove = (e) => {
-    if (!canDismissRef.current) return;
+    if (!settled) return;
     const r = e.currentTarget.getBoundingClientRect();
     const px = e.clientX - r.left, py = e.clientY - r.top;
     setTilt({ x: ((r.height / 2 - py) / (r.height / 2)) * 9, y: ((px - r.width / 2) / (r.width / 2)) * 9 });
   };
 
   const glow = RARITY_GLOW[card.rarity] || '#64748b';
+  // Slam-in: 0.6 → 1.08 (overshoot) → 1.0; CSS transition с cubic-bezier даёт «упругий» удар.
+  const scale = slammed ? 1 : 0.6;
 
   return (
-    <div className="absolute inset-0 z-[2600] overflow-hidden flex flex-col items-center justify-center animate-in fade-in duration-300">
+    <div className="absolute inset-0 z-[2600] overflow-hidden flex flex-col items-center justify-center animate-in fade-in duration-150">
       <ShaderBackground hue={bgHue} sat={bgSat} speed={0.6} embedded />
       <div className="absolute inset-0 bg-black/40 pointer-events-none" />
       <div className="relative" style={{ perspective: '1400px' }} onMouseMove={handleMove} onMouseLeave={() => setTilt({ x: 0, y: 0 })}>
-        {/* Внешний слой: шейк (rAF) + масштаб (rAF) + наклон мышью */}
-        <div style={{ transformStyle: 'preserve-3d', transform: `translate(${shake.x}px, ${shake.y}px) rotate(${shake.rot}deg) rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) scale(${scale})` }}>
-          {/* Внутренний слой: переворот лицо/рубашка */}
+        {/* Tier-colored flash burst — расширяющееся кольцо в момент переворота */}
+        {flash && (
+          <>
+            <div
+              className="absolute left-1/2 top-1/2 pointer-events-none rounded-full"
+              style={{
+                width: 24, height: 24, marginLeft: -12, marginTop: -12,
+                border: `6px solid ${glow}`,
+                boxShadow: `0 0 60px ${glow}`,
+                animation: 'modStampRing 380ms ease-out forwards',
+              }}
+            />
+            <div
+              className="absolute left-1/2 top-1/2 pointer-events-none rounded-full"
+              style={{
+                width: 220, height: 220, marginLeft: -110, marginTop: -110,
+                background: `radial-gradient(circle, ${glow}55 0%, transparent 70%)`,
+                animation: 'modStampSlam 350ms ease-out forwards',
+              }}
+            />
+          </>
+        )}
+        <div
+          style={{
+            transformStyle: 'preserve-3d',
+            transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) scale(${scale})`,
+            transition: 'transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+          }}
+        >
           <div
             className="w-52 h-[290px] relative"
-            style={{ transformStyle: 'preserve-3d', transform: `rotateY(${flipped ? 0 : 180}deg)`, transition: 'transform 600ms cubic-bezier(0.34, 1.2, 0.64, 1)' }}
+            style={{
+              transformStyle: 'preserve-3d',
+              transform: `rotateY(${flipped ? 0 : 180}deg)`,
+              transition: 'transform 350ms cubic-bezier(0.34, 1.2, 0.64, 1)',
+            }}
           >
-            {/* Лицо карты — как в бою */}
             <div className="absolute inset-0 rounded-2xl overflow-hidden" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', boxShadow: `0 0 55px ${glow}` }}>
               <AbilityCard card={card} owner={owner} mana={5} maxMana={5} isDisabled={false} comboState={{ isCandidate: false, willGiveBonus: false }} />
             </div>
-            {/* Рубашка */}
             <div
               className="absolute inset-0 rounded-2xl border-2 border-slate-600 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center"
               style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)', boxShadow: 'inset 0 0 40px rgba(0,0,0,0.7)' }}
             >
-              <img src="./corner.png" alt="" aria-hidden="true" className="absolute top-1.5 left-1.5 w-16 h-16 opacity-40 pointer-events-none" />
-              <img src="./corner.png" alt="" aria-hidden="true" className="absolute bottom-1.5 right-1.5 w-16 h-16 opacity-40 pointer-events-none" style={{ transform: 'scale(-1)' }} />
+              <img src="./corner.webp" alt="" aria-hidden="true" className="absolute top-1.5 left-1.5 w-16 h-16 opacity-40 pointer-events-none" />
+              <img src="./corner.webp" alt="" aria-hidden="true" className="absolute bottom-1.5 right-1.5 w-16 h-16 opacity-40 pointer-events-none" style={{ transform: 'scale(-1)' }} />
               <span className="text-7xl opacity-25 select-none">✦</span>
             </div>
           </div>
         </div>
       </div>
-      {showPrompt && (
-        <p className="absolute bottom-16 text-slate-200 text-sm uppercase tracking-[0.35em] font-black animate-pulse drop-shadow-[0_0_12px_rgba(0,0,0,0.95)]">Нажмите любую кнопку</p>
-      )}
+      <p className="absolute bottom-16 text-slate-200 text-xs uppercase tracking-[0.35em] font-black drop-shadow-[0_0_12px_rgba(0,0,0,0.95)] opacity-70">
+        {settled ? 'Клик / пробел — продолжить' : 'Клик / пробел — пропустить'}
+      </p>
     </div>
   );
 };
@@ -2540,10 +2634,10 @@ const SectorSplashScreen = ({ text, sector, onContinue }) => {
 
   return (
     <div className="absolute inset-0 z-[2700] bg-[#0a0a0f] flex flex-col items-center justify-center overflow-hidden animate-in fade-in duration-700">
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 left-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" />
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 right-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" style={{ transform: 'scaleX(-1)' }} />
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" style={{ transform: 'scaleY(-1)' }} />
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" style={{ transform: 'scale(-1, -1)' }} />
+      <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 left-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" />
+      <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 right-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" style={{ transform: 'scaleX(-1)' }} />
+      <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" style={{ transform: 'scaleY(-1)' }} />
+      <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" style={{ transform: 'scale(-1, -1)' }} />
 
       <div className="max-w-2xl px-10 text-center relative z-10">
         <p className="text-amber-500/70 text-sm font-black uppercase tracking-[0.5em] mb-8 animate-in fade-in slide-in-from-top-4 duration-1000">Сектор {String(sector)}</p>
@@ -2604,10 +2698,10 @@ const Preloader = ({ assets, onEnter }) => {
     <div className="fixed inset-0 z-[3000] bg-[#17191C] flex flex-col items-center justify-center overflow-hidden">
       {/* Сплеш: те же параметры что в бою (маска+градиент), но случайная локация и случайный холодный оттенок */}
       <ImageBackground imageUrl={splash.url} hue={splash.hue} sat={splash.sat} opacity={0.8} />
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 left-0 w-[300px] h-[300px] opacity-60" />
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 right-0 w-[300px] h-[300px] opacity-60" style={{ transform: 'scaleX(-1)' }} />
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[300px] h-[300px] opacity-60" style={{ transform: 'scaleY(-1)' }} />
-      <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[300px] h-[300px] opacity-60" style={{ transform: 'scale(-1, -1)' }} />
+      <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 left-0 w-[300px] h-[300px] opacity-60" />
+      <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 right-0 w-[300px] h-[300px] opacity-60" style={{ transform: 'scaleX(-1)' }} />
+      <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[300px] h-[300px] opacity-60" style={{ transform: 'scaleY(-1)' }} />
+      <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[300px] h-[300px] opacity-60" style={{ transform: 'scale(-1, -1)' }} />
 
       <h1 className="text-6xl md:text-7xl font-black text-amber-500 uppercase italic tracking-widest mb-3 text-center drop-shadow-[0_0_30px_rgba(245,158,11,0.6)]">Card Battler</h1>
       <p className="text-slate-500 text-xs uppercase tracking-[0.5em] mb-12">Подготовка к спуску</p>
@@ -2640,6 +2734,83 @@ const Preloader = ({ assets, onEnter }) => {
     </div>
   );
 };
+
+// --- ИЗОЛИРОВАННЫЙ СЛОЙ ЭФЕМЕРНЫХ ЭФФЕКТОВ ---
+// Держит свой state для частиц/попапов/летящих сущностей. App общается с ним через ref —
+// его setState'ы НЕ ребилдят боевое дерево App.
+const FxLayer = React.forwardRef((_props, ref) => {
+  const [damagePopups, setDamagePopups] = useState([]);
+  const [bloodParticles, setBloodParticles] = useState([]);
+  const [flyingXps, setFlyingXps] = useState([]);
+  const [flyingItems, setFlyingItems] = useState([]);
+  const [modStamps, setModStamps] = useState([]);
+  const [flyingCards, setFlyingCards] = useState([]);
+
+  // Хранилище таймеров автоудаления FlyingCard — чтобы корректно вычищать на unmount.
+  const cardTimersRef = useRef(new Map());
+  useEffect(() => () => {
+    cardTimersRef.current.forEach(t => clearTimeout(t));
+    cardTimersRef.current.clear();
+  }, []);
+
+  React.useImperativeHandle(ref, () => ({
+    spawnDamagePopup: (popup) => setDamagePopups(prev => [...prev, popup]),
+    spawnDamagePopups: (popups) => { if (popups?.length) setDamagePopups(prev => [...prev, ...popups]); },
+    spawnBlood: (particles) => { if (particles?.length) setBloodParticles(prev => [...prev, ...particles]); },
+    spawnFlyingXp: (xp) => setFlyingXps(prev => [...prev, xp]),
+    spawnFlyingItem: (item) => setFlyingItems(prev => [...prev, item]),
+    spawnModStamp: (stamp) => setModStamps(prev => [...prev, stamp]),
+    // Карта с автоудалением и опциональным колбэком по истечении lifetime
+    spawnFlyingCard: (card, lifetimeMs = 850, onExpire) => {
+      setFlyingCards(prev => [...prev, card]);
+      const id = card.id;
+      const t = setTimeout(() => {
+        setFlyingCards(prev => prev.filter(f => f.id !== id));
+        cardTimersRef.current.delete(id);
+        try { onExpire?.(); } catch (e) { console.error('[FxLayer] flyingCard onExpire failed:', e); }
+      }, lifetimeMs);
+      cardTimersRef.current.set(id, t);
+    },
+    clearAll: () => {
+      setDamagePopups([]); setBloodParticles([]); setFlyingXps([]);
+      setFlyingItems([]); setModStamps([]); setFlyingCards([]);
+      cardTimersRef.current.forEach(t => clearTimeout(t));
+      cardTimersRef.current.clear();
+    },
+  }), []);
+
+  return (
+    <>
+      {flyingCards.map(card => <FlyingCard key={card.id} {...card} />)}
+      {modStamps.map(s => (
+        <ModStampEffect key={s.id} {...s}
+          onComplete={(id) => setModStamps(prev => prev.filter(x => x.id !== id))} />
+      ))}
+      {damagePopups.map(dp => (
+        <DamagePopup key={dp.id} {...dp}
+          onComplete={(id) => setDamagePopups(prev => prev.filter(x => x.id !== id))} />
+      ))}
+      {bloodParticles.map(bp => (
+        <BloodParticle key={bp.id} {...bp}
+          onComplete={(id) => setBloodParticles(prev => prev.filter(x => x.id !== id))} />
+      ))}
+      {flyingXps.map(xp => (
+        <FlyingXp key={xp.id} {...xp}
+          onComplete={(id, amount) => {
+            setFlyingXps(prev => prev.filter(x => x.id !== id));
+            try { xp.onArrive?.(amount); } catch (e) { console.error('[FxLayer] flyingXp onArrive failed:', e); }
+          }} />
+      ))}
+      {flyingItems.map(fi => (
+        <FlyingItem key={fi.id} {...fi}
+          onComplete={(id, item) => {
+            setFlyingItems(prev => prev.filter(x => x.id !== id));
+            try { fi.onArrive?.(item); } catch (e) { console.error('[FxLayer] flyingItem onArrive failed:', e); }
+          }} />
+      ))}
+    </>
+  );
+});
 
 // --- 3. ГЛАВНОЕ ПРИЛОЖЕНИЕ ---
 
@@ -2693,8 +2864,10 @@ export default function App() {
   useEffect(() => { currentStageRef.current = currentStage; }, [currentStage]);
   const [bgLocation, setBgLocation] = useState(() => pickBgLocation(1, 0));
 
-  const [flyingXps, setFlyingXps] = useState([]);
-  const [flyingItems, setFlyingItems] = useState([]);
+  // Эфемерные эффекты (попапы, частицы, летящие карты/XP/предметы, штампы)
+  // живут в собственном компоненте FxLayer и обновляются через imperative API.
+  // Их частые setState'ы НЕ перерисовывают App.
+  const fxRef = useRef(null);
   const [inventory, setInventory] = useState(Array(INVENTORY_SIZE).fill(null));
   const [equipped, setEquipped] = useState({ p1: null, p2: null, p3: null });
   const [dragSrcIdx, setDragSrcIdx] = useState(null);
@@ -2709,11 +2882,10 @@ export default function App() {
   const [slotsPopup, setSlotsPopup] = useState(null);
   const [showReserve, setShowReserve] = useState(false);
   const [appReady, setAppReady] = useState(false);
-  const [flyingCards, setFlyingCards] = useState([]);
-  const [damagePopups, setDamagePopups] = useState([]);
+  // Стартовый экран Таверны-Хаба: показывается один раз после прелоадера,
+  // закрывается по клику на дверь → отряд попадает на карту сектора.
+  const [showTavern, setShowTavern] = useState(true);
   const [vfxList, setVfxList] = useState([]);
-  const [modStamps, setModStamps] = useState([]);
-  const [bloodParticles, setBloodParticles] = useState([]);
   const [flashingTargets, setFlashingTargets] = useState([]);
 
   const [shake, setShake] = useState({ x: 0, y: 0, rot: 0 });
@@ -2858,6 +3030,42 @@ export default function App() {
   const [animatingTargetIds, setAnimatingTargetIds] = useState([]);
   const [hoveredPlayerId, setHoveredPlayerId] = useState(null);
   const [hoveredTargetIds, setHoveredTargetIds] = useState([]);
+
+  // Watchdog: страховка от «замираний» боя. Любая боевая анимация укладывается в ~600мс.
+  // Если флаг isAnimating висит true дольше COMBAT_ANIM_TIMEOUT_MS — значит сетTimeout-колбэк
+  // упал с исключением и не вызвал setIsAnimating(false). Принудительно разморозим бой.
+  const COMBAT_ANIM_TIMEOUT_MS = 3000;
+  useEffect(() => {
+    if (!isAnimating) return;
+    const t = setTimeout(() => {
+      console.warn('[combat] watchdog: forcing animation reset (callback likely crashed)');
+      setIsAnimating(false);
+      setAnimatingPlayerId(null);
+      setAnimatingEnemyId(null);
+      setAnimatingTargetIds([]);
+      setAttackTranslate({ dx: 0, dy: 0 });
+      setEnemyAttackTranslate({ dx: 0, dy: 0 });
+      setVfxList([]);
+    }, COMBAT_ANIM_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, [isAnimating]);
+
+  // Безопасная обёртка для боевых setTimeout-колбэков: ловит исключения,
+  // не даёт упавшему callback'у заморозить анимационные флаги.
+  const safeAnim = useCallback((cb) => () => {
+    try {
+      cb();
+    } catch (err) {
+      console.error('[combat] animation callback crashed:', err);
+      setIsAnimating(false);
+      setAnimatingPlayerId(null);
+      setAnimatingEnemyId(null);
+      setAnimatingTargetIds([]);
+      setVfxList([]);
+      setAttackTranslate({ dx: 0, dy: 0 });
+      setEnemyAttackTranslate({ dx: 0, dy: 0 });
+    }
+  }, []);
 
   useEffect(() => {
     if (turnState === 'map' && mapScrollRef.current && currentMapNodeId) {
@@ -3061,11 +3269,10 @@ export default function App() {
       setDiscardPile([]);
     }
 
-    setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setComboCount(0); setChainAttackBonus(0); setDamagePopups([]); setFlyingXps([]); setFlyingItems([]); setShowLevelUp(false); setSlotsPopup(null); setLevelUpQueue(0); setRewardOptions([]);
+    setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setComboCount(0); setChainAttackBonus(0); fxRef.current?.clearAll(); setShowLevelUp(false); setSlotsPopup(null); setLevelUpQueue(0); setRewardOptions([]);
     setDragSrcIdx(null); setDragOverPlayerId(null); setItemTooltip(null);
     setShowCraft(false); setCraftSlots([null, null, null]); setCraftWarning('');
     setCurrentEvent(null);
-    setBloodParticles([]);
     setFlashingTargets([]);
     setSectorSplash(null);
     pendingTransitionRef.current = null;
@@ -3091,7 +3298,8 @@ export default function App() {
     setSoulProgress(total % EMBER_JUNK_THRESHOLD);
     resetGame(false, false, true);
     setPrepCardsBought(0);
-    setShowPrep(true);
+    // Цикл замыкается на Таверне: после смерти возвращаемся в неё, а не на экран подготовки.
+    setShowTavern(true);
   };
 
   // Покупка стартовой карты: система сама случайно выбирает карту из доступного пула
@@ -3210,12 +3418,6 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [levelUpQueue, showLevelUp, slotsPopup]);
 
-  const handleXpGained = (id, amount) => {
-    playSound('./assets/sfx/game/xp_gain.wav', 0.5);
-    setFlyingXps(prev => prev.filter(x => x.id !== id));
-    gainXp(amount);
-  };
-
   const addItemToInventory = useCallback((item) => {
     let burnedXp = 0;
     setInventory(prev => {
@@ -3232,12 +3434,6 @@ export default function App() {
     if (burnedXp > 0) gainXp(burnedXp);
     return true;
   }, [gainXp]);
-
-  const handleItemLanded = useCallback((id, item) => {
-    setFlyingItems(prev => prev.filter(x => x.id !== id));
-    addItemToInventory(item);
-    playSound('./assets/sfx/game/xp_gain.wav', 0.35);
-  }, [addItemToInventory]);
 
   const showItemTip = (item, e) => {
     if (!item) return;
@@ -3499,7 +3695,13 @@ export default function App() {
   };
 
   const closeSlotsPopup = () => {
+    const wasFromTavern = slotsPopup?.fromTavern;
     setSlotsPopup(null);
+    if (wasFromTavern) {
+      // Возврат в Таверну — никаких отложенных боевых переходов не запускаем.
+      setShowTavern(true);
+      return;
+    }
     // Очередь пуста — выполняем отложенный переход; иначе эффект откроет следующий выбор
     if (levelUpQueue <= 0) runPendingTransition();
   };
@@ -3510,14 +3712,15 @@ export default function App() {
       playSound('./assets/sfx/game/enemy_turn.wav', 0.6);
       return 'enemy';
     });
+    // GDD 3.4: усиление цепи — только текущий ход игрока; сгорает при завершении, если не потрачено.
     setChainAttackBonus(0);
     setComboCount(0);
   }, []);
 
   useEffect(() => {
     if (turnState !== 'dealing' || showLevelUp) return;
-    setLastPlayedCost(null); setComboStreak(0); setComboCount(0); setChainAttackBonus(0);
-    // Броня от мод-карт действует только в рамках текущего раунда (ход игрока + ответ врага)
+    setLastPlayedCost(null); setComboStreak(0); setComboCount(0);
+    // GDD 2.3: броня переживает фазу врага; обнуляется только в начале нового раунда (dealing).
     setPlayers(prev => prev.map(p => ({ ...p, armor: 0 })));
     actingRef.current = new Set();
     // Колода обновляется каждые 3 хода: сброс замешивается среди ВСЕХ существующих карт
@@ -3533,8 +3736,7 @@ export default function App() {
           for (let i = 0; i < 5; i++) {
              setTimeout(() => {
                 const flyId = `reshuffle_${Date.now()}_${i}`;
-                setFlyingCards(prev => [...prev, { id: flyId, startX: discRect.left + discRect.width/2, startY: discRect.top + discRect.height/2, endX: deckRect.left + deckRect.width/2, endY: deckRect.top + deckRect.height/2, isReshuffle: true }]);
-                setTimeout(() => setFlyingCards(p => p.filter(f => f.id !== flyId)), 850);
+                fxRef.current?.spawnFlyingCard({ id: flyId, startX: discRect.left + discRect.width/2, startY: discRect.top + discRect.height/2, endX: deckRect.left + deckRect.width/2, endY: deckRect.top + deckRect.height/2, isReshuffle: true }, 850);
              }, i * 100);
           }
         }
@@ -3563,8 +3765,14 @@ export default function App() {
       const slotRect = slotRefs.current[p.id]?.getBoundingClientRect();
       if (deckRect && slotRect) {
         const flyId = `deal_${p.id}_${Date.now()}`;
-        setTimeout(() => { playSound('./assets/sfx/ui/card_deal.wav', 0.5); setFlyingCards(prev => [...prev, { id: flyId, startX: deckRect.left + deckRect.width/2, startY: deckRect.top + deckRect.height/2, endX: slotRect.left + slotRect.width/2, endY: slotRect.top + slotRect.height * 0.75, flyMs: CARD_DEAL_FLY_MS }]); }, delay);
-        setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setPlayers(prev => prev.map(hero => hero.id === p.id ? { ...hero, currentCard: cardToDeal, justDealt: true } : hero)); }, delay + CARD_DEAL_FLY_MS); 
+        setTimeout(() => {
+          playSound('./assets/sfx/ui/card_deal.wav', 0.5);
+          fxRef.current?.spawnFlyingCard(
+            { id: flyId, startX: deckRect.left + deckRect.width/2, startY: deckRect.top + deckRect.height/2, endX: slotRect.left + slotRect.width/2, endY: slotRect.top + slotRect.height * 0.75, flyMs: CARD_DEAL_FLY_MS },
+            CARD_DEAL_FLY_MS,
+            () => setPlayers(prev => prev.map(hero => hero.id === p.id ? { ...hero, currentCard: cardToDeal, justDealt: true } : hero))
+          );
+        }, delay);
       }
       delay += CARD_DEAL_STAGGER_MS; 
     });
@@ -3588,14 +3796,14 @@ export default function App() {
     const amount = Math.round(getModValue(card) * comboMult);
     const aRect = avatarRefs.current[player.id]?.getBoundingClientRect();
     if (aRect) {
-      setModStamps(prev => [...prev, {
+      fxRef.current?.spawnModStamp({
         id: `stamp_${Date.now()}_${player.id}`,
         icon: card.modType === 'armor' ? '🛡️' : '🔗',
         amount,
         variant: card.modType,
         x: aRect.left + aRect.width / 2,
         y: aRect.top + aRect.height / 2,
-      }]);
+      });
     }
     if (card.modType === 'armor') {
       setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, armor: (p.armor || 0) + amount, currentCard: null, hasActed: true } : p));
@@ -3622,8 +3830,11 @@ export default function App() {
       if (slotRect && discardRect) {
         const flyId = `disc_${Date.now()}`;
         playSound('./assets/sfx/ui/card_discard.wav', 0.4);
-        setFlyingCards(prev => [...prev, { id: flyId, startX: slotRect.left + slotRect.width / 2, startY: slotRect.top + slotRect.height * 0.75, endX: discardRect.left + discardRect.width / 2, endY: discardRect.top + discardRect.height / 2, isDiscard: true }]);
-        setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setDiscardPile(prev => [...prev, card]); }, 850);
+        fxRef.current?.spawnFlyingCard(
+          { id: flyId, startX: slotRect.left + slotRect.width / 2, startY: slotRect.top + slotRect.height * 0.75, endX: discardRect.left + discardRect.width / 2, endY: discardRect.top + discardRect.height / 2, isDiscard: true },
+          850,
+          () => setDiscardPile(prev => [...prev, card])
+        );
       } else {
         setDiscardPile(prev => [...prev, card]);
       }
@@ -3661,10 +3872,10 @@ export default function App() {
     setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, currentCard: null, hasActed: true } : p));
     setAnimatingPlayerId(player.id); setAnimatingTargetIds(targetIndices.map(idx => enemiesRef.current[idx]?.id).filter(Boolean));
 
-    // Вычисляем вектор прыжка игрока. Сначала сбрасываем translate в 0,
-    // затем через rAF устанавливаем цель — браузер animates transition плавно.
+    // Прыжок — только у ближников (физ. урон). Дальники (ranged/magic) стоят на месте.
     setAttackTranslate({ dx: 0, dy: 0 });
-    {
+    const isMelee = getCardDmgType(card) === 'melee';
+    if (isMelee) {
       const aRect = avatarRefs.current[player.id]?.getBoundingClientRect();
       const firstTargetId = targetIndices.length > 0 ? enemiesRef.current[targetIndices[0]]?.id : null;
       const tRect = firstTargetId ? enemyRefs.current[firstTargetId]?.getBoundingClientRect() : null;
@@ -3707,6 +3918,7 @@ export default function App() {
              vfxArr.push({
                id: Math.random(),
                type,
+               heroId: player.id,
                delay: k * stagger,
                showSparks: k === 0,
                scatterX: scatterR ? (Math.random() - 0.5) * scatterR : 0,
@@ -3720,7 +3932,7 @@ export default function App() {
 
     const animDuration = player.id === 'p2' ? 600 : 300;
 
-    setTimeout(() => {
+    setTimeout(safeAnim(() => {
       setVfxList([]); 
       let { damage: baseDamage, critChance } = computeCardDamage(effectivePlayer, card, comboDamageMult);
       // Бонус от «Усиления цепи» добавляется к мощности этой карты и тратится
@@ -3758,7 +3970,7 @@ export default function App() {
 
         const eRect = enemyRefs.current[target.id]?.getBoundingClientRect();
         if (eRect) {
-           setDamagePopups(prev => [...prev, { id: Math.random(), value: dmg, isCrit, x: eRect.left + eRect.width / 2, y: eRect.top + eRect.height / 2 }]);
+           fxRef.current?.spawnDamagePopup({ id: Math.random(), value: dmg, isCrit, x: eRect.left + eRect.width / 2, y: eRect.top + eRect.height / 2 });
            const bloodN = COMBO_BLOOD_COUNT[comboTier] || 18;
            for(let i=0; i<bloodN; i++) {
               newBlood.push({ id: Math.random(), x: eRect.left + eRect.width/2, y: eRect.top + eRect.height/2 });
@@ -3790,8 +4002,8 @@ export default function App() {
       });
       if (anyCrit) playSound('./assets/sfx/combat/hit_heavy.wav', 0.7);
       triggerImpact(maxDealt);
-      setBloodParticles(prev => [...prev, ...newBlood]);
-      if (statusPopups.length) setTimeout(() => setDamagePopups(prev => [...prev, ...statusPopups]), 260);
+      fxRef.current?.spawnBlood(newBlood);
+      if (statusPopups.length) setTimeout(() => fxRef.current?.spawnDamagePopups(statusPopups), 260);
 
       // Синхронно обновляем реф, чтобы параллельный розыгрыш видел свежий HP врагов
       enemiesRef.current = newEnemies; setEnemies(newEnemies);
@@ -3802,18 +4014,24 @@ export default function App() {
       
       xpToSpawn.forEach(xpData => {
         const eRect = enemyRefs.current[xpData.id]?.getBoundingClientRect(); const bRect = xpBarRef.current?.getBoundingClientRect();
-        if (eRect && bRect) setFlyingXps(prev => [...prev, { id: Math.random(), amount: xpData.amount, startX: eRect.left + eRect.width/2, startY: eRect.top, endX: bRect.left + bRect.width / 2, endY: bRect.top + bRect.height / 2 }]);
+        if (eRect && bRect) fxRef.current?.spawnFlyingXp({
+          id: Math.random(), amount: xpData.amount,
+          startX: eRect.left + eRect.width/2, startY: eRect.top,
+          endX: bRect.left + bRect.width / 2, endY: bRect.top + bRect.height / 2,
+          onArrive: (amount) => { playSound('./assets/sfx/game/xp_gain.wav', 0.5); gainXp(amount); },
+        });
       });
 
       lootToSpawn.forEach(lootData => {
         const eRect = enemyRefs.current[lootData.id]?.getBoundingClientRect();
         const iRect = inventoryRef.current?.getBoundingClientRect();
         if (eRect && iRect) {
-          setFlyingItems(prev => [...prev, {
+          fxRef.current?.spawnFlyingItem({
             id: Math.random(), item: lootData.item,
             startX: eRect.left + eRect.width / 2, startY: eRect.top + eRect.height / 2,
             endX: iRect.left + iRect.width / 2, endY: iRect.top + iRect.height / 2,
-          }]);
+            onArrive: (item) => { addItemToInventory(item); playSound('./assets/sfx/game/xp_gain.wav', 0.35); },
+          });
         } else {
           addItemToInventory(lootData.item);
         }
@@ -3842,11 +4060,14 @@ export default function App() {
         if (playSlotRect && discardRect) {
           const flyId = `disc_${Date.now()}`;
           playSound('./assets/sfx/ui/card_discard.wav', 0.4);
-          setFlyingCards(prev => [...prev, { id: flyId, startX: playSlotRect.left + playSlotRect.width/2, startY: playSlotRect.top + playSlotRect.height * 0.75, endX: discardRect.left + discardRect.width/2, endY: discardRect.top + discardRect.height/2, isDiscard: true }]);
-          setTimeout(() => { setFlyingCards(prev => prev.filter(f => f.id !== flyId)); setDiscardPile(prev => [...prev, card]); finish(); }, 850);
+          fxRef.current?.spawnFlyingCard(
+            { id: flyId, startX: playSlotRect.left + playSlotRect.width/2, startY: playSlotRect.top + playSlotRect.height * 0.75, endX: discardRect.left + discardRect.width/2, endY: discardRect.top + discardRect.height/2, isDiscard: true },
+            850,
+            () => { setDiscardPile(prev => [...prev, card]); finish(); }
+          );
         } else { setDiscardPile(prev => [...prev, card]); finish(); }
       } else { finish(); }
-    }, 300); 
+    }), 300);
   };
 
   const playersRef = useRef(players);
@@ -3889,8 +4110,10 @@ export default function App() {
         e.hp = Math.max(0, e.hp - bl.dmg);
         const eRect = enemyRefs.current[e.id]?.getBoundingClientRect();
         if (eRect) {
-          setDamagePopups(dp => [...dp, { id: Math.random(), value: bl.dmg, x: eRect.left + eRect.width/2, y: eRect.top + eRect.height/2 }]);
-          setDamagePopups(dp => [...dp, { id: Math.random(), text: '🩸', color: 'text-red-400', x: eRect.left + eRect.width/2, y: eRect.top - 10 }]);
+          fxRef.current?.spawnDamagePopups([
+            { id: Math.random(), value: bl.dmg, x: eRect.left + eRect.width/2, y: eRect.top + eRect.height/2 },
+            { id: Math.random(), text: '🩸', color: 'text-red-400', x: eRect.left + eRect.width/2, y: eRect.top - 10 },
+          ]);
         }
         if (e.hp <= 0 && !e.isDead) {
           e.isDead = true; e.hp = 0;
@@ -3905,11 +4128,21 @@ export default function App() {
       setEnemies(startEnemies);
       bleedXp.forEach(xd => {
         const eRect = enemyRefs.current[xd.id]?.getBoundingClientRect(); const bRect = xpBarRef.current?.getBoundingClientRect();
-        if (eRect && bRect) setFlyingXps(prev => [...prev, { id: Math.random(), amount: xd.amount, startX: eRect.left + eRect.width/2, startY: eRect.top, endX: bRect.left + bRect.width/2, endY: bRect.top + bRect.height/2 }]);
+        if (eRect && bRect) fxRef.current?.spawnFlyingXp({
+          id: Math.random(), amount: xd.amount,
+          startX: eRect.left + eRect.width/2, startY: eRect.top,
+          endX: bRect.left + bRect.width/2, endY: bRect.top + bRect.height/2,
+          onArrive: (amount) => { playSound('./assets/sfx/game/xp_gain.wav', 0.5); gainXp(amount); },
+        });
       });
       bleedLoot.forEach(ld => {
         const eRect = enemyRefs.current[ld.id]?.getBoundingClientRect(); const iRect = inventoryRef.current?.getBoundingClientRect();
-        if (eRect && iRect) setFlyingItems(prev => [...prev, { id: Math.random(), item: ld.item, startX: eRect.left + eRect.width/2, startY: eRect.top + eRect.height/2, endX: iRect.left + iRect.width/2, endY: iRect.top + iRect.height/2 }]);
+        if (eRect && iRect) fxRef.current?.spawnFlyingItem({
+          id: Math.random(), item: ld.item,
+          startX: eRect.left + eRect.width/2, startY: eRect.top + eRect.height/2,
+          endX: iRect.left + iRect.width/2, endY: iRect.top + iRect.height/2,
+          onArrive: (item) => { addItemToInventory(item); playSound('./assets/sfx/game/xp_gain.wav', 0.35); },
+        });
         else addItemToInventory(ld.item);
       });
     }
@@ -3937,7 +4170,7 @@ export default function App() {
          // Оглушение — пропуск хода
          if (st.stun && st.stun.remaining > 0) {
             const eR = enemyRefs.current[enemy.id]?.getBoundingClientRect();
-            if (eR) setDamagePopups(dp => [...dp, { id: Math.random(), text: '💫 ОГЛУШЁН', color: 'text-amber-300', x: eR.left + eR.width/2, y: eR.top - 10 }]);
+            if (eR) fxRef.current?.spawnDamagePopup({ id: Math.random(), text: '💫 ОГЛУШЁН', color: 'text-amber-300', x: eR.left + eR.width/2, y: eR.top - 10 });
             return;
          }
 
@@ -3966,12 +4199,12 @@ export default function App() {
             });
             setVfxList(newVfx);
 
-            setTimeout(() => {
+            setTimeout(safeAnim(() => {
                setVfxList([]);
                playSound('./assets/sfx/combat/enemy_attack.wav');
                const missed = Math.random() < blindChance;
                if (missed) {
-                  targets.forEach(t => { const pr = avatarRefs.current[t.id]?.getBoundingClientRect(); if (pr) setDamagePopups(dp => [...dp, { id: Math.random(), text: 'ПРОМАХ', color: 'text-slate-200', x: pr.left + pr.width/2, y: pr.top - 10 }]); });
+                  targets.forEach(t => { const pr = avatarRefs.current[t.id]?.getBoundingClientRect(); if (pr) fxRef.current?.spawnDamagePopup({ id: Math.random(), text: 'ПРОМАХ', color: 'text-slate-200', x: pr.left + pr.width/2, y: pr.top - 10 }); });
                   setAnimatingEnemyId(null); setTimeout(() => setAnimatingTargetIds([]), 350); setIsAnimating(false);
                   return;
                }
@@ -3984,9 +4217,9 @@ export default function App() {
                   if (pRect) {
                      const { hpLoss } = applyIncomingDamage(t, dmg);
                      if (hpLoss > 0) {
-                       setDamagePopups(dp => [...dp, { id: Math.random(), value: hpLoss, x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 }]);
+                       fxRef.current?.spawnDamagePopup({ id: Math.random(), value: hpLoss, x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 });
                        const nb = []; for (let i=0; i<20; i++) nb.push({ id: Math.random(), x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 });
-                       setBloodParticles(prev => [...prev, ...nb]);
+                       fxRef.current?.spawnBlood(nb);
                      }
                   }
                });
@@ -4001,7 +4234,7 @@ export default function App() {
                setAnimatingEnemyId(null);
                setTimeout(() => setAnimatingTargetIds([]), 350);
                setIsAnimating(false);
-            }, 300);
+            }), 300);
             return;
          }
 
@@ -4033,12 +4266,12 @@ export default function App() {
 
          const hitDelay = style === 'ranged' ? 480 : 300;
 
-         setTimeout(() => {
+         setTimeout(safeAnim(() => {
             setVfxList([]);
             playSound('./assets/sfx/combat/enemy_attack.wav');
             const missed = Math.random() < blindChance;
             if (missed) {
-               if (pRect) setDamagePopups(dp => [...dp, { id: Math.random(), text: 'ПРОМАХ', color: 'text-slate-200', x: pRect.left + pRect.width/2, y: pRect.top - 10 }]);
+               if (pRect) fxRef.current?.spawnDamagePopup({ id: Math.random(), text: 'ПРОМАХ', color: 'text-slate-200', x: pRect.left + pRect.width/2, y: pRect.top - 10 });
                setAnimatingEnemyId(null); setTimeout(() => setAnimatingTargetIds([]), 350); setIsAnimating(false);
                return;
             }
@@ -4050,10 +4283,10 @@ export default function App() {
             if (pRect) {
                const { hpLoss } = applyIncomingDamage(target, dmg);
                if (hpLoss > 0) {
-                 setDamagePopups(dp => [...dp, { id: Math.random(), value: hpLoss, x: pRect.left + pRect.width / 2, y: pRect.top + pRect.height / 2 }]);
+                 fxRef.current?.spawnDamagePopup({ id: Math.random(), value: hpLoss, x: pRect.left + pRect.width / 2, y: pRect.top + pRect.height / 2 });
                  const newBlood = [];
                  for(let i=0; i<30; i++) newBlood.push({ id: Math.random(), x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 });
-                 setBloodParticles(prev => [...prev, ...newBlood]);
+                 fxRef.current?.spawnBlood(newBlood);
                }
             }
 
@@ -4069,7 +4302,7 @@ export default function App() {
             setAnimatingEnemyId(null);
             setTimeout(() => setAnimatingTargetIds([]), 350);
             setIsAnimating(false);
-         }, hitDelay);
+         }), hitDelay);
       }, delay); 
       delay += 800; 
     });
@@ -4189,6 +4422,35 @@ export default function App() {
         />
       )}
 
+      {appReady && showTavern && (
+        <TavernHubScreen
+          activeParty={players.map(p => ({
+            id: p.id,
+            name: p.name,
+            // Передаём атлас целиком — TavernSprite сам анимирует idle по cols/rows/frameCount/fps.
+            sprite: CHAR_ATLASES[p.id],
+          }))}
+          currentSector={sector}
+          onAction={(payload) => {
+            if (!payload) return;
+            if (payload.action === 'OPEN_MAP') {
+              playSound('./assets/sfx/map/node_click.wav', 0.55);
+              setShowTavern(false);
+              return;
+            }
+            // Прочие действия (OPEN_BARTENDER_DIALOG, INSPECT_RECRUIT)
+            // подключим, когда будут готовы соответствующие экраны.
+          }}
+          onOpenPrepScreen={() => {
+            // HERO_ACTIVE → переход на экран подготовки к бою.
+            // Таверну прячем (PrepScreen рендерится при !showTavern && showPrep).
+            playSound('./assets/sfx/ui/click.wav', 0.5);
+            setShowTavern(false);
+            setShowPrep(true);
+          }}
+        />
+      )}
+
       {appReady && !mediaBytes.done && (
         <div className="fixed bottom-4 left-4 z-[9500] bg-slate-900/90 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg flex items-center gap-2.5 animate-in fade-in duration-300">
           <div className="w-4 h-4 border-2 border-slate-700 border-t-amber-500 rounded-full animate-spin shrink-0" />
@@ -4213,10 +4475,10 @@ export default function App() {
           <ImageBackground imageUrl={bgLocation.url} hue={bgLocation.hue} sat={bgLocation.sat} />
 
           {/* Декоративные уголки сцены боя: слой над фоном, но под HUD; не пересекают верхний прогрессбар */}
-          <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
-          <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] right-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleX(-1)' }} />
-          <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleY(-1)' }} />
-          <img src="./corner.png" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scale(-1, -1)' }} />
+          <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
+          <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] right-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleX(-1)' }} />
+          <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleY(-1)' }} />
+          <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scale(-1, -1)' }} />
         </>
       )}
 
@@ -4322,15 +4584,8 @@ export default function App() {
       </div>
 
       {vfxList.map(v => <CombatVfx key={v.id} vfx={v} />)}
-      {modStamps.map(s => (
-        <ModStampEffect key={s.id} {...s} onComplete={(id) => setModStamps(prev => prev.filter(x => x.id !== id))} />
-      ))}
-      {flyingCards.map(fc => <FlyingCard key={fc.id} {...fc} />)}
-      {flyingXps.map(fx => <FlyingXp key={fx.id} {...fx} onComplete={handleXpGained} />)}
-      {flyingItems.map(fi => <FlyingItem key={fi.id} {...fi} onComplete={handleItemLanded} />)}
+      <FxLayer ref={fxRef} />
       {itemTooltip && <ItemTooltip item={itemTooltip.item} x={itemTooltip.x} y={itemTooltip.y} />}
-      {damagePopups.map(dp => (<DamagePopup key={dp.id} {...dp} onComplete={(id) => setDamagePopups(p => p.filter(x => x.id !== id))} />))}
-      {bloodParticles.map(bp => <BloodParticle key={bp.id} {...bp} onComplete={(id) => setBloodParticles(p => p.filter(x => x.id !== id))} />)}
 
       {/* --- ИНТЕРФЕЙС БОЯ (ВСЕГДА РЕНДЕРИТСЯ НА ФОНЕ) --- */}
       <div className="flex w-full max-w-5xl justify-center relative z-0 p-1 py-4 my-auto">
@@ -4362,7 +4617,11 @@ export default function App() {
                 const pos = CHAR_FORMATION[player.id] || { left: 0, top: pIdx * 110 };
                 return (
                   <div key={`field-${player.id}`} ref={el => setAvatarRef(player.id, el)} className={`absolute flex items-center ${transitionClass} ${player.hp <= 0 ? 'opacity-30 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(59,130,246,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: avatarTransform, left: pos.left, top: pos.top }}>
-                    <div className={`relative ${CHAR_ATLASES[player.id] ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`} style={{ transition: 'all 0.15s ease-out' }}>{CHAR_ATLASES[player.id] ? <CharSprite atlas={CHAR_ATLASES[player.id]} size={CHAR_SPRITE_SIZE} {...CHAR_COLORIZE[player.id]} /> : String(player.icon)}{isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}</div>
+                    <div className={`relative ${CHAR_ATLASES[player.id] ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`} style={{ transition: 'all 0.15s ease-out' }}>
+                      <HeroFieldBadges armor={player.armor || 0} chainBonus={turnState === 'player' ? chainAttackBonus : 0} />
+                      {CHAR_ATLASES[player.id] ? <CharSprite atlas={CHAR_ATLASES[player.id]} size={CHAR_SPRITE_SIZE} {...CHAR_COLORIZE[player.id]} /> : String(player.icon)}
+                      {isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}
+                    </div>
                   </div>
                 );
               })}
@@ -4487,7 +4746,6 @@ export default function App() {
                   <div key={p.id} className="flex flex-col items-center" style={{ zIndex: isSlotHovered ? 40 : slotNeighborClass ? 5 : 10 }}>
                   <div className={`card-nudge-wrap w-52 ${slotNeighborClass}`}>
                   <TiltWrapper isDisabled={isDisabled} globalShake={shake} className={`w-52 h-[290px] relative z-10 rounded-2xl transition-shadow duration-300 ${comboStatus.willGiveBonus && !isDisabled ? 'shadow-[0_0_34px_8px_rgba(250,204,21,0.65)] animate-pulse' : ''}`}>
-                    {(p.armor || 0) > 0 && <HeroArmorBadge armor={p.armor} />}
                     <div ref={(el) => setSlotRef(p.id, el)} onClick={() => !isDisabled && card && playCard(i, card)} onMouseEnter={() => handleCardHover(i)} onMouseLeave={() => { setHoveredPlayerId(null); setHoveredTargetIds([]); }} className={`w-full h-full bg-slate-800 border-2 rounded-2xl flex flex-col overflow-hidden relative group ${isDead ? 'border-slate-700 opacity-40 grayscale scale-95' : 'border-slate-600 shadow-2xl shadow-black/80'} ${!isDisabled ? 'cursor-pointer hover:border-[#1E88E5]' : ''}`}>
                       <div className={`${p.bg} py-1.5 px-3 border-b border-white/10 flex justify-between items-center`}><span className="text-sm">{String(p.icon)}</span><span className="font-black uppercase tracking-tighter text-[10px] text-white">{String(p.name)}</span><span className="text-[8px] font-mono text-red-400">{String(p.hp)}/{String(eff.maxHp)} HP</span></div>
                       <div className="p-1.5 bg-slate-900/50"><div className="h-1.5 bg-slate-950 rounded-full overflow-hidden shadow-inner"><div className="h-full bg-[#D32F2F] transition-all duration-500" style={{ width: `${(p.hp/eff.maxHp)*100}%` }}></div></div></div>
@@ -4730,6 +4988,13 @@ export default function App() {
           onBuyCard={buyPrepCard}
           onBurnCard={burnPrepCard}
           onStart={() => setShowPrep(false)}
+          // PrepScreen сейчас открывается ИСКЛЮЧИТЕЛЬНО из таверны (HERO_ACTIVE-клик),
+          // потому это всегда оверлей-режим: крестик + кнопка «ОК» вместо «Старт».
+          fromTavern={true}
+          onClose={() => {
+            setShowPrep(false);
+            setShowTavern(true);
+          }}
         />
       )}
 
