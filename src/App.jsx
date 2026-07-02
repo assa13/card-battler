@@ -505,12 +505,12 @@ const pickRandomAliveIndices = (alive, count, seed = null) => {
 // Маг — Катализатор (дорогие нюки, метка/дебаффы, спред эффектов).
 const HERO_ABILITIES = {
   p1: {
-    basic: { id: 'b1', name: 'Удар мечом', cost: 1, mult: 1.8, dmgType: 'melee', icon: '⚔️', targeting: 'all', rarity: 'COMMON', vfxType: 'slash' },
+    basic: { id: 'b1', name: 'Удар мечом', cost: 1, mult: 1.8, dmgType: 'melee', icon: '⚔️', targeting: 'random2', rarity: 'COMMON', vfxType: 'slash' },
     skills: [
       { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.8, dmgType: 'melee', icon: '🔨', targeting: 'strongest', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' } },
       { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.7, dmgType: 'melee', icon: '🌪️', targeting: 'all', rarity: 'COMMON', vfxType: 'slash' },
       { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, mult: 1.6, dmgType: 'melee', icon: '🏃', targeting: 'strongest', rarity: 'COMMON', vfxType: 'slash', secondary: { effect: 'vuln' } },
-      { id: 's1_4', ownerId: 'p1', name: 'Берсерк', cost: 3, mult: 3.0, dmgType: 'melee', icon: '🪓', targeting: 'all', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' } }
+      { id: 's1_4', ownerId: 'p1', name: 'Берсерк', cost: 3, mult: 3.0, dmgType: 'melee', icon: '🪓', targeting: 'random2', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' } }
     ]
   },
   p2: {
@@ -518,7 +518,7 @@ const HERO_ABILITIES = {
     skills: [
       { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.8, dmgType: 'ranged', icon: '🧪', targeting: 'random2', rarity: 'COMMON', vfxType: 'poison', secondary: { effect: 'bleed' } },
       { id: 's2_2', ownerId: 'p2', name: 'Тысяча порезов', cost: 1, mult: 1.4, dmgType: 'ranged', icon: '✂️', targeting: 'all', rarity: 'RARE', vfxType: 'daggers', secondary: { effect: 'bleed' } },
-      { id: 's2_3', ownerId: 'p2', name: 'Танец стали', cost: 2, mult: 2.2, dmgType: 'ranged', icon: '⚔️', targeting: 'all', rarity: 'RARE', vfxType: 'daggers' },
+      { id: 's2_3', ownerId: 'p2', name: 'Танец стали', cost: 2, mult: 2.2, dmgType: 'ranged', icon: '⚔️', targeting: 'random2', rarity: 'RARE', vfxType: 'daggers' },
       { id: 's2_4', ownerId: 'p2', name: 'Кровопускание', cost: 3, mult: 2.6, dmgType: 'ranged', icon: '🩸', targeting: 'all', rarity: 'EPIC', vfxType: 'daggers', secondary: { effect: 'bleed' } }
     ]
   },
@@ -726,13 +726,19 @@ const calculateQteDuration = (card, chainPos) => {
 };
 
 // QTE положен, если карта «важная»: звено комбо 2+, эпик/легендарка,
+// мульти-удар по 2+ целям (ритм-стрим — витрина механики, должен случаться),
 // в целях босс или цель с Меткой, либо удар ожидаемо летален.
+// ЖЁСТКИЙ ЗАПРЕТ: карты за 0 маны (спам-карты вроде Кинжала) НИКОГДА не триггерят
+// QTE — перекрывает ВСЕ остальные правила (комбо, редкость, босса, летальность).
 const shouldTriggerQte = (card, chainPos, targets, expectedLethal) =>
-  chainPos >= 2 ||
-  card.rarity === 'EPIC' || card.rarity === 'LEGENDARY' ||
-  targets.some(t => t.isBoss) ||
-  targets.some(t => t.statuses?.mark) ||
-  expectedLethal;
+  card.cost > 0 && (
+    chainPos >= 2 ||
+    card.rarity === 'EPIC' || card.rarity === 'LEGENDARY' ||
+    (getCardTargeting(card) !== CARD_TARGETING.ALL && targets.length > 1) ||
+    targets.some(t => t.isBoss) ||
+    targets.some(t => t.statuses?.mark) ||
+    expectedLethal
+  );
 
 // Броня поглощает урон и уменьшается; остаток идёт в HP
 const applyIncomingDamage = (player, rawDmg) => {
@@ -945,13 +951,16 @@ const getConicGradient = (colors, innerBg) => {
 };
 
 const generateMap = () => {
-  // Панель карты на всю ширину арены — узлов можно больше: слой 1 — 2–3, средние — 3–4
+  // Слой 1 ФИКСИРОВАННО 2 узла: у базы максимум 3 исходящих ребра — при 4+ узлах
+  // появлялись сироты без входа; плюс каждый узел слоя 1 = своя цветная «линия метро»,
+  // 2 узла = 2 цвета (больше — радужный хаос). Средние слои 2–6 узлов — широкий
+  // разброс, иначе детерминированный граф связей повторяется из раза в раз.
   const counts = [
     1,
-    Math.floor(Math.random() * 2) + 2,
-    Math.floor(Math.random() * 2) + 3,
-    Math.floor(Math.random() * 2) + 3,
-    Math.floor(Math.random() * 2) + 3,
+    2,
+    Math.floor(Math.random() * 5) + 2,
+    Math.floor(Math.random() * 5) + 2,
+    Math.floor(Math.random() * 5) + 2,
     1
   ];
   const layers = [];
@@ -994,7 +1003,7 @@ const generateMap = () => {
       let bestSrc = -1;
       let minDist = 999;
       for(let c = 0; c < curr.length; c++) {
-        if (curr[c].next.length < 2) {
+        if (curr[c].next.length < 3) {
           let dist = Math.abs(c / curr.length - nIdx / next.length);
           if (dist < minDist) { minDist = dist; bestSrc = c; }
         }
@@ -1011,8 +1020,7 @@ const generateMap = () => {
 
     curr.forEach((currNode, cIdx) => {
       if (i === layers.length - 2) return;
-      // Меньше ветвлений: максимум 2 исходящих ребра (было до 3) — граф читается сразу
-      const numBranches = Math.floor(Math.random() * 2) + 1;
+      const numBranches = Math.floor(Math.random() * 3) + 1;
       let attempts = 0;
       let centerTargetIdx = Math.floor((cIdx / curr.length) * next.length);
       while (currNode.next.length < numBranches && attempts < 10) {
@@ -2465,7 +2473,7 @@ const CardRevealOverlay = ({ card, owner, bgHue = 260, bgSat = 60, onDismiss }) 
 
 // --- ОКНО КОЛОДЫ: пуллы бойцов + живая очередь ротации карт ---
 
-const DeckWindow = ({ players, pools, drawPile, onClose }) => {
+const DeckWindow = ({ players, pools, drawPile, maxMana, onClose }) => {
   // Двусторонняя подсветка: слот бойца <-> карта в очереди + тултип с реальной картой
   const [hoverId, setHoverId] = useState(null);
   const [tooltip, setTooltip] = useState(null); // { card, x, top, bottom }
@@ -2852,13 +2860,18 @@ const FxLayer = React.forwardRef((_props, ref) => {
 // Арена с героями/врагами (h-355 + отступ 5) остаётся видимой и живой сверху.
 // Оверлей накрывает всё ПОД ней: панель слотов героев + полосу лута, до низа
 // контейнера — по всей ширине блока арены, без дыры снизу. Ноль layout shift:
-// подлежащий DOM не размонтируется, под картой backdrop-blur. Дизолв — .dissolve.
-// Выбор узла → turnState уходит из 'map' → оверлей исчезает.
+// подлежащий DOM не размонтируется, под картой backdrop-blur.
+// ВАЖНО: сама панель с backdrop-blur держит opacity:1 постоянно — по спецификации
+// элемент с opacity<1 становится "backdrop root" и обрезает выборку backdrop-filter
+// только своим содержимым, из-за чего блюр слепнет. Поэтому панель (полупрозрачная,
+// с блюром) появляется мгновенно, а проявляется только содержимое (map-content-in):
+// линии, узлы и заголовки — никакого тёмного прямоугольника перед картой.
 const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNodeClickable, onNodeClick }) => (
-  <div className="absolute left-0 right-0 bottom-0 top-[360px] z-[500] dissolve">
-    <div className="absolute top-3 left-8 z-10 text-amber-500 font-black uppercase italic tracking-widest text-lg drop-shadow-md pointer-events-none">Карта сектора {String(sector)}</div>
-    <div className="absolute top-4 right-8 z-10 text-slate-400 font-black uppercase tracking-widest text-[9px] pointer-events-none">Выберите следующий этап пути</div>
+  <div className="absolute left-0 right-0 bottom-0 top-[360px] z-[500]">
+    <div className="absolute top-3 left-8 z-10 text-amber-500 font-black uppercase italic tracking-widest text-lg drop-shadow-md pointer-events-none map-content-in">Карта сектора {String(sector)}</div>
+    <div className="absolute top-4 right-8 z-10 text-slate-400 font-black uppercase tracking-widest text-[9px] pointer-events-none map-content-in">Выберите следующий этап пути</div>
     <div className="relative w-full h-full bg-slate-950/40 backdrop-blur-xl rounded-[28px] border border-slate-700 shadow-2xl overflow-hidden">
+     <div className="absolute inset-0 map-content-in">
       <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
         {links.map(link => {
           const isLinkActive = (completedNodes.includes(link.source.id) || currentNodeId === link.source.id) && (completedNodes.includes(link.target.id) || isNodeClickable(link.target));
@@ -2905,12 +2918,12 @@ const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNod
          );
       })}
 
+     </div>
     </div>
 
-    {/* Быстрый дизолв: transition/animation по opacity, 0.2s ease-in-out */}
     <style>{`
-      .dissolve { animation: dissolveIn 0.2s ease-in-out both; }
-      @keyframes dissolveIn { from { opacity: 0; } to { opacity: 1; } }
+      .map-content-in { animation: mapContentIn 0.25s ease-in-out both; }
+      @keyframes mapContentIn { from { opacity: 0; } to { opacity: 1; } }
     `}</style>
   </div>
 );
@@ -3121,6 +3134,8 @@ export default function App() {
   const audioRef = useRef(null);
   const showLevelUpRef = useRef(false);
   const pendingTransitionRef = useRef(null);
+  // Таймер паузы «смерть последнего врага → очистка поля → карта»
+  const victoryPauseRef = useRef(null);
   // Счётчик раздач: каждые 3 хода колода обновляется (сброс замешивается в резерв)
   const dealCounterRef = useRef(0);
 
@@ -3395,6 +3410,7 @@ export default function App() {
     setFlashingTargets([]);
     setSectorSplash(null);
     pendingTransitionRef.current = null;
+    if (victoryPauseRef.current) { clearTimeout(victoryPauseRef.current); victoryPauseRef.current = null; }
     dealCounterRef.current = 0;
     
     if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
@@ -3746,15 +3762,28 @@ export default function App() {
     setSectorSplash({ text: SECTOR_NARRATIVES[Math.floor(Math.random() * SECTOR_NARRATIVES.length)], sector: sector + 1 });
   };
 
-  // Мгновенный пост-бой (flow state): смерть последнего врага → БЕЗ пауз, victory_wait
-  // и экрана «СЕКТОР ЗАЧИЩЕН». Обычный узел — дизолв карты поверх боя (MapOverlay),
-  // босс — заставка нового сектора. Открытый level-up откладывает переход.
+  // Вход в фазу карты: поле боя полностью очищается — трупы врагов, комбо-руна,
+  // подсветки и висящие VFX. На фоне карты не должно оставаться ничего от боя.
+  const enterMapPhase = () => {
+    victoryPauseRef.current = null;
+    setEnemies([]);
+    setComboCount(0); setComboStreak(0); setChainAttackBonus(0); setLastPlayedCost(null);
+    setFlashingTargets([]);
+    fxRef.current?.clearAll();
+    if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
+    setSpeakingEnemy(null);
+    setTurnState('map');
+  };
+
+  // Пост-бой: смерть последнего врага → короткая пауза (анимация смерти доигрывает),
+  // затем очистка поля и дизолв карты поверх боя (MapOverlay). Босс — заставка
+  // нового сектора. Открытый level-up откладывает переход.
   const triggerVictoryTransition = () => {
     setCompletedNodes(prev => prev.includes(currentMapNodeId) ? prev : [...prev, currentMapNodeId]);
     const target = currentStage === 5 ? 'nextSector' : 'map';
     if (showLevelUpRef.current) { pendingTransitionRef.current = target; return; }
     if (target === 'nextSector') startNextSector();
-    else setTurnState('map');
+    else victoryPauseRef.current = setTimeout(enterMapPhase, 700);
   };
 
   // Выполняет отложенный переход (карта/новый сектор), назначенный во время диалога
@@ -3763,7 +3792,7 @@ export default function App() {
     if (pending) {
       pendingTransitionRef.current = null;
       if (pending === 'nextSector') startNextSector();
-      else setTurnState(pending);
+      else enterMapPhase();
     }
   };
 
@@ -3847,6 +3876,10 @@ export default function App() {
   };
 
   const endPlayerPhase = useCallback(() => {
+    // Пауза «победа → карта» уже идёт: враги мертвы, ход завершать нельзя.
+    // qteActiveRef: активен QTE/серия QTE (в 100мс-паузах между звеньями стрима
+    // qte-стейт кратко null и кнопка разблокируется — реф закрывает эту щель).
+    if (victoryPauseRef.current || qteActiveRef.current) return;
     setTurnState(ts => {
       if (ts !== 'player') return ts;
       playSound('./assets/sfx/game/enemy_turn.wav', 0.6);
@@ -3984,8 +4017,9 @@ export default function App() {
   const playCard = (playerIndex, card) => {
     const player = players[playerIndex];
     const effectivePlayer = getEffectivePlayer(player, equipped[player.id]);
-    // Ввод не блокируется анимациями: гварды синхронные (actingRef/manaRef)
-    if (turnState !== 'player' || manaRef.current < card.cost || player.hp <= 0 || player.hasActed || actingRef.current.has(player.id)) return;
+    // Ввод не блокируется анимациями: гварды синхронные (actingRef/manaRef).
+    // victoryPauseRef: бой уже выигран, идёт пауза перед картой — розыгрыш запрещён.
+    if (turnState !== 'player' || victoryPauseRef.current || manaRef.current < card.cost || player.hp <= 0 || player.hasActed || actingRef.current.has(player.id)) return;
     if (isModCard(card)) { playModCard(playerIndex, card); return; }
     actingRef.current.add(player.id);
 
@@ -4012,10 +4046,19 @@ export default function App() {
     const qteTargets = targetIndices.map(idx => enemiesRef.current[idx]).filter(t => t && !t.isDead);
     const expectedLethal = qteTargets.some(t =>
       computePreviewDamageOnEnemy(effectivePlayer, card, t, comboDamageMult, chainBonusAtPlay).isLethal);
+    const qteEligible = !qteActiveRef.current && shouldTriggerQte(card, chainPos, qteTargets, expectedLethal);
+    // РЕЖИМЫ QTE:
+    // - Одновременный AoE (targeting 'all'): один большой центральный QTE, один резолв,
+    //   урон всем целям разом. Гейтится shouldTriggerQte (только «значимые» удары).
+    // - Последовательная серия (мульти-удар: random2 и будущие цепные атаки, 2+ живые
+    //   цели): локальный QTE над КАЖДОЙ целью по очереди — ритм-стрим ударов.
+    //   НЕ гейтится shouldTriggerQte: стрим — это идентичность мульти-ударной карты,
+    //   он играет при каждом розыгрыше (иначе random2 неотличим от обычного удара).
+    // card.cost > 0 — жёсткий бан QTE на картах за 0 маны (перекрывает всё).
+    const isSequentialStrike = card.cost > 0 && !qteActiveRef.current && getCardTargeting(card) !== CARD_TARGETING.ALL && qteTargets.length > 1;
     let qtePromise = Promise.resolve(1.0);
-    let qteDurationMs = 0;
-    if (!qteActiveRef.current && shouldTriggerQte(card, chainPos, qteTargets, expectedLethal)) {
-      // Массовая атака (или random2 задел >1 цели) — центр зоны врагов, укрупнённо;
+    if (qteEligible && !isSequentialStrike) {
+      // Массовая атака — центр зоны врагов, укрупнённо;
       // одиночная (или жив 1 враг) — локально над спрайтом цели.
       const isAoe = qteTargets.length > 1;
       const rect = isAoe
@@ -4023,18 +4066,39 @@ export default function App() {
         : enemyRefs.current[qteTargets[0]?.id]?.getBoundingClientRect();
       if (rect) {
         qteActiveRef.current = true;
-        qteDurationMs = calculateQteDuration(card, chainPos);
         // Bullet-time: мир плавно замедляется на время кольца (выход — в onResolve)
         qteSlowMo.start();
         qtePromise = new Promise(resolve => setQte({
+          id: `qte_${Date.now()}`,
           targetType: isAoe ? 'aoe' : 'single',
           targetNode: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
-          duration: qteDurationMs,
+          duration: calculateQteDuration(card, chainPos),
           card: { icon: card.icon, name: card.name }, // контекст: что усиливаем
           resolve,
         }));
       }
+    } else if (isSequentialStrike) {
+      // Гвард захватывается синхронно на ВСЮ серию: параллельный розыгрыш
+      // не смонтирует второй QTE, пока стрим не отыграет.
+      qteActiveRef.current = true;
     }
+
+    // Монтирует локальный QTE над конкретной целью серии. holdSlowMo: слоу-мо
+    // общее на весь стрим (start — перед первым кольцом, end — после последнего),
+    // между звеньями мир НЕ разгоняется — серия ощущается единой.
+    const runSequentialQte = (enemyId) => {
+      const rect = enemyRefs.current[enemyId]?.getBoundingClientRect();
+      if (!rect) return Promise.resolve(1.0);
+      return new Promise(resolve => setQte({
+        id: `qte_${Date.now()}_${enemyId}`,
+        targetType: 'single',
+        targetNode: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+        duration: calculateQteDuration(card, chainPos),
+        card: { icon: card.icon, name: card.name },
+        holdSlowMo: true,
+        resolve,
+      }));
+    };
 
     playSound('./assets/sfx/ui/click.wav', 0.6);
     // Ману тратим синхронно (manaRef), помечаем ход бойца сразу — чтобы быстрые клики
@@ -4047,14 +4111,23 @@ export default function App() {
     // Прыжок — только у ближников (физ. урон). Дальники (ranged/magic) стоят на месте.
     setAttackTranslate({ dx: 0, dy: 0 });
     const isMelee = getCardDmgType(card) === 'melee';
+    // База героя фиксируется ДО применения transform: все рывки серии считаются
+    // от неё (transform абсолютный) — герой летит Base → T1 → T2 → … → Base
+    // напрямую между целями, без телепорта домой между ударами.
+    const heroBaseRect = isMelee ? avatarRefs.current[player.id]?.getBoundingClientRect() : null;
+    // Пинбол-рывок: вектор от базы к текущей цели (×0.75 — встаёт вплотную, не поверх)
+    const dashTo = (enemyId) => {
+      const tRect = enemyRefs.current[enemyId]?.getBoundingClientRect();
+      if (!heroBaseRect || !tRect) return;
+      const dx = (tRect.left + tRect.width / 2) - (heroBaseRect.left + heroBaseRect.width / 2);
+      const dy = (tRect.top + tRect.height / 2) - (heroBaseRect.top + heroBaseRect.height / 2);
+      setAttackTranslate({ dx: dx * 0.75, dy: dy * 0.75 });
+    };
     if (isMelee) {
-      const aRect = avatarRefs.current[player.id]?.getBoundingClientRect();
       const firstTargetId = targetIndices.length > 0 ? enemiesRef.current[targetIndices[0]]?.id : null;
-      const tRect = firstTargetId ? enemyRefs.current[firstTargetId]?.getBoundingClientRect() : null;
-      const leapDx = aRect && tRect ? (tRect.left + tRect.width/2) - (aRect.left + aRect.width/2) : 200;
-      const leapDy = aRect && tRect ? (tRect.top  + tRect.height/2) - (aRect.top  + aRect.height/2) : 0;
       requestAnimationFrame(() => requestAnimationFrame(() => {
-        setAttackTranslate({ dx: leapDx * 0.75, dy: leapDy * 0.75 });
+        if (firstTargetId) dashTo(firstTargetId);
+        else setAttackTranslate({ dx: 200, dy: 0 });
       }));
     }
 
@@ -4104,14 +4177,9 @@ export default function App() {
 
     const animDuration = player.id === 'p2' ? 600 : 300;
 
-    // Импакт и QTE идут параллельно: урон применяется, когда прошла задержка удара
-    // И игрок разрешил QTE (или QTE не было — resolve(1.0) мгновенный).
-    // Импакт — 300мс ИГРОВОГО времени (qteSlowMo.delay): без QTE это обычные 300мс,
-    // под слоу-мо тянется вместе с замедленным прыжком/снарядом — удар синхронен
-    // с визуалом. Судья тайминга кольца при этом живёт в реальном времени.
-    const impactDelay = qteSlowMo.delay(300);
-    Promise.all([impactDelay, qtePromise]).then(([, qteMult]) => safeAnim(() => {
-      setVfxList([]); 
+    // Применяет удар карты к списку целей (индексы) с данным QTE-множителем.
+    // Общий для обоих режимов: одновременного (все цели разом) и серии (по одной).
+    const applyStrike = (strikeIndices, qteMult) => {
       let { damage: baseDamage, critChance } = computeCardDamage(effectivePlayer, card, comboDamageMult);
       // Бонус от «Усиления цепи» добавляется к мощности этой карты и тратится
       if (chainBonusAtPlay > 0) { baseDamage += chainBonusAtPlay; setChainAttackBonus(0); }
@@ -4122,7 +4190,7 @@ export default function App() {
 
       playSound(getCombatHitSound(card.vfxType || 'slash'));
 
-      const hitEnemyIds = targetIndices.map(idx => newEnemies[idx]?.id).filter(Boolean);
+      const hitEnemyIds = strikeIndices.map(idx => newEnemies[idx]?.id).filter(Boolean);
       setFlashingTargets(prev => [...prev, ...hitEnemyIds]);
       setTimeout(() => setFlashingTargets(prev => prev.filter(id => !hitEnemyIds.includes(id))), 250);
 
@@ -4130,7 +4198,7 @@ export default function App() {
       let anyCrit = false;
       let maxDealt = 0;
       const statusPopups = [];
-      targetIndices.forEach(idx => {
+      strikeIndices.forEach(idx => {
         const target = newEnemies[idx];
         target.statuses = { ...(target.statuses || {}) };
 
@@ -4187,8 +4255,6 @@ export default function App() {
 
       // Синхронно обновляем реф, чтобы параллельный розыгрыш видел свежий HP врагов
       enemiesRef.current = newEnemies; setEnemies(newEnemies);
-      // Сбрасываем прыжок только если с тех пор не начал бить другой боец
-      setAnimatingPlayerId(prev => prev === player.id ? null : prev);
       setTimeout(() => setAnimatingTargetIds([]), 350);
       setHoveredPlayerId(null); setHoveredTargetIds([]);
       
@@ -4216,10 +4282,14 @@ export default function App() {
           addItemToInventory(lootData.item);
         }
       });
-      
-      // МГНОВЕННЫЙ триггер пост-боя: HP последнего врага достиг 0 → сразу дизолв
-      // карты поверх боя (никаких victory_wait, таймаутов и смены экрана).
-      const allDead = newEnemies.every(e => e.isDead);
+    };
+
+    // Завершение розыгрыша: проверка победы + анимация сброса карты.
+    // Вызывается один раз — после единственного удара или после ВСЕЙ серии.
+    const finishCardPlay = () => {
+      // Триггер пост-боя: HP последнего врага достиг 0 → пауза → карта.
+      // length > 0: после resetGame врагов нет вовсе — это НЕ победа.
+      const allDead = enemiesRef.current.length > 0 && enemiesRef.current.every(e => e.isDead);
       if (allDead) triggerVictoryTransition();
 
       if (isRealDeckCard(card)) {
@@ -4235,7 +4305,67 @@ export default function App() {
           );
         } else { setDiscardPile(prev => [...prev, card]); }
       }
-    })());
+    };
+
+    // Импакт и QTE идут параллельно: урон применяется, когда прошла задержка удара
+    // И игрок разрешил QTE (или QTE не было — resolve(1.0) мгновенный).
+    // Импакт — 300мс ИГРОВОГО времени (qteSlowMo.delay): без QTE это обычные 300мс,
+    // под слоу-мо тянется вместе с замедленным прыжком/снарядом — удар синхронен
+    // с визуалом. Судья тайминга кольца при этом живёт в реальном времени.
+    const impactDelay = qteSlowMo.delay(300);
+
+    if (isSequentialStrike) {
+      // === ПОСЛЕДОВАТЕЛЬНАЯ СЕРИЯ QTE (ритм-стрим мульти-удара) ===
+      // Асинхронный цикл: [ближник: рывок к цели → 200мс] → QTE над целью → клик →
+      // урон этой цели → микро-пауза 100мс (глаз переносится) → следующая цель.
+      // «Пинбол» ближника: transform абсолютный от базы, каждый dashTo интерполирует
+      // ОТ ТЕКУЩЕЙ позиции — герой летит T1 → T2 напрямую, домой не телепортируется.
+      // Слоу-мо одно на всю серию: start здесь, end — после последнего звена.
+      (async () => {
+        try {
+          await impactDelay;
+          setVfxList([]);
+          qteSlowMo.start();
+          let firstTarget = true;
+          for (const idx of targetIndices) {
+            // Чек смерти: цель могла умереть от предыдущего удара — безопасно пропускаем
+            const target = enemiesRef.current[idx];
+            if (!target || target.isDead) continue;
+            // Рывок ближника к текущей цели. К первой герой уже прыгнул при розыгрыше
+            // (это время покрыл impactDelay) — дэшим только между целями.
+            if (isMelee && !firstTarget) {
+              dashTo(target.id);
+              await qteSlowMo.delay(200); // дэш с ease-out почти долетел — кольцо монтируем на подлёте
+            }
+            firstTarget = false;
+            const qteMult = await runSequentialQte(target.id);
+            // Повторный чек ПОСЛЕ ожидания: во время кольца мог случиться resetGame
+            // (снапшот резолвится ×1.0) или цель исчезла — удар в пустоту не наносим
+            const after = enemiesRef.current[idx];
+            if (!after || after.id !== target.id || after.isDead) continue;
+            safeAnim(() => applyStrike([idx], qteMult))();
+            // Микро-задержка между резолвом удара и следующим кольцом
+            await new Promise(r => setTimeout(r, 100));
+          }
+        } finally {
+          qteSlowMo.end();
+          qteActiveRef.current = false;
+          // Все цели отработаны — рывок домой (transform к {0,0}, transition доигрывает)
+          setAttackTranslate({ dx: 0, dy: 0 });
+          setAnimatingPlayerId(prev => prev === player.id ? null : prev);
+          safeAnim(finishCardPlay)();
+        }
+      })();
+    } else {
+      // === ОДНОВРЕМЕННЫЙ УДАР (одиночная цель или AoE 'all') — как раньше ===
+      Promise.all([impactDelay, qtePromise]).then(([, qteMult]) => safeAnim(() => {
+        setVfxList([]);
+        applyStrike(targetIndices, qteMult);
+        // Сбрасываем прыжок только если с тех пор не начал бить другой боец
+        setAnimatingPlayerId(prev => prev === player.id ? null : prev);
+        finishCardPlay();
+      })());
+    }
   };
 
   const playersRef = useRef(players);
@@ -4999,19 +5129,30 @@ export default function App() {
       {/* --- QTE «Perfect Hit»: сужающееся кольцо поверх цели / зоны врагов --- */}
       {qte && (
         <QteOverlay
+          key={qte.id}
           targetType={qte.targetType}
           targetNode={qte.targetNode}
           duration={qte.duration}
           card={qte.card}
           onArm={() => playSound('./assets/sfx/ui/click.wav', 0.18)}
           onResolve={(res) => {
-            // Вердикт получен — мир плавно разгоняется обратно (ramp ~250мс)
-            qteSlowMo.end();
+            // Вердикт получен — мир плавно разгоняется обратно (ramp ~250мс).
+            // В серии (holdSlowMo) слоу-мо держится до конца стрима — end зовёт цикл.
+            if (!qte.holdSlowMo) qteSlowMo.end();
             if (res === 'perfect') playSound('./assets/sfx/combat/hit_heavy.wav', 0.55);
             else if (res === 'good') playSound('./assets/sfx/ui/click.wav', 0.5);
             qte.resolve(QTE_RESULT_MULT[res] ?? 1.0);
           }}
-          onDone={() => { qteActiveRef.current = false; setQte(null); }}
+          onDone={() => {
+            // Гвард от «протухшего» onDone: вердикт прошлого звена догорает 600мс,
+            // за это время серия уже смонтировала следующее кольцо (другой id) —
+            // не гасим его. Чистим только если это всё ещё НАШ оверлей.
+            setQte(prev => {
+              if (prev && prev.id !== qte.id) return prev;
+              qteActiveRef.current = false;
+              return null;
+            });
+          }}
         />
       )}
 
@@ -5200,6 +5341,7 @@ export default function App() {
           players={players}
           pools={getHeroPools()}
           drawPile={drawPile}
+          maxMana={maxMana}
           onClose={() => setShowReserve(false)}
         />
       )}
