@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from 'react';
 import TavernHubScreen from './TavernHubScreen';
+import QteOverlay from './QteOverlay';
+import { qteSlowMo } from './qteTimeScale';
 
 // --- 1. КОНСТАНТЫ И НАСТРОЙКИ ---
 
@@ -671,7 +673,9 @@ const getCardStatColor = (card) => {
 };
 
 // Базовая мощность карты (вместо привязки к статам героя).
-const CARD_BASE_POWER = 15;
+// Нерф ×0.5 (было 15): единая точка урона всех карт — превью, розыгрыш и
+// проверка летальности QTE считаются через неё же, ничего не расходится.
+const CARD_BASE_POWER = 7.5;
 
 // ЕДИНАЯ формула урона: базовая мощность карты × уровень × модификатор предметов × бонус.
 // Урон НЕ зависит от силы/ловкости/интеллекта. Предметы дают прямые модификаторы:
@@ -699,6 +703,36 @@ const computePreviewDamageOnEnemy = (owner, card, enemy, comboMult = 1, chainBon
   if (vuln) dmg = Math.floor(dmg * (1 + vuln.amount));
   return { damage: dmg, isLethal: dmg >= enemy.hp };
 };
+
+// --- Прогрессия: пороги уровней ---
+// Нерф темпа ×2 (было 60 + 50×N): уровни приходили слишком часто.
+// Действует ВМЕСТЕ с нерфом входящего XP ×0.5 в gainXp — суммарно темп ×4 медленнее исходного.
+const XP_BASE_THRESHOLD = 120; // XP до 2-го уровня
+const XP_THRESHOLD_STEP = 100; // прирост порога за каждый уровень
+
+// --- QTE «Perfect Hit» ---
+// Множитель итогового урона карты по результату QTE
+const QTE_RESULT_MULT = { perfect: 1.35, good: 1.15, miss: 1.0 };
+const QTE_BASE_MS = 900;
+const QTE_MIN_MS = 350; // хард-кап: предел человеческой реакции
+const QTE_RARITY_PENALTY_MS = { RARE: 100, EPIC: 250, LEGENDARY: 400 };
+
+// Скорость сужения кольца: чем сильнее карта и глубже комбо — тем быстрее.
+// chainPos — 1-based позиция карты в цепочке комбо (1 = одиночная / первое звено).
+const calculateQteDuration = (card, chainPos) => {
+  const rarityPenalty = QTE_RARITY_PENALTY_MS[card.rarity] || 0;
+  const comboPenalty = chainPos >= 3 ? 200 : chainPos === 2 ? 100 : 0;
+  return Math.max(QTE_MIN_MS, QTE_BASE_MS - rarityPenalty - comboPenalty);
+};
+
+// QTE положен, если карта «важная»: звено комбо 2+, эпик/легендарка,
+// в целях босс или цель с Меткой, либо удар ожидаемо летален.
+const shouldTriggerQte = (card, chainPos, targets, expectedLethal) =>
+  chainPos >= 2 ||
+  card.rarity === 'EPIC' || card.rarity === 'LEGENDARY' ||
+  targets.some(t => t.isBoss) ||
+  targets.some(t => t.statuses?.mark) ||
+  expectedLethal;
 
 // Броня поглощает урон и уменьшается; остаток идёт в HP
 const applyIncomingDamage = (player, rawDmg) => {
@@ -911,14 +945,15 @@ const getConicGradient = (colors, innerBg) => {
 };
 
 const generateMap = () => {
+  // Компактная карта: средние слои 2–3 узла (было 2–6) — читаемее и быстрее проходится
   const counts = [
-    1, 
-    Math.floor(Math.random() * 2) + 2, 
-    Math.floor(Math.random() * 5) + 2, 
-    Math.floor(Math.random() * 5) + 2, 
-    Math.floor(Math.random() * 5) + 2, 
+    1,
+    2,
+    Math.floor(Math.random() * 2) + 2,
+    Math.floor(Math.random() * 2) + 2,
+    Math.floor(Math.random() * 2) + 2,
     1
-  ]; 
+  ];
   const layers = [];
   const runId = Math.random().toString(36).substring(2, 9);
   let nextId = 0;
@@ -959,7 +994,7 @@ const generateMap = () => {
       let bestSrc = -1;
       let minDist = 999;
       for(let c = 0; c < curr.length; c++) {
-        if (curr[c].next.length < 3) {
+        if (curr[c].next.length < 2) {
           let dist = Math.abs(c / curr.length - nIdx / next.length);
           if (dist < minDist) { minDist = dist; bestSrc = c; }
         }
@@ -975,8 +1010,9 @@ const generateMap = () => {
     });
 
     curr.forEach((currNode, cIdx) => {
-      if (i === layers.length - 2) return; 
-      const numBranches = Math.floor(Math.random() * 3) + 1;
+      if (i === layers.length - 2) return;
+      // Меньше ветвлений: максимум 2 исходящих ребра (было до 3) — граф читается сразу
+      const numBranches = Math.floor(Math.random() * 2) + 1;
       let attempts = 0;
       let centerTargetIdx = Math.floor((cIdx / curr.length) * next.length);
       while (currNode.next.length < numBranches && attempts < 10) {
@@ -2812,6 +2848,80 @@ const FxLayer = React.forwardRef((_props, ref) => {
   );
 });
 
+// --- КАРТА СЕКТОРА: оверлей поверх боя (бесшовный переход, flow state) ---
+// НЕ отдельный экран/роут: рендерится поверх живого боевого UI через быстрый
+// дизолв (.dissolve, opacity 0.2s) — без жёстких катов и размонтирования боя.
+const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNodeClickable, onNodeClick }) => (
+  <div className="absolute inset-0 z-[1200] bg-black/60 backdrop-blur-md flex flex-col items-center justify-center p-8 dissolve">
+    <h1 className="text-7xl font-black text-amber-500 uppercase italic tracking-widest mb-8 text-center drop-shadow-2xl">Карта сектора {String(sector)}</h1>
+    <div className="relative w-full max-w-4xl h-[500px] bg-slate-900/90 rounded-[40px] border border-slate-700 shadow-2xl overflow-hidden">
+      <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
+        {links.map(link => {
+          const isLinkActive = (completedNodes.includes(link.source.id) || currentNodeId === link.source.id) && (completedNodes.includes(link.target.id) || isNodeClickable(link.target));
+          if (isLinkActive) return null;
+          return (
+            <path key={`inact-${link.source.id}-${link.target.id}`} d={getSubwayPath(link)} fill="none" stroke={link.color} strokeWidth={3} opacity={0.3} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeDasharray="4, 4" className="transition-all duration-500" />
+          )
+        })}
+        {links.map(link => {
+          const isLinkActive = (completedNodes.includes(link.source.id) || currentNodeId === link.source.id) && (completedNodes.includes(link.target.id) || isNodeClickable(link.target));
+          if (!isLinkActive) return null;
+          return (
+            <path key={`act-${link.source.id}-${link.target.id}`} d={getSubwayPath(link)} fill="none" stroke={link.color} strokeWidth={6} vectorEffect="non-scaling-stroke" strokeLinecap="round" className="transition-all duration-500" />
+          )
+        })}
+      </svg>
+
+      {nodes.map(node => {
+         const isCompleted = completedNodes.includes(node.id);
+         const isCurrent = currentNodeId === node.id;
+         const isClickable = isNodeClickable(node);
+         let innerBg = '#0B0515';
+         let icon = '🗡️';
+         let sizeClasses = 'w-12 h-12 border-[6px] -ml-6 -mt-6 text-2xl';
+
+         if (node.type === 'base') { innerBg = '#ffffff'; icon = '🏰'; sizeClasses = 'w-16 h-16 border-[6px] -ml-8 -mt-8 text-4xl'; }
+         else if (node.type === 'boss') { innerBg = '#ffffff'; icon = '🐲'; sizeClasses = 'w-16 h-16 border-[6px] -ml-8 -mt-8 text-4xl'; }
+         else if (node.type === 'combat_hard') { icon = '☠️'; }
+         else if (node.type === 'combat_medium') { icon = '⚔️'; }
+         else if (node.type === 'event') { innerBg = '#1E1035'; icon = '✨'; }
+
+         const nodeColorStyle = getConicGradient(node.colors, innerBg);
+
+         return (
+           <div
+              key={node.id}
+              onClick={() => isClickable && onNodeClick(node)}
+              className={`absolute flex items-center justify-center rounded-full shadow-xl transition-all duration-300 ${sizeClasses} ${isCompleted && node.type !== 'base' ? 'grayscale opacity-60' : isCurrent ? 'scale-125 drop-shadow-[0_0_20px_rgba(255,255,255,0.4)] z-20' : isClickable ? 'hover:scale-125 cursor-pointer animate-pulse z-10' : 'opacity-50' }`}
+              style={{ left: `${node.x}%`, top: `${node.y}%`, ...nodeColorStyle }}
+           >
+              {icon}
+              {isClickable && <div className="absolute -inset-2 border-[3px] rounded-full animate-ping opacity-40" style={{ borderColor: node.colors[0] || '#1E88E5' }}></div>}
+           </div>
+         );
+      })}
+    </div>
+
+    <div className="flex justify-between items-center w-full max-w-4xl mt-6 px-4">
+      <div className="flex gap-5 items-center text-[9px] font-bold uppercase tracking-widest text-slate-400 bg-slate-900/80 px-6 py-3 rounded-2xl border border-slate-700/50 shadow-inner">
+        <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">🏰</span> База</span>
+        <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">🗡️</span> Легкий</span>
+        <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">⚔️</span> Средний</span>
+        <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">☠️</span> Сложный</span>
+        <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">✨</span> Событие</span>
+        <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">🐲</span> Босс</span>
+      </div>
+      <p className="text-slate-300 font-black text-sm tracking-widest uppercase text-right drop-shadow-md">Выберите следующий этап пути</p>
+    </div>
+
+    {/* Быстрый дизолв: transition/animation по opacity, 0.2s ease-in-out */}
+    <style>{`
+      .dissolve { animation: dissolveIn 0.2s ease-in-out both; }
+      @keyframes dissolveIn { from { opacity: 0; } to { opacity: 1; } }
+    `}</style>
+  </div>
+);
+
 // --- 3. ГЛАВНОЕ ПРИЛОЖЕНИЕ ---
 
 export default function App() {
@@ -2826,7 +2936,7 @@ export default function App() {
   const [discardPile, setDiscardPile] = useState([]);
   const [xp, setXp] = useState(0);
   const [playerLevel, setPlayerLevel] = useState(1); 
-  const [xpToNext, setXpToNext] = useState(60);
+  const [xpToNext, setXpToNext] = useState(XP_BASE_THRESHOLD);
   // Мета-валюта: переживает смерть, тратится на стартовые карты на экране подготовки
   const [soulEmbers, setSoulEmbers] = useState(0);
   // Глобальная шкала прогресса огонька души (очки хлама): переносится между забегами,
@@ -2838,7 +2948,7 @@ export default function App() {
   const [prepCardsBought, setPrepCardsBought] = useState(0);
   // Секвенция раскрытия полученной карты: { card, owner } | null
   const [cardReveal, setCardReveal] = useState(null);
-  const xpToNextRef = useRef(60);
+  const xpToNextRef = useRef(XP_BASE_THRESHOLD);
   const [rewardOptions, setRewardOptions] = useState([]);
   
   const [currentEvent, setCurrentEvent] = useState(null);
@@ -3030,6 +3140,17 @@ export default function App() {
   const [animatingTargetIds, setAnimatingTargetIds] = useState([]);
   const [hoveredPlayerId, setHoveredPlayerId] = useState(null);
   const [hoveredTargetIds, setHoveredTargetIds] = useState([]);
+
+  // QTE «Perfect Hit»: активный оверлей { targetType, targetNode, duration, resolve } | null.
+  // setQte — событие (1 раз на розыгрыш), покадровая анимация живёт внутри QteOverlay.
+  // qteActiveRef — синхронный гвард: при параллельном розыгрыше второй QTE не запускается.
+  // СЛОУ-МО: пока QTE активен, мир плавно замедляется через qteSlowMo (см. qteTimeScale.js):
+  // все CSS-анимации/транзишены получают playbackRate, импакт ждёт «игровое» время.
+  // Кольцо и тайминг-судья — в РЕАЛЬНОМ времени. НЕ растягивать длительности вручную
+  // под qte.duration — это ломает окна ±60/±150мс (см. инцидент в истории).
+  const [qte, setQte] = useState(null);
+  const qteActiveRef = useRef(false);
+  const enemyZoneRef = useRef(null);
 
   // Watchdog: страховка от «замираний» боя. Любая боевая анимация укладывается в ~600мс.
   // Если флаг isAnimating висит true дольше COMBAT_ANIM_TIMEOUT_MS — значит сетTimeout-колбэк
@@ -3223,7 +3344,7 @@ export default function App() {
 
   const handleCardHover = (playerIndex) => {
     const player = players[playerIndex];
-    if (turnState !== 'player' || player.hp <= 0 || !player.currentCard || player.hasActed || isAnimating || showLevelUp || turnState === 'victory_wait') return;
+    if (turnState !== 'player' || player.hp <= 0 || !player.currentCard || player.hasActed || isAnimating || showLevelUp) return;
     playSound('./assets/sfx/ui/hover.wav', 0.4);
     setHoveredPlayerId(player.id);
     // Мод-карты (баффы) не целят врагов — подсветку целей пропускаем
@@ -3250,7 +3371,7 @@ export default function App() {
       setPlayers(INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p }, fromDeath ? equipped[p.id] : null)));
       // Уровень/опыт обнуляются. xpToNextRef синхронизируем тут же: он обновляется
       // отложенным эффектом, иначе первый gainXp после смерти взял бы старый порог.
-      setXp(0); setXpToNext(60); xpToNextRef.current = 60; setPlayerLevel(1); setMaxMana(MAX_MANA);
+      setXp(0); setXpToNext(XP_BASE_THRESHOLD); xpToNextRef.current = XP_BASE_THRESHOLD; setPlayerLevel(1); setMaxMana(MAX_MANA);
       setDrawPile(createInitialDeck()); setDiscardPile([]);
       setInventory(Array(INVENTORY_SIZE).fill(null));
       if (fullReset) setEquipped({ p1: null, p2: null, p3: null });
@@ -3269,6 +3390,11 @@ export default function App() {
       setDiscardPile([]);
     }
 
+    // Висящий QTE резолвим нейтрально (×1.0), чтобы Promise розыгрыша не завис навечно.
+    // Слоу-мо выключаем принудительно: onResolve оверлея при сбросе не вызовется.
+    setQte(prev => { prev?.resolve?.(1.0); return null; });
+    qteActiveRef.current = false;
+    qteSlowMo.end();
     setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setComboCount(0); setChainAttackBonus(0); fxRef.current?.clearAll(); setShowLevelUp(false); setSlotsPopup(null); setLevelUpQueue(0); setRewardOptions([]);
     setDragSrcIdx(null); setDragOverPlayerId(null); setItemTooltip(null);
     setShowCraft(false); setCraftSlots([null, null, null]); setCraftWarning('');
@@ -3380,6 +3506,10 @@ export default function App() {
 
   const gainXp = useCallback((amount) => {
     if (!amount || amount <= 0) return;
+    // Глобальный нерф темпа: XP от всех источников (убийства, сжигание предметов) ×0.25
+    // (два последовательных нерфа ×0.5). Пороги уровней (XP_BASE_THRESHOLD +
+    // XP_THRESHOLD_STEP×N) тоже понерфлены ×2 — суммарно темп ×8 медленнее исходного.
+    amount = Math.max(1, Math.round(amount * 0.25));
     setXp(prev => {
       let total = prev + amount;
       let cur = xpToNextRef.current;
@@ -3389,7 +3519,7 @@ export default function App() {
       while (total >= cur) {
         total -= cur;
         levels += 1;
-        cur += 50;
+        cur += XP_THRESHOLD_STEP;
       }
       if (levels > 0) {
         setXpToNext(cur); xpToNextRef.current = cur;
@@ -3617,12 +3747,29 @@ export default function App() {
     return shuffleArray(candidates).slice(0, 3);
   };
 
-  // Выполняет отложенный переход (победа/карта), если он был назначен во время диалога
+  // Босс повержен: сразу заставка следующего сектора (отдельного экрана победы нет)
+  const startNextSector = () => {
+    playSound('./assets/sfx/game/victory.wav');
+    setSectorSplash({ text: SECTOR_NARRATIVES[Math.floor(Math.random() * SECTOR_NARRATIVES.length)], sector: sector + 1 });
+  };
+
+  // Мгновенный пост-бой (flow state): смерть последнего врага → БЕЗ пауз, victory_wait
+  // и экрана «СЕКТОР ЗАЧИЩЕН». Обычный узел — дизолв карты поверх боя (MapOverlay),
+  // босс — заставка нового сектора. Открытый level-up откладывает переход.
+  const triggerVictoryTransition = () => {
+    setCompletedNodes(prev => prev.includes(currentMapNodeId) ? prev : [...prev, currentMapNodeId]);
+    const target = currentStage === 5 ? 'nextSector' : 'map';
+    if (showLevelUpRef.current) { pendingTransitionRef.current = target; return; }
+    if (target === 'nextSector') startNextSector();
+    else setTurnState('map');
+  };
+
+  // Выполняет отложенный переход (карта/новый сектор), назначенный во время диалога
   const runPendingTransition = () => {
     const pending = pendingTransitionRef.current;
     if (pending) {
       pendingTransitionRef.current = null;
-      if (pending === 'victory') { playSound('./assets/sfx/game/victory.wav'); setTurnState('victory'); }
+      if (pending === 'nextSector') startNextSector();
       else setTurnState(pending);
     }
   };
@@ -3864,6 +4011,38 @@ export default function App() {
     const targetIndices = getTargets(card, playerIndex, enemiesRef.current);
     if (targetIndices.length === 0) { actingRef.current.delete(player.id); return; }
 
+    // --- QTE «Perfect Hit» ---
+    // Промис резолвится множителем итогового урона (1.0 / 1.15 / 1.35).
+    // Если QTE не положен или другой уже активен — мгновенный resolve(1.0),
+    // боевой пайплайн не задерживается ни на кадр.
+    const chainPos = nextComboStreak + 1; // 1-based позиция карты в цепочке комбо
+    const qteTargets = targetIndices.map(idx => enemiesRef.current[idx]).filter(t => t && !t.isDead);
+    const expectedLethal = qteTargets.some(t =>
+      computePreviewDamageOnEnemy(effectivePlayer, card, t, comboDamageMult, chainBonusAtPlay).isLethal);
+    let qtePromise = Promise.resolve(1.0);
+    let qteDurationMs = 0;
+    if (!qteActiveRef.current && shouldTriggerQte(card, chainPos, qteTargets, expectedLethal)) {
+      // Массовая атака (или random2 задел >1 цели) — центр зоны врагов, укрупнённо;
+      // одиночная (или жив 1 враг) — локально над спрайтом цели.
+      const isAoe = qteTargets.length > 1;
+      const rect = isAoe
+        ? enemyZoneRef.current?.getBoundingClientRect()
+        : enemyRefs.current[qteTargets[0]?.id]?.getBoundingClientRect();
+      if (rect) {
+        qteActiveRef.current = true;
+        qteDurationMs = calculateQteDuration(card, chainPos);
+        // Bullet-time: мир плавно замедляется на время кольца (выход — в onResolve)
+        qteSlowMo.start();
+        qtePromise = new Promise(resolve => setQte({
+          targetType: isAoe ? 'aoe' : 'single',
+          targetNode: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+          duration: qteDurationMs,
+          card: { icon: card.icon, name: card.name }, // контекст: что усиливаем
+          resolve,
+        }));
+      }
+    }
+
     playSound('./assets/sfx/ui/click.wav', 0.6);
     // Ману тратим синхронно (manaRef), помечаем ход бойца сразу — чтобы быстрые клики
     // не перерасходовали ману и авто-завершение хода видело статус мгновенно.
@@ -3932,11 +4111,19 @@ export default function App() {
 
     const animDuration = player.id === 'p2' ? 600 : 300;
 
-    setTimeout(safeAnim(() => {
+    // Импакт и QTE идут параллельно: урон применяется, когда прошла задержка удара
+    // И игрок разрешил QTE (или QTE не было — resolve(1.0) мгновенный).
+    // Импакт — 300мс ИГРОВОГО времени (qteSlowMo.delay): без QTE это обычные 300мс,
+    // под слоу-мо тянется вместе с замедленным прыжком/снарядом — удар синхронен
+    // с визуалом. Судья тайминга кольца при этом живёт в реальном времени.
+    const impactDelay = qteSlowMo.delay(300);
+    Promise.all([impactDelay, qtePromise]).then(([, qteMult]) => safeAnim(() => {
       setVfxList([]); 
       let { damage: baseDamage, critChance } = computeCardDamage(effectivePlayer, card, comboDamageMult);
       // Бонус от «Усиления цепи» добавляется к мощности этой карты и тратится
       if (chainBonusAtPlay > 0) { baseDamage += chainBonusAtPlay; setChainAttackBonus(0); }
+      // QTE «Perfect Hit»: множитель тайминга применяется к итоговому урону карты
+      if (qteMult > 1) baseDamage = Math.round(baseDamage * qteMult);
       // База — актуальное состояние врагов из рефа (важно при параллельных розыгрышах)
       const newEnemies = enemiesRef.current.map(e => ({...e})); let xpToSpawn = []; let lootToSpawn = [];
 
@@ -4037,22 +4224,10 @@ export default function App() {
         }
       });
       
+      // МГНОВЕННЫЙ триггер пост-боя: HP последнего врага достиг 0 → сразу дизолв
+      // карты поверх боя (никаких victory_wait, таймаутов и смены экрана).
       const allDead = newEnemies.every(e => e.isDead);
-      if (allDead) { setTurnState('victory_wait'); }
-
-      const finish = () => {
-        if (allDead) {
-          setCompletedNodes(prev => [...prev, currentMapNodeId]);
-          setTimeout(() => {
-            if (showLevelUpRef.current) {
-              // level-up dialog is open — defer transition until player picks a card
-              pendingTransitionRef.current = currentStage === 5 ? 'victory' : 'map';
-            } else {
-              if (currentStage === 5) { playSound('./assets/sfx/game/victory.wav'); setTurnState('victory'); } else { setTurnState('map'); }
-            }
-          }, 1500);
-        }
-      };
+      if (allDead) triggerVictoryTransition();
 
       if (isRealDeckCard(card)) {
         // currentCard/hasActed уже сброшены синхронно при розыгрыше; здесь только анимация сброса
@@ -4063,11 +4238,11 @@ export default function App() {
           fxRef.current?.spawnFlyingCard(
             { id: flyId, startX: playSlotRect.left + playSlotRect.width/2, startY: playSlotRect.top + playSlotRect.height * 0.75, endX: discardRect.left + discardRect.width/2, endY: discardRect.top + discardRect.height/2, isDiscard: true },
             850,
-            () => { setDiscardPile(prev => [...prev, card]); finish(); }
+            () => { setDiscardPile(prev => [...prev, card]); }
           );
-        } else { setDiscardPile(prev => [...prev, card]); finish(); }
-      } else { finish(); }
-    }), 300);
+        } else { setDiscardPile(prev => [...prev, card]); }
+      }
+    })());
   };
 
   const playersRef = useRef(players);
@@ -4091,10 +4266,11 @@ export default function App() {
   useEffect(() => {
     if (turnState !== 'player' || showLevelUp) return;
     const canAct = players.some(p => p.hp > 0 && !p.hasActed && p.currentCard && mana >= (p.currentCard.cost || 0));
-    if (canAct) return;
+    // Активный QTE удерживает фазу игрока: урон последней карты ещё не применён
+    if (canAct || qte) return;
     const t = setTimeout(endPlayerPhase, 500);
     return () => clearTimeout(t);
-  }, [players, mana, turnState, showLevelUp, endPlayerPhase]);
+  }, [players, mana, turnState, showLevelUp, qte, endPlayerPhase]);
 
   useEffect(() => {
     if (turnState !== 'enemy' || showLevelUp) return;
@@ -4147,14 +4323,9 @@ export default function App() {
       });
     }
 
-    // === Победа, если кровотечение добило всех ===
+    // === Победа, если кровотечение добило всех: тот же мгновенный дизолв ===
     if (startEnemies.every(e => e.isDead)) {
-      setCompletedNodes(prev => [...prev, currentMapNodeId]);
-      setTimeout(() => {
-        if (showLevelUpRef.current) pendingTransitionRef.current = currentStage === 5 ? 'victory' : 'map';
-        else if (currentStage === 5) { playSound('./assets/sfx/game/victory.wav'); setTurnState('victory'); }
-        else setTurnState('map');
-      }, 1200);
+      triggerVictoryTransition();
       return;
     }
 
@@ -4604,7 +4775,8 @@ export default function App() {
                 let transitionClass = 'transition-all duration-600 ease-out';
                 if (isAttacking) {
                    avatarTransform = `translate(${attackTranslate.dx}px, ${attackTranslate.dy}px) scale(1.15)`;
-                   // duration-300 совпадает с animDuration — игрок долетает до цели точно в момент удара
+                   // duration-300 совпадает с impactDelay — прыжок долетает точно в момент удара.
+                   // НЕ синхронизировать с qte.duration: кольцо и импакт — независимые тайминги.
                    transitionClass = 'transition-all duration-300 ease-out';
                 }
                 else if (isHovered && !isAnimating) avatarTransform = 'translate(16px, 0)';
@@ -4627,7 +4799,7 @@ export default function App() {
               })}
             </div>
             <div className="absolute left-1/2 top-16 bottom-16 w-px bg-gradient-to-b from-transparent via-slate-700 to-transparent opacity-50"></div>
-            <div className="relative w-1/2 z-10 h-full overflow-visible">
+            <div ref={enemyZoneRef} className="relative w-1/2 z-10 h-full overflow-visible">
               {enemies.map((enemy, eIdx) => {
                 const isHoveredTarget = hoveredTargetIds.includes(enemy.id); 
                 const targetPreview = hoverTargetPreview[enemy.id];
@@ -4735,7 +4907,7 @@ export default function App() {
               {(() => {
                 const hoveredSlotIdx = hoveredPlayerId ? players.findIndex(pl => pl.id === hoveredPlayerId) : -1;
                 return players.map((p, i) => {
-                const card = p.currentCard; const isDead = p.hp <= 0; const isDisabled = turnState !== 'player' || mana < (card?.cost || 0) || isDead || p.hasActed || showLevelUp || turnState === 'map' || turnState === 'victory_wait'; const comboStatus = getCardComboStatus(p.id, card);
+                const card = p.currentCard; const isDead = p.hp <= 0; const isDisabled = turnState !== 'player' || mana < (card?.cost || 0) || isDead || p.hasActed || showLevelUp || turnState === 'map'; const comboStatus = getCardComboStatus(p.id, card);
                 const eff = getEffectivePlayer(p, equipped[p.id]);
                 const eqItem = equipped[p.id];
                 const isSlotHovered = hoveredSlotIdx === i;
@@ -4781,7 +4953,7 @@ export default function App() {
             </div>
 
             <div className="flex flex-col justify-end gap-6 items-center mb-[19px] w-32 -translate-y-[60px]">
-              <button onClick={endPlayerPhase} disabled={turnState !== 'player' || showLevelUp || turnState === 'map' || turnState === 'victory_wait'} className="w-full py-4 bg-[#D32F2F] hover:bg-red-700 disabled:opacity-50 disabled:bg-red-900 disabled:cursor-not-allowed rounded-2xl font-black uppercase tracking-widest text-[9px] transition-all shadow-[0_0_20px_rgba(211,47,47,0.4)] border border-red-500 hover:scale-105 active:scale-95 text-white">{turnState === 'dealing' ? 'ЖДИТЕ' : turnState === 'player' ? 'ЗАВЕРШИТЬ' : 'ВРАГ...'}</button>
+              <button onClick={endPlayerPhase} disabled={turnState !== 'player' || showLevelUp || !!qte || turnState === 'map'} className="w-full py-4 bg-[#D32F2F] hover:bg-red-700 disabled:opacity-50 disabled:bg-red-900 disabled:cursor-not-allowed rounded-2xl font-black uppercase tracking-widest text-[9px] transition-all shadow-[0_0_20px_rgba(211,47,47,0.4)] border border-red-500 hover:scale-105 active:scale-95 text-white">{turnState === 'dealing' ? 'ЖДИТЕ' : turnState === 'player' ? 'ЗАВЕРШИТЬ' : 'ВРАГ...'}</button>
               <div className="flex flex-col items-center">
                 <div ref={discardRef} className="w-20 h-28 bg-slate-900/60 rounded-xl border-2 border-slate-700 border-dashed flex items-center justify-center font-black text-3xl opacity-60 transition-all hover:opacity-100 shadow-inner overflow-hidden">
                    <span className="text-[#D32F2F] drop-shadow-md">{String(discardPile.length)}</span>
@@ -4811,6 +4983,25 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* --- QTE «Perfect Hit»: сужающееся кольцо поверх цели / зоны врагов --- */}
+      {qte && (
+        <QteOverlay
+          targetType={qte.targetType}
+          targetNode={qte.targetNode}
+          duration={qte.duration}
+          card={qte.card}
+          onArm={() => playSound('./assets/sfx/ui/click.wav', 0.18)}
+          onResolve={(res) => {
+            // Вердикт получен — мир плавно разгоняется обратно (ramp ~250мс)
+            qteSlowMo.end();
+            if (res === 'perfect') playSound('./assets/sfx/combat/hit_heavy.wav', 0.55);
+            else if (res === 'good') playSound('./assets/sfx/ui/click.wav', 0.5);
+            qte.resolve(QTE_RESULT_MULT[res] ?? 1.0);
+          }}
+          onDone={() => { qteActiveRef.current = false; setQte(null); }}
+        />
+      )}
 
       {/* --- КРАФТ: затемнение + слоты по центру (инвентарь остаётся внизу) --- */}
       {showCraft && (
@@ -4871,70 +5062,17 @@ export default function App() {
         </div>
       )}
 
-      {/* --- ИНТЕРФЕЙС КАРТЫ СЕКТОРА --- */}
+      {/* --- КАРТА СЕКТОРА: MapOverlay поверх живого боя, быстрый дизолв --- */}
       {turnState === 'map' && (
-        <div className="absolute inset-0 z-[1200] bg-black/60 backdrop-blur-md flex flex-col items-center justify-center p-8 animate-in fade-in duration-500">
-          <h1 className="text-7xl font-black text-amber-500 uppercase italic tracking-widest mb-8 text-center drop-shadow-2xl">Карта сектора {String(sector)}</h1>
-          <div className="relative w-full max-w-4xl h-[500px] bg-slate-900/90 rounded-[40px] border border-slate-700 shadow-2xl overflow-hidden">
-            <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-              {mapLinks.map(link => {
-                const isLinkActive = (completedNodes.includes(link.source.id) || currentMapNodeId === link.source.id) && (completedNodes.includes(link.target.id) || isNodeClickable(link.target));
-                if (isLinkActive) return null;
-                return (
-                  <path key={`inact-${link.source.id}-${link.target.id}`} d={getSubwayPath(link)} fill="none" stroke={link.color} strokeWidth={3} opacity={0.3} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeDasharray="4, 4" className="transition-all duration-500" />
-                )
-              })}
-              {mapLinks.map(link => {
-                const isLinkActive = (completedNodes.includes(link.source.id) || currentMapNodeId === link.source.id) && (completedNodes.includes(link.target.id) || isNodeClickable(link.target));
-                if (!isLinkActive) return null;
-                return (
-                  <path key={`act-${link.source.id}-${link.target.id}`} d={getSubwayPath(link)} fill="none" stroke={link.color} strokeWidth={6} vectorEffect="non-scaling-stroke" strokeLinecap="round" className="transition-all duration-500" />
-                )
-              })}
-            </svg>
-            
-            {gameMap.map(node => {
-               const isCompleted = completedNodes.includes(node.id);
-               const isCurrent = currentMapNodeId === node.id;
-               const isClickable = isNodeClickable(node);
-               let innerBg = '#0B0515';
-               let icon = '🗡️';
-               let sizeClasses = 'w-12 h-12 border-[6px] -ml-6 -mt-6 text-2xl'; 
-               
-               if (node.type === 'base') { innerBg = '#ffffff'; icon = '🏰'; sizeClasses = 'w-16 h-16 border-[6px] -ml-8 -mt-8 text-4xl'; } 
-               else if (node.type === 'boss') { innerBg = '#ffffff'; icon = '🐲'; sizeClasses = 'w-16 h-16 border-[6px] -ml-8 -mt-8 text-4xl'; } 
-               else if (node.type === 'combat_hard') { icon = '☠️'; } 
-               else if (node.type === 'combat_medium') { icon = '⚔️'; } 
-               else if (node.type === 'event') { innerBg = '#1E1035'; icon = '✨'; }
-
-               const nodeColorStyle = getConicGradient(node.colors, innerBg);
-               
-               return (
-                 <div 
-                    key={node.id} 
-                    onClick={() => isClickable && handleNodeClick(node)} 
-                    className={`absolute flex items-center justify-center rounded-full shadow-xl transition-all duration-300 ${sizeClasses} ${isCompleted && node.type !== 'base' ? 'grayscale opacity-60' : isCurrent ? 'scale-125 drop-shadow-[0_0_20px_rgba(255,255,255,0.4)] z-20' : isClickable ? 'hover:scale-125 cursor-pointer animate-pulse z-10' : 'opacity-50' }`} 
-                    style={{ left: `${node.x}%`, top: `${node.y}%`, ...nodeColorStyle }}
-                 >
-                    {icon}
-                    {isClickable && <div className="absolute -inset-2 border-[3px] rounded-full animate-ping opacity-40" style={{ borderColor: node.colors[0] || '#1E88E5' }}></div>}
-                 </div>
-               );
-            })}
-          </div>
-          
-          <div className="flex justify-between items-center w-full max-w-4xl mt-6 px-4">
-            <div className="flex gap-5 items-center text-[9px] font-bold uppercase tracking-widest text-slate-400 bg-slate-900/80 px-6 py-3 rounded-2xl border border-slate-700/50 shadow-inner">
-              <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">🏰</span> База</span>
-              <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">🗡️</span> Легкий</span>
-              <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">⚔️</span> Средний</span>
-              <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">☠️</span> Сложный</span>
-              <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">✨</span> Событие</span>
-              <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">🐲</span> Босс</span>
-            </div>
-            <p className="text-slate-300 font-black text-sm tracking-widest uppercase text-right drop-shadow-md">Выберите следующий этап пути</p>
-          </div>
-        </div>
+        <MapOverlay
+          sector={sector}
+          nodes={gameMap}
+          links={mapLinks}
+          completedNodes={completedNodes}
+          currentNodeId={currentMapNodeId}
+          isNodeClickable={isNodeClickable}
+          onNodeClick={handleNodeClick}
+        />
       )}
 
       {/* --- МОДАЛЬНОЕ ОКНО СОБЫТИЯ --- */}
@@ -5008,14 +5146,7 @@ export default function App() {
         />
       )}
 
-      {turnState === 'victory' && (
-        <div className="absolute inset-0 z-[2000] bg-green-950/80 flex flex-col items-center justify-center backdrop-blur-xl animate-in fade-in duration-700 p-6">
-           <h1 className="text-8xl font-black text-amber-400 drop-shadow-[0_0_40px_rgba(245,158,11,1)] mb-4 tracking-tighter uppercase italic text-center">СЕКТОР ЗАЧИЩЕН</h1>
-           <p className="text-2xl text-green-300 font-bold uppercase tracking-[0.5em] mb-12 text-center">Босс повержен! Вы готовы к новому вызову.</p>
-           <button onClick={() => setSectorSplash({ text: SECTOR_NARRATIVES[Math.floor(Math.random() * SECTOR_NARRATIVES.length)], sector: sector + 1 })} className="px-16 py-6 bg-white text-green-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">Следующий Сектор</button>
-        </div>
-      )}
-
+      {/* Экрана «СЕКТОР ЗАЧИЩЕН» больше нет: босс → сразу заставка нового сектора */}
       {sectorSplash && (
         <SectorSplashScreen
           text={sectorSplash.text}

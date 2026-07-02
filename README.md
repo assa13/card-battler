@@ -1,16 +1,49 @@
-# React + Vite
+# Card Battler
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Браузерный пошаговый карточный авто-батлер с элементами рогалика: отряд из трёх героев, ветвящаяся карта секторов в стиле Slay the Spire, комбо-цепочки по стоимости карт, QTE «Perfect Hit», лут/крафт и мета-прогрессия «огоньки души». Интерфейс — русский.
 
-Currently, two official plugins are available:
+## Документация
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Модульная: один домен — один док, без дублирования.
 
-## React Compiler
+| Файл | Что внутри |
+|---|---|
+| [`GDD.md`](./GDD.md) | Обзор игры + сводка ключевых параметров баланса |
+| [`docs/core.md`](./docs/core.md) | **Кор**: герои, карты, урон, комбо, QTE, дебаффы, враги, фазы боя |
+| [`docs/vfx.md`](./docs/vfx.md) | **VFX/графика/звук**: спрайты, анимации, фоны, шейдеры, обводка, SFX |
+| [`docs/meta.md`](./docs/meta.md) | **Мета**: лут/крафт, XP, события, смерть, огоньки, Таверна, подготовка |
+| [`instructions.md`](./instructions.md) | Стек, структура репо, карта монолита `App.jsx`, тех-долг |
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+При расхождении доков с кодом приоритет у доков — код правится первым.
 
-## Expanding the ESLint configuration
+## Стек
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+React 19 + Vite 8 + Tailwind 3. Сборка через `vite-plugin-singlefile` (JS+CSS инлайнятся в один html; ассеты из `public/` остаются рядом). Деплой — GitHub Pages (`.github/workflows/deploy-pages.yml`).
+
+## Команды
+
+```bash
+npm ci             # зависимости
+npm run dev        # dev-сервер (http://localhost:5173)
+npm run build      # прод-билд в dist/
+npm run preview    # предпросмотр прод-билда
+npm run lint       # eslint
+```
+
+Служебные скрипты (запуск вручную):
+
+```bash
+node scripts/convert-images.mjs --apply   # PNG → WebP (без --apply — dry-run)
+node scripts/gen-sfx.mjs                  # регенерация wav-звуков (jsfxr)
+node scripts/import-tavern-assets.mjs     # одноразовый импорт ассетов таверны
+```
+
+## Структура
+
+- `src/App.jsx` — ядро игры (монолит ~5200 строк, карта — в `instructions.md`)
+- `src/QteOverlay.jsx` — QTE «Perfect Hit» (сужающееся кольцо, rAF)
+- `src/TavernHubScreen.jsx` + `src/TavernSceneConfig.js` — мета-экран Таверна-Хаб
+- `src/ShaderOutlineWrapper.jsx` + `src/gpu/alphaOutlinePipeline.js` — hover-обводка спрайтов (WebGPU / CSS fallback)
+- `public/` — ассеты (WebP-спрайты, wav-звуки, фоновый трек)
+
+> Папка `game-new/` — отдельный неподключённый прототип, к боевой сборке отношения не имеет.
