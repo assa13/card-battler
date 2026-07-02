@@ -945,13 +945,13 @@ const getConicGradient = (colors, innerBg) => {
 };
 
 const generateMap = () => {
-  // Компактная карта: средние слои 2–3 узла (было 2–6) — читаемее и быстрее проходится
+  // Панель карты на всю ширину арены — узлов можно больше: слой 1 — 2–3, средние — 3–4
   const counts = [
     1,
-    2,
     Math.floor(Math.random() * 2) + 2,
-    Math.floor(Math.random() * 2) + 2,
-    Math.floor(Math.random() * 2) + 2,
+    Math.floor(Math.random() * 2) + 3,
+    Math.floor(Math.random() * 2) + 3,
+    Math.floor(Math.random() * 2) + 3,
     1
   ];
   const layers = [];
@@ -2848,13 +2848,17 @@ const FxLayer = React.forwardRef((_props, ref) => {
   );
 });
 
-// --- КАРТА СЕКТОРА: оверлей поверх боя (бесшовный переход, flow state) ---
-// НЕ отдельный экран/роут: рендерится поверх живого боевого UI через быстрый
-// дизолв (.dissolve, opacity 0.2s) — без жёстких катов и размонтирования боя.
+// --- КАРТА СЕКТОРА: absolute-оверлей НИЖНЕЙ ЗОНЫ боевого экрана ---
+// Арена с героями/врагами (h-355 + отступ 5) остаётся видимой и живой сверху.
+// Оверлей накрывает всё ПОД ней: панель слотов героев + полосу лута, до низа
+// контейнера — по всей ширине блока арены, без дыры снизу. Ноль layout shift:
+// подлежащий DOM не размонтируется, под картой backdrop-blur. Дизолв — .dissolve.
+// Выбор узла → turnState уходит из 'map' → оверлей исчезает.
 const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNodeClickable, onNodeClick }) => (
-  <div className="absolute inset-0 z-[1200] bg-black/60 backdrop-blur-md flex flex-col items-center justify-center p-8 dissolve">
-    <h1 className="text-7xl font-black text-amber-500 uppercase italic tracking-widest mb-8 text-center drop-shadow-2xl">Карта сектора {String(sector)}</h1>
-    <div className="relative w-full max-w-4xl h-[500px] bg-slate-900/90 rounded-[40px] border border-slate-700 shadow-2xl overflow-hidden">
+  <div className="absolute left-0 right-0 bottom-0 top-[360px] z-[500] dissolve">
+    <div className="absolute top-3 left-8 z-10 text-amber-500 font-black uppercase italic tracking-widest text-lg drop-shadow-md pointer-events-none">Карта сектора {String(sector)}</div>
+    <div className="absolute top-4 right-8 z-10 text-slate-400 font-black uppercase tracking-widest text-[9px] pointer-events-none">Выберите следующий этап пути</div>
+    <div className="relative w-full h-full bg-slate-950/40 backdrop-blur-xl rounded-[28px] border border-slate-700 shadow-2xl overflow-hidden">
       <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
         {links.map(link => {
           const isLinkActive = (completedNodes.includes(link.source.id) || currentNodeId === link.source.id) && (completedNodes.includes(link.target.id) || isNodeClickable(link.target));
@@ -2900,18 +2904,7 @@ const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNod
            </div>
          );
       })}
-    </div>
 
-    <div className="flex justify-between items-center w-full max-w-4xl mt-6 px-4">
-      <div className="flex gap-5 items-center text-[9px] font-bold uppercase tracking-widest text-slate-400 bg-slate-900/80 px-6 py-3 rounded-2xl border border-slate-700/50 shadow-inner">
-        <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">🏰</span> База</span>
-        <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">🗡️</span> Легкий</span>
-        <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">⚔️</span> Средний</span>
-        <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">☠️</span> Сложный</span>
-        <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">✨</span> Событие</span>
-        <span className="flex items-center gap-1.5"><span className="text-base drop-shadow-md">🐲</span> Босс</span>
-      </div>
-      <p className="text-slate-300 font-black text-sm tracking-widest uppercase text-right drop-shadow-md">Выберите следующий этап пути</p>
     </div>
 
     {/* Быстрый дизолв: transition/animation по opacity, 0.2s ease-in-out */}
@@ -4887,7 +4880,9 @@ export default function App() {
           </div>
 
           <div className="flex justify-between items-end w-full gap-4 relative z-10 mt-[5px]">
-            <div className="flex flex-col justify-end gap-4 items-center mb-[19px] w-32 relative -translate-y-[60px]">
+            {/* Левая колонка (Энергия + Колода): гаснет на фазе карты — колонки торчат
+                выше зоны оверлея (-translate-y-60), и карте нужна вся ширина */}
+            <div className={`flex flex-col justify-end gap-4 items-center mb-[19px] w-32 relative -translate-y-[60px] transition-opacity duration-200 ${turnState === 'map' ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
               <div className="flex flex-col items-center w-full">
                 <div className="text-[#1E88E5] font-black uppercase tracking-widest text-[8px] mb-1">Энергия</div>
                 <div className="w-24 h-24 rounded-full bg-slate-900 border-[6px] border-[#1E88E5] shadow-[0_0_25px_rgba(30,136,229,0.5)] flex items-center justify-center relative overflow-hidden">
@@ -4903,7 +4898,8 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex justify-center gap-3 flex-1 translate-y-[10px]">
+            {/* Слоты карт героев: гаснут на фазе карты (не размонтируются — ноль layout shift) */}
+            <div className={`flex justify-center gap-3 flex-1 translate-y-[10px] transition-opacity duration-200 ${turnState === 'map' ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
               {(() => {
                 const hoveredSlotIdx = hoveredPlayerId ? players.findIndex(pl => pl.id === hoveredPlayerId) : -1;
                 return players.map((p, i) => {
@@ -4952,7 +4948,8 @@ export default function App() {
               })()}
             </div>
 
-            <div className="flex flex-col justify-end gap-6 items-center mb-[19px] w-32 -translate-y-[60px]">
+            {/* Правая колонка (ЗАВЕРШИТЬ + Сброс): гаснет на фазе карты, как и левая */}
+            <div className={`flex flex-col justify-end gap-6 items-center mb-[19px] w-32 -translate-y-[60px] transition-opacity duration-200 ${turnState === 'map' ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
               <button onClick={endPlayerPhase} disabled={turnState !== 'player' || showLevelUp || !!qte || turnState === 'map'} className="w-full py-4 bg-[#D32F2F] hover:bg-red-700 disabled:opacity-50 disabled:bg-red-900 disabled:cursor-not-allowed rounded-2xl font-black uppercase tracking-widest text-[9px] transition-all shadow-[0_0_20px_rgba(211,47,47,0.4)] border border-red-500 hover:scale-105 active:scale-95 text-white">{turnState === 'dealing' ? 'ЖДИТЕ' : turnState === 'player' ? 'ЗАВЕРШИТЬ' : 'ВРАГ...'}</button>
               <div className="flex flex-col items-center">
                 <div ref={discardRef} className="w-20 h-28 bg-slate-900/60 rounded-xl border-2 border-slate-700 border-dashed flex items-center justify-center font-black text-3xl opacity-60 transition-all hover:opacity-100 shadow-inner overflow-hidden">
@@ -4963,8 +4960,9 @@ export default function App() {
             </div>
           </div>
 
-          {/* Инвентарь — горизонтальная полоса под карточками + кнопка крафта справа */}
-          <div ref={inventoryRef} className="relative flex items-center justify-center gap-1.5 rounded-2xl px-[55px] py-3 w-fit mx-auto" style={{ marginTop: '33px', background: 'linear-gradient(to right, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 50%, rgba(15,23,42,0) 100%)' }}>
+          {/* Инвентарь — горизонтальная полоса под карточками + кнопка крафта справа.
+              Во время карты сектора скрыт (карта занимает его место), ref остаётся смонтирован. */}
+          <div ref={inventoryRef} className={`relative flex items-center justify-center gap-1.5 rounded-2xl px-[55px] py-3 w-fit mx-auto transition-opacity duration-200 ${turnState === 'map' ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} style={{ marginTop: '33px', background: 'linear-gradient(to right, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 50%, rgba(15,23,42,0) 100%)' }}>
             {inventory.map((item, idx) => (
               <ItemSlot
                 key={idx}
@@ -4981,6 +4979,20 @@ export default function App() {
               Крафт
             </button>
           </div>
+
+          {/* Карта сектора: absolute-оверлей на всю зону арена+панель+лут.
+              Подлежащий layout не трогается — ноль вертикального сдвига. */}
+          {turnState === 'map' && (
+            <MapOverlay
+              sector={sector}
+              nodes={gameMap}
+              links={mapLinks}
+              completedNodes={completedNodes}
+              currentNodeId={currentMapNodeId}
+              isNodeClickable={isNodeClickable}
+              onNodeClick={handleNodeClick}
+            />
+          )}
         </div>
       </div>
 
@@ -5060,19 +5072,6 @@ export default function App() {
             ))}
           </div>
         </div>
-      )}
-
-      {/* --- КАРТА СЕКТОРА: MapOverlay поверх живого боя, быстрый дизолв --- */}
-      {turnState === 'map' && (
-        <MapOverlay
-          sector={sector}
-          nodes={gameMap}
-          links={mapLinks}
-          completedNodes={completedNodes}
-          currentNodeId={currentMapNodeId}
-          isNodeClickable={isNodeClickable}
-          onNodeClick={handleNodeClick}
-        />
       )}
 
       {/* --- МОДАЛЬНОЕ ОКНО СОБЫТИЯ --- */}
