@@ -55,7 +55,8 @@ const describeStatus = (key, val = {}) => {
 };
 
 const INVENTORY_SIZE = 9;
-const LOOT_DROP_CHANCE = 0.65;
+// >1.0 — целая часть = гарантированные предметы, дробная — шанс бонусного предмета (см. rollLootDrops)
+const LOOT_DROP_CHANCE = 1.3;
 const ITEM_RARITY_WEIGHTS = { COMMON: 68, RARE: 21, EPIC: 9, LEGENDARY: 2 };
 const ITEM_BURN_XP = { COMMON: 4, RARE: 8, EPIC: 16, LEGENDARY: 30 };
 const getItemBurnXp = (item) => (item && ITEM_BURN_XP[item.rarity]) || 0;
@@ -96,6 +97,9 @@ const ITEM_BONUS_COUNTS = { COMMON: [1, 1], RARE: [1, 2], EPIC: [2, 3], LEGENDAR
 // atk  — +% к физическому урону, matk — +% к магическому урону,
 // crit — +% к шансу крита, hp — +к здоровью (плоское).
 const ITEM_STAT_TYPES = ['atk', 'matk', 'crit', 'hp'];
+// Оффенсивные статы выбираются СТРОГО равновероятно (uniform по индексу пула, 50/50).
+// Не заменять на цепочки if/random с разными порогами — это источник перекоса баланса.
+const ITEM_OFFENSIVE_STATS = ['atk', 'matk'];
 const ITEM_HP_MULT = 2.5;
 const ITEM_CRIT_MULT = 0.5;
 
@@ -105,9 +109,9 @@ const rollItemStatBundle = (rarity) => {
   const [minC, maxC] = ITEM_BONUS_COUNTS[rarity] || [1, 1];
   const count = minC + Math.floor(Math.random() * (maxC - minC + 1));
   // GDD 6.2: atk и matk взаимоисключающие — предмет либо «оружие воина», либо «инструмент мага».
-  // Сначала фиксируем тип урона (50/50), затем чистим противоположный из пула возможных бонусов.
-  const damageStat = Math.random() < 0.5 ? 'atk' : 'matk';
-  const excluded = damageStat === 'atk' ? 'matk' : 'atk';
+  // Сначала фиксируем тип урона (равномерный выбор из пула), затем чистим противоположный.
+  const damageStat = ITEM_OFFENSIVE_STATS[Math.floor(Math.random() * ITEM_OFFENSIVE_STATS.length)];
+  const excluded = ITEM_OFFENSIVE_STATS.find(s => s !== damageStat);
   const availablePool = ITEM_STAT_TYPES.filter(s => s !== excluded);
   // Гарантируем, что первый (главный) бонус — именно выбранный тип урона, чтобы фокус предмета был очевиден.
   const others = shuffleArray(availablePool.filter(s => s !== damageStat));
@@ -434,7 +438,16 @@ const generateItemOfRarity = (rarity) => {
 
 const generateRandomItem = (sector = 1, stage = 0) => generateItemOfRarity(rollItemRarity(sector, stage));
 
-const rollLootDrop = (sector = 1, stage = 0) => (Math.random() < LOOT_DROP_CHANCE ? generateRandomItem(sector, stage) : null);
+// Возвращает МАССИВ предметов с одного врага: floor(шанса) гарантированных + roll на дробный остаток.
+// При LOOT_DROP_CHANCE = 1.3 это «всегда 1 предмет + 30% шанс второго».
+const rollLootDrops = (sector = 1, stage = 0) => {
+  const drops = [];
+  const guaranteed = Math.floor(LOOT_DROP_CHANCE);
+  for (let i = 0; i < guaranteed; i++) drops.push(generateRandomItem(sector, stage));
+  const remainder = LOOT_DROP_CHANCE - guaranteed;
+  if (remainder > 0 && Math.random() < remainder) drops.push(generateRandomItem(sector, stage));
+  return drops;
+};
 
 const getEffectivePlayer = (player, equippedItem) => {
   if (!player) return player;
@@ -2866,7 +2879,161 @@ const FxLayer = React.forwardRef((_props, ref) => {
 // только своим содержимым, из-за чего блюр слепнет. Поэтому панель (полупрозрачная,
 // с блюром) появляется мгновенно, а проявляется только содержимое (map-content-in):
 // линии, узлы и заголовки — никакого тёмного прямоугольника перед картой.
-const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNodeClickable, onNodeClick }) => (
+// --- Дизолв-веил карты сектора: живая «энергетическая мембрана» из FBM-шума,
+// растворяющаяся/собирающаяся в цвете текущей локации. Появление карты — веил
+// от непрозрачного к полностью растворённому; исчезание — реверс (веил снова
+// затягивает панель перед размонтированием). Активен только во время перехода —
+// в простое (phase 'idle') компонент вообще не рендерится, GPU простаивает.
+const MAP_DISSOLVE_VS = `
+  attribute vec2 a_position;
+  varying vec2 v_uv;
+  void main() {
+    gl_Position = vec4(a_position, 0.0, 1.0);
+    v_uv = a_position * 0.5 + 0.5;
+  }
+`;
+
+const MAP_DISSOLVE_FS = `
+  precision mediump float;
+  varying vec2 v_uv;
+  uniform vec2 u_resolution;
+  uniform float u_time;
+  uniform float u_threshold;
+  uniform float u_edgeWidth;
+  uniform vec3 u_coreColor;
+  uniform vec3 u_edgeColor;
+
+  float hash(vec2 p) {
+    p = fract(p * vec2(123.34, 456.21));
+    p += dot(p, p + 45.32);
+    return fract(p.x * p.y);
+  }
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
+  float fbm(vec2 p) {
+    float v = 0.0; float a = 0.5;
+    for (int i = 0; i < 5; i++) { v += a * noise(p); p *= 2.0; a *= 0.5; }
+    return v;
+  }
+
+  void main() {
+    vec2 aspect = u_resolution / min(u_resolution.x, u_resolution.y);
+    vec2 uv = v_uv * aspect * 6.0;
+    // Медленный дрейф шума во времени — мембрана «дышит», а не стоит стоп-кадром.
+    float n = fbm(uv + vec2(u_time * 0.05, -u_time * 0.035));
+
+    if (n < u_threshold) discard;
+
+    float edge = smoothstep(u_threshold, u_threshold + u_edgeWidth, n);
+    vec3 col = mix(u_edgeColor, u_coreColor, edge);
+    // Горящая кромка на самой границе растворения.
+    float rim = 1.0 - smoothstep(u_threshold, u_threshold + u_edgeWidth * 0.5, n);
+    col += u_edgeColor * rim * 1.5;
+
+    gl_FragColor = vec4(col, 1.0);
+  }
+`;
+
+const MapDissolveVeil = ({ hue = 210, sat = 30, phase, duration, onDone }) => {
+  const canvasRef = useRef(null);
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const gl = canvas.getContext('webgl', { alpha: true, premultipliedAlpha: false });
+    if (!gl) { onDoneRef.current?.(); return; }
+
+    const compileShader = (type, source) => {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      return shader;
+    };
+
+    const program = gl.createProgram();
+    gl.attachShader(program, compileShader(gl.VERTEX_SHADER, MAP_DISSOLVE_VS));
+    gl.attachShader(program, compileShader(gl.FRAGMENT_SHADER, MAP_DISSOLVE_FS));
+    gl.linkProgram(program);
+    gl.useProgram(program);
+
+    const positionBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+    const positionLoc = gl.getAttribLocation(program, 'a_position');
+    gl.enableVertexAttribArray(positionLoc);
+    gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, 0, 0);
+
+    const uResolution = gl.getUniformLocation(program, 'u_resolution');
+    const uTime = gl.getUniformLocation(program, 'u_time');
+    const uThreshold = gl.getUniformLocation(program, 'u_threshold');
+    const uEdgeWidth = gl.getUniformLocation(program, 'u_edgeWidth');
+    const uCoreColor = gl.getUniformLocation(program, 'u_coreColor');
+    const uEdgeColor = gl.getUniformLocation(program, 'u_edgeColor');
+
+    // Та же палитра, что и у ShaderBackground/ImageBackground этой локации —
+    // веил читается как «сотканный» из того же тумана, что фон сектора.
+    const core = hslToRgb01(hue, Math.min(90, sat * 0.7 + 20), 9);
+    const edge = hslToRgb01(hue, Math.min(95, sat * 0.6 + 55), 52);
+    gl.uniform3f(uCoreColor, core[0], core[1], core[2]);
+    gl.uniform3f(uEdgeColor, edge[0], edge[1], edge[2]);
+    gl.uniform1f(uEdgeWidth, 0.1);
+
+    const resize = () => {
+      const w = Math.max(1, canvas.clientWidth), h = Math.max(1, canvas.clientHeight);
+      if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; gl.viewport(0, 0, w, h); }
+      gl.uniform2f(uResolution, w, h);
+    };
+    const ro = new ResizeObserver(resize);
+    ro.observe(canvas);
+    resize();
+
+    const easeIn = (p) => p * p * p;
+    const easeOut = (p) => 1 - Math.pow(1 - p, 3);
+    const isExiting = phase === 'exiting';
+    // entering: 0 (веил непрозрачен) → 1 (полностью растворён).
+    // exiting:  1 (уже растворён) → 0 (снова затягивает панель).
+    const startVal = isExiting ? 1 : 0;
+    const endVal = isExiting ? 0 : 1;
+    const ease = isExiting ? easeIn : easeOut;
+
+    let rafId; let done = false;
+    const startTime = performance.now();
+    const render = (now) => {
+      const t = Math.min(1, (now - startTime) / duration);
+      const threshold = startVal + (endVal - startVal) * ease(t);
+
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      gl.uniform1f(uTime, now / 1000);
+      gl.uniform1f(uThreshold, threshold);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+      if (t < 1) { rafId = requestAnimationFrame(render); }
+      else if (!done) { done = true; onDoneRef.current?.(); }
+    };
+    rafId = requestAnimationFrame(render);
+
+    return () => { cancelAnimationFrame(rafId); ro.disconnect(); gl.deleteProgram(program); };
+  }, [phase, duration, hue, sat]);
+
+  return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full z-30 pointer-events-none" />;
+};
+
+const MAP_DISSOLVE_ENTER_MS = 815;  // было 650, +25%
+const MAP_DISSOLVE_EXIT_MS = 525;   // было 420, +25%
+// Пауза после исчезания карты перед стартом раздачи — карты не выстреливают
+// мгновенно вслед за веилом, даётся короткий вдох.
+const MAP_DEAL_GATE_DELAY_MS = 200;
+
+const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNodeClickable, onNodeClick, hue = 210, sat = 30, phase = 'idle', onEntered, onExited }) => {
+  const interactive = phase === 'idle';
+  return (
   <div className="absolute left-0 right-0 bottom-0 top-[360px] z-[500]">
     <div className="absolute top-3 left-8 z-10 text-amber-500 font-black uppercase italic tracking-widest text-lg drop-shadow-md pointer-events-none map-content-in">Карта сектора {String(sector)}</div>
     <div className="absolute top-4 right-8 z-10 text-slate-400 font-black uppercase tracking-widest text-[9px] pointer-events-none map-content-in">Выберите следующий этап пути</div>
@@ -2892,7 +3059,7 @@ const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNod
       {nodes.map(node => {
          const isCompleted = completedNodes.includes(node.id);
          const isCurrent = currentNodeId === node.id;
-         const isClickable = isNodeClickable(node);
+         const isClickable = interactive && isNodeClickable(node);
          let innerBg = '#0B0515';
          let icon = '🗡️';
          let sizeClasses = 'w-12 h-12 border-[6px] -ml-6 -mt-6 text-2xl';
@@ -2919,6 +3086,16 @@ const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNod
       })}
 
      </div>
+
+     {phase !== 'idle' && (
+       <MapDissolveVeil
+         hue={hue}
+         sat={sat}
+         phase={phase}
+         duration={phase === 'exiting' ? MAP_DISSOLVE_EXIT_MS : MAP_DISSOLVE_ENTER_MS}
+         onDone={phase === 'exiting' ? onExited : onEntered}
+       />
+     )}
     </div>
 
     <style>{`
@@ -2926,7 +3103,8 @@ const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNod
       @keyframes mapContentIn { from { opacity: 0; } to { opacity: 1; } }
     `}</style>
   </div>
-);
+  );
+};
 
 // --- 3. ГЛАВНОЕ ПРИЛОЖЕНИЕ ---
 
@@ -2979,6 +3157,32 @@ export default function App() {
   useEffect(() => { sectorRef.current = sector; }, [sector]);
   useEffect(() => { currentStageRef.current = currentStage; }, [currentStage]);
   const [bgLocation, setBgLocation] = useState(() => pickBgLocation(1, 0));
+
+  // Жизненный цикл дизолв-веила карты сектора (MapOverlay): держим панель
+  // смонтированной чуть дольше, чем сам turnState === 'map', чтобы отыграть
+  // веил на исчезание. Боевая машина состояний это не трогает — смена
+  // turnState происходит как обычно, веил просто донашивает визуал поверх.
+  const [mapPanelMounted, setMapPanelMounted] = useState(turnState === 'map');
+  const [mapPanelPhase, setMapPanelPhase] = useState('entering');
+  // Гейт раздачи: закрывается в момент клика по узлу (см. handleNodeClick),
+  // открывается через MAP_DEAL_GATE_DELAY_MS ПОСЛЕ того, как веил карты
+  // доиграет исчезание (onExited) — раздача не стартует, пока карта не ушла + пауза.
+  const [dealGateOpen, setDealGateOpen] = useState(true);
+  const dealGateTimeoutRef = useRef(null);
+  useEffect(() => () => { if (dealGateTimeoutRef.current) clearTimeout(dealGateTimeoutRef.current); }, []);
+  // Тот же дизолв-веил, но реверсом: как только карта сектора полностью
+  // растворилась (onExited), этой же мембраной материализуются слоты героев,
+  // колода/сброс и полоса инвентаря — вместо мгновенного opacity-попа.
+  const [arenaUiPhase, setArenaUiPhase] = useState('idle');
+  useEffect(() => {
+    if (turnState === 'map') {
+      setMapPanelMounted(true);
+      setMapPanelPhase('entering');
+      setArenaUiPhase('idle'); // карта снова накрывает поле — веил слотов сбрасываем
+    } else {
+      setMapPanelPhase(prev => (prev === 'idle' || prev === 'entering') ? 'exiting' : prev);
+    }
+  }, [turnState]);
 
   // Эфемерные эффекты (попапы, частицы, летящие карты/XP/предметы, штампы)
   // живут в собственном компоненте FxLayer и обновляются через imperative API.
@@ -3289,6 +3493,9 @@ export default function App() {
     setCurrentMapNodeId(node.id);
     setCurrentStage(node.stage);
     setBgLocation(pickBgLocation(sector, node.stage));
+    // Закрываем гейт раздачи: откроется через onExited веила карты + MAP_DEAL_GATE_DELAY_MS.
+    if (dealGateTimeoutRef.current) { clearTimeout(dealGateTimeoutRef.current); dealGateTimeoutRef.current = null; }
+    setDealGateOpen(false);
 
     if (node.type === 'event') {
       playSound('./assets/sfx/events/event_start.wav');
@@ -3891,7 +4098,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (turnState !== 'dealing' || showLevelUp) return;
+    if (turnState !== 'dealing' || showLevelUp || !dealGateOpen) return;
     setLastPlayedCost(null); setComboStreak(0); setComboCount(0);
     // GDD 2.3: броня переживает фазу врага; обнуляется только в начале нового раунда (dealing).
     setPlayers(prev => prev.map(p => ({ ...p, armor: 0 })));
@@ -3950,7 +4157,7 @@ export default function App() {
       delay += CARD_DEAL_STAGGER_MS; 
     });
     setTimeout(() => { playSound('./assets/sfx/game/mana_restore.wav', 0.5); setDrawPile(tempDraw); setDiscardPile(currentDiscard); setPlayers(prev => prev.map(p => ({ ...p, hasActed: false, justDealt: false }))); setMana(maxMana); setTurnState('player'); }, delay + CARD_DEAL_FINISH_PAD_MS);
-  }, [turnState, showLevelUp, maxMana]);
+  }, [turnState, showLevelUp, maxMana, dealGateOpen]);
 
   // Розыгрыш мод-карты (бафф): без цели по врагу, лёгкая анимация, участвует в цепочке комбо.
   const playModCard = (playerIndex, card) => {
@@ -4243,8 +4450,8 @@ export default function App() {
           target.hp = 0; target.isDead = true;
           xpToSpawn.push({ id: target.id, amount: target.xpReward });
           // Босс всегда даёт легендарный предмет
-          const loot = target.isBoss ? generateItemOfRarity('LEGENDARY') : rollLootDrop(sectorRef.current, currentStageRef.current);
-          if (loot) lootToSpawn.push({ id: target.id, item: loot });
+          const drops = target.isBoss ? [generateItemOfRarity('LEGENDARY')] : rollLootDrops(sectorRef.current, currentStageRef.current);
+          drops.forEach(item => lootToSpawn.push({ id: target.id, item }));
           playSound('./assets/sfx/combat/death.wav', 0.7);
         }
       });
@@ -4418,7 +4625,8 @@ export default function App() {
           e.isDead = true; e.hp = 0;
           bleedXp.push({ id: e.id, amount: e.xpReward });
           // Босс всегда даёт легендарный предмет
-          const loot = e.isBoss ? generateItemOfRarity('LEGENDARY') : rollLootDrop(sectorRef.current, currentStageRef.current); if (loot) bleedLoot.push({ id: e.id, item: loot });
+          const drops = e.isBoss ? [generateItemOfRarity('LEGENDARY')] : rollLootDrops(sectorRef.current, currentStageRef.current);
+          drops.forEach(item => bleedLoot.push({ id: e.id, item }));
           playSound('./assets/sfx/combat/death.wav', 0.7);
         }
       }
@@ -5111,8 +5319,10 @@ export default function App() {
           </div>
 
           {/* Карта сектора: absolute-оверлей на всю зону арена+панель+лут.
-              Подлежащий layout не трогается — ноль вертикального сдвига. */}
-          {turnState === 'map' && (
+              Подлежащий layout не трогается — ноль вертикального сдвига.
+              Остаётся смонтирована чуть дольше turnState==='map', чтобы
+              доиграть дизолв-веил на исчезание (см. mapPanelMounted). */}
+          {mapPanelMounted && (
             <MapOverlay
               sector={sector}
               nodes={gameMap}
@@ -5121,7 +5331,32 @@ export default function App() {
               currentNodeId={currentMapNodeId}
               isNodeClickable={isNodeClickable}
               onNodeClick={handleNodeClick}
+              hue={bgLocation.hue}
+              sat={bgLocation.sat}
+              phase={mapPanelPhase}
+              onEntered={() => setMapPanelPhase('idle')}
+              onExited={() => {
+                setMapPanelMounted(false);
+                setArenaUiPhase('entering');
+                dealGateTimeoutRef.current = setTimeout(() => setDealGateOpen(true), MAP_DEAL_GATE_DELAY_MS);
+              }}
             />
+          )}
+
+          {/* Тем же дизолв-веилом материализуются слоты/колода/инвентарь после того,
+              как карта сектора полностью растворилась (см. arenaUiPhase). Занимает
+              ровно ту же зону, что и MapOverlay, но ниже по z — сидит над слотами,
+              под картой. В простое не рендерится вовсе. */}
+          {arenaUiPhase !== 'idle' && (
+            <div className="absolute left-0 right-0 bottom-0 top-[360px] z-[400] overflow-hidden pointer-events-none">
+              <MapDissolveVeil
+                hue={bgLocation.hue}
+                sat={bgLocation.sat}
+                phase={arenaUiPhase}
+                duration={MAP_DISSOLVE_ENTER_MS}
+                onDone={() => setArenaUiPhase('idle')}
+              />
+            </div>
           )}
         </div>
       </div>
