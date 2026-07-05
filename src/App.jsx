@@ -3033,8 +3033,12 @@ const MAP_DEAL_GATE_DELAY_MS = 200;
 
 const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNodeClickable, onNodeClick, hue = 210, sat = 30, phase = 'idle', onEntered, onExited }) => {
   const interactive = phase === 'idle';
+  // pointer-events-none на корне ОБЯЗАТЕЛЕН: панель остаётся смонтированной после
+  // turnState==='map' (доигрывает веил) и лежит z-[500] ровно над слотами карт.
+  // Без сквозного прохода кликов она молча блокирует руку, если onExited задержался
+  // (rAF-троттлинг Safari/Firefox). Кликабельность возвращают ТОЛЬКО сами узлы.
   return (
-  <div className="absolute left-0 right-0 bottom-0 top-[360px] z-[500]">
+  <div className="absolute left-0 right-0 bottom-0 top-[360px] z-[500] pointer-events-none">
     <div className="absolute top-3 left-8 z-10 text-amber-500 font-black uppercase italic tracking-widest text-lg drop-shadow-md pointer-events-none map-content-in">Карта сектора {String(sector)}</div>
     <div className="absolute top-4 right-8 z-10 text-slate-400 font-black uppercase tracking-widest text-[9px] pointer-events-none map-content-in">Выберите следующий этап пути</div>
     <div className="relative w-full h-full bg-slate-950/40 backdrop-blur-xl rounded-[28px] border border-slate-700 shadow-2xl overflow-hidden">
@@ -3075,8 +3079,8 @@ const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNod
          return (
            <div
               key={node.id}
-              onClick={() => isClickable && onNodeClick(node)}
-              className={`absolute flex items-center justify-center rounded-full shadow-xl transition-all duration-300 ${sizeClasses} ${isCompleted && node.type !== 'base' ? 'grayscale opacity-60' : isCurrent ? 'scale-125 drop-shadow-[0_0_20px_rgba(255,255,255,0.4)] z-20' : isClickable ? 'hover:scale-125 cursor-pointer animate-pulse z-10' : 'opacity-50' }`}
+              onClick={(e) => { e.stopPropagation(); if (isClickable) onNodeClick(node); }}
+              className={`absolute flex items-center justify-center rounded-full shadow-xl transition-all duration-300 ${sizeClasses} ${isClickable ? 'pointer-events-auto' : ''} ${isCompleted && node.type !== 'base' ? 'grayscale opacity-60' : isCurrent ? 'scale-125 drop-shadow-[0_0_20px_rgba(255,255,255,0.4)] z-20' : isClickable ? 'hover:scale-125 cursor-pointer animate-pulse z-10' : 'opacity-50' }`}
               style={{ left: `${node.x}%`, top: `${node.y}%`, ...nodeColorStyle }}
            >
               {icon}
@@ -5248,8 +5252,11 @@ export default function App() {
                 const slotNeighborClass = hoveredSlotIdx !== -1 && !isSlotHovered && !isDead
                   ? (i < hoveredSlotIdx ? 'slot-push-left' : 'slot-push-right')
                   : '';
+                // position:relative обязателен: z-index на static-элементе гарантированно
+                // работает только у flex-детей современных движков; relative снимает
+                // кросс-браузерную неоднозначность порядка слоёв при ховере.
                 return (
-                  <div key={p.id} className="flex flex-col items-center" style={{ zIndex: isSlotHovered ? 40 : slotNeighborClass ? 5 : 10 }}>
+                  <div key={p.id} className="relative flex flex-col items-center" style={{ zIndex: isSlotHovered ? 40 : slotNeighborClass ? 5 : 10 }}>
                   <div className={`card-nudge-wrap w-52 ${slotNeighborClass}`}>
                   <TiltWrapper isDisabled={isDisabled} globalShake={shake} className={`w-52 h-[290px] relative z-10 rounded-2xl transition-shadow duration-300 ${comboStatus.willGiveBonus && !isDisabled ? 'shadow-[0_0_34px_8px_rgba(250,204,21,0.65)] animate-pulse' : ''}`}>
                     <div ref={(el) => setSlotRef(p.id, el)} onClick={() => !isDisabled && card && playCard(i, card)} onMouseEnter={() => handleCardHover(i)} onMouseLeave={() => { setHoveredPlayerId(null); setHoveredTargetIds([]); }} className={`w-full h-full bg-slate-800 border-2 rounded-2xl flex flex-col overflow-hidden relative group ${isDead ? 'border-slate-700 opacity-40 grayscale scale-95' : 'border-slate-600 shadow-2xl shadow-black/80'} ${!isDisabled ? 'cursor-pointer hover:border-[#1E88E5]' : ''}`}>
