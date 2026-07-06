@@ -3209,6 +3209,11 @@ export default function App() {
   // Стартовый экран Таверны-Хаба: показывается один раз после прелоадера,
   // закрывается по клику на дверь → отряд попадает на карту сектора.
   const [showTavern, setShowTavern] = useState(true);
+  // Событие «первая смерть»: после ПЕРВОГО падения отряда возвращение в таверну
+  // встречает историей незнакомца (триггер FIRST_DEATH), по её завершении отряд
+  // бесплатно получает по новой карте в свободные слоты. Одноразово за сессию.
+  const [firstDeathStoryPending, setFirstDeathStoryPending] = useState(false);
+  const hasDiedOnceRef = useRef(false);
   const [vfxList, setVfxList] = useState([]);
   const [flashingTargets, setFlashingTargets] = useState([]);
 
@@ -3644,6 +3649,11 @@ export default function App() {
     setSoulProgress(total % EMBER_JUNK_THRESHOLD);
     resetGame(false, false, true);
     setPrepCardsBought(0);
+    // Первая смерть за сессию: таверна встретит историей незнакомца + бесплатными картами.
+    if (!hasDiedOnceRef.current) {
+      hasDiedOnceRef.current = true;
+      setFirstDeathStoryPending(true);
+    }
     // Цикл замыкается на Таверне: после смерти возвращаемся в неё, а не на экран подготовки.
     setShowTavern(true);
   };
@@ -3674,6 +3684,29 @@ export default function App() {
     setPrepCardsBought(c => c + 1);
     const owner = isMod ? null : players.find(p => p.id === heroId);
     setCardReveal({ card: newCard, owner });
+  };
+
+  // Событие «первая смерть», финал: история незнакомца досказана → каждому герою
+  // бесплатно кладём случайный НЕизученный скилл в свободный слот пулла, затем
+  // показываем экран «Новая карта в колоде!» (SquadSlotsPopup, fromTavern-режим —
+  // закрытие возвращает в таверну).
+  const grantFirstDeathFreeCards = () => {
+    setFirstDeathStoryPending(false);
+    const all = [...drawPileRef.current, ...discardPileRef.current];
+    const granted = [];
+    INITIAL_PLAYERS_DATA.forEach(p => {
+      const owned = all.filter(c => c.ownerId === p.id && isRealDeckCard(c));
+      if (owned.length >= CARD_POOL_SIZE) return;
+      const options = getUnownedSkills(p.id, getOwnedSkillKeys(p.id, owned));
+      if (!options.length) return;
+      const pick = options[Math.floor(Math.random() * options.length)];
+      granted.push({ ...pick, id: `gift_${Date.now()}_${Math.random()}`, level: 1, skillId: pick.id });
+    });
+    if (!granted.length) return; // все пуллы полны — молча остаёмся в таверне
+    setDrawPile(prev => [...prev, ...granted]);
+    playSound('./assets/sfx/game/level_up.wav', 0.6);
+    setShowTavern(false);
+    setSlotsPopup({ newCardId: granted[granted.length - 1].id, fromTavern: true });
   };
 
   // Сжечь карту на экране подготовки → −1 огонёк, карта удаляется из колоды (слот освобождается).
@@ -4953,6 +4986,10 @@ export default function App() {
             playSound('./assets/sfx/ui/click.wav', 0.5);
             setShowTavern(false);
             setShowPrep(true);
+          }}
+          entryDialogueTrigger={firstDeathStoryPending ? 'FIRST_DEATH' : 'TAVERN_ENTER'}
+          onEntryDialogueComplete={(triggerId) => {
+            if (triggerId === 'FIRST_DEATH') grantFirstDeathFreeCards();
           }}
         />
       )}
