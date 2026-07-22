@@ -13,9 +13,13 @@
 // Новый триггер = новая запись здесь + один вызов getDialogueForTrigger(triggerId)
 // из любого экрана. Ничего больше менять не нужно.
 
+import { TAVERN_CHATTER } from './dialogue/tavernChatter';
+
 export const DIALOGUE_TRIGGERS = {
   TAVERN_ENTER: {
     pick: 'randomStory',
+    // Базовые «фирменные» истории + большой пул случайной болтовни таверны
+    // (src/dialogue/tavernChatter.js). При каждом входе играет одна случайная.
     stories: [
       [
         { speakerId: 'npc_bartender', name: 'Бармен', text: 'Вчера заходил рыцарь.' },
@@ -47,6 +51,7 @@ export const DIALOGUE_TRIGGERS = {
         { speakerId: 'visitor_walker_a_left', name: 'Бродяга', text: 'Само. По ночам.' },
         { speakerId: 'visitor_cloaked_center', name: 'Незнакомец', text: 'Он не врёт.' },
       ],
+      ...TAVERN_CHATTER,
     ],
   },
 

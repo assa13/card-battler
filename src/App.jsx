@@ -1,7 +1,34 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from 'react';
 import TavernHubScreen from './TavernHubScreen';
+import HeroInventoryScreen from './HeroInventoryScreen';
+import PreparationCardSlot from './PreparationCardSlot';
 import QteOverlay from './QteOverlay';
 import { qteSlowMo } from './qteTimeScale';
+import { resolveCardQte } from './qteMechanics';
+import {
+  HERO_IDS,
+  createEmptyUnlockedCards,
+  createEmptyHeroInventoryMeta,
+  clearMetaSessionStorage,
+  unlockHeroCard,
+  removeUnlockedHeroCard,
+  hasFreePermanentSlot,
+  resolveSkillById,
+  instantiateUnlockedCards,
+  assignHeroLoadoutCard,
+  reorderHeroLoadoutCard,
+  removeHeroLoadoutCard,
+  upgradeHeroCard,
+  getCardLevel as getPersistentCardLevel,
+  getUpgradeCost,
+  createEmptyHeroCardLoadouts,
+  sanitizeHeroCardProgression,
+  getCardUnlockGoldCost,
+  getLoadoutSlotUnlockPrice,
+  HERO_CARD_LOADOUT_SIZE,
+  DEFAULT_UNLOCKED_SLOTS,
+} from './heroCardInventory';
+import { STRANGER_SECOND_DEATH_SCRIPT } from './dialogue/scripts';
 
 // --- 1. КОНСТАНТЫ И НАСТРОЙКИ ---
 
@@ -201,11 +228,48 @@ const CHAR_ATLASES = {
   p2: { url: './chars/rogue_atlas.webp',   cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
   p3: { url: './chars/priest_atlas.webp',  cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
 };
+// Атласы атаки: та же сетка, но fps выше (замах должен читаться быстро).
+// Кадры листаются в ИГРОВОМ времени (rAF × qteSlowMo.scale) — под bullet-time QTE
+// замах замедляется синхронно с миром, в отличие от idle-setInterval.
+// impactFrame — кадр, на котором оружие/снаряд «прилетает»: задержка импакта боя
+// считается от него (impactFrame / fps), а не фиксированными 300мс — у каждого героя
+// удар синхронен с его собственной анимацией (у роги выпад на 8-м кадре, у мага каст на 9-м).
+const CHAR_ATTACK_ATLASES = {
+  p1: { url: './chars/warrior_attack_atlas.webp', cols: 4, rows: 4, frameCount: 16, fps: 14, impactFrame: 4 },
+  p2: { url: './chars/rogue_attack_atlas.webp',   cols: 4, rows: 4, frameCount: 16, fps: 14, impactFrame: 8 },
+  p3: { url: './chars/priest_attack_atlas.webp',  cols: 4, rows: 4, frameCount: 16, fps: 14, impactFrame: 9 },
+};
 // Hue/Sat (Photoshop Colorize) для героев: p1 — воин, p2 — разбойник, p3 — маг.
 const CHAR_COLORIZE = {
   p1: { hue: 196, sat: 32 },
   p2: { hue: 80,  sat: 48 },
   p3: { hue: 286, sat: 34 },
+};
+
+// ─── Наёмник Незнакомец: замена одного из героев за золото ───────────────
+// Найм доступен после пыточных (сектор STRANGER_HIRE_MIN_SECTOR). Нанятый
+// Незнакомец занимает слот выбранного героя: имя и спрайт меняются, боевой
+// кит (абилки/карты/статы) остаётся от заменённого класса. Выбор сохраняется
+// в рамках сессии; между перезапусками не сохраняется (сохранения пока нет).
+const STRANGER_HIRE_GOLD_COST = 250;
+const STRANGER_HIRE_MIN_SECTOR = 2; // сектор 2 = torture («пыточные»)
+const STRANGER_NAME = 'Незнакомец';
+const STRANGER_BATTLE_ATLAS = { url: './assets/tavern/stranger.png', cols: 4, rows: 4, frameCount: 16, fps: 7.5 };
+const STRANGER_IN_TAVERN_STORAGE_KEY = 'idler_strangerInTavern';
+const STRANGER_HIRED_STORAGE_KEY = 'idler_strangerHiredAs';
+// Спрайт-оверрайды героев (heroId → атлас): заполняется при найме в текущей сессии.
+const HERO_SPRITE_OVERRIDES = {};
+const getHeroAtlas = (heroId) => HERO_SPRITE_OVERRIDES[heroId] || CHAR_ATLASES[heroId];
+// Атлас Незнакомца — авторский grayscale, колоризация классом не применяется.
+const getHeroColorize = (heroId) => (HERO_SPRITE_OVERRIDES[heroId] ? {} : (CHAR_COLORIZE[heroId] || {}));
+const applyStrangerIdentity = (list, hiredAs) =>
+  hiredAs ? list.map(p => (p.id === hiredAs ? { ...p, name: STRANGER_NAME } : p)) : list;
+// Собственный цвет свечения героя (соответствует hue его colorize) —
+// подсветка модельки, пока герой отыгрывает СВОЙ QTE.
+const CHAR_QTE_GLOW = {
+  p1: 'rgba(56, 189, 248, 0.9)',   // воин — ледяная синева
+  p2: 'rgba(163, 230, 53, 0.9)',   // разбойник — ядовитый лайм
+  p3: 'rgba(192, 132, 252, 0.9)',  // маг — фиолет
 };
 // Colorize без оверлея: sepia + hue-rotate + saturate на видимом кадре (аналог PS Hue/Sat Colorize).
 const charColorizeFilter = (hue, sat) => {
@@ -260,16 +324,60 @@ const ENEMY_FORMATIONS = {
 };
 
 // Анимированный спрайт из атласа. Покраска — CSS filter на видимый кадр, без оверлея поверх.
-const CharSprite = React.memo(({ atlas, size = 110, className = '', style = {}, hue, sat }) => {
+// gameTime: кадры листаются rAF-циклом в ИГРОВОМ времени (dt × qteSlowMo.scale) —
+// анимация атаки замедляется под bullet-time QTE синхронно с миром. Idle остаётся
+// на setInterval (реальное время, дешевле).
+// ФАЗЫ QTE-ЗАМАХА (управляются пропсами, эффект перезапускается БЕЗ сброса кадра):
+//  - holdAtFrame: замах доходит до кадра перед ударом и ЖДЁТ на нём — анимация
+//    не завершается сама, только по вердикту кольца (клик или miss);
+//  - speed + ignoreSlowMo: быстрый доигрыш до конца в реальном времени (клик);
+//  - once: цикл играется один раз, затем заморозка на последнем кадре (без лупа).
+// onCycle — завершение полного прохода кадров; родитель решает, вернуть ли idle.
+// При смене key компонент ремоунтится — кадр стартует с 0.
+const CharSprite = React.memo(({ atlas, size = 110, className = '', style = {}, hue, sat, gameTime = false, ignoreSlowMo = false, speed = 1, holdAtFrame = null, once = false, onCycle }) => {
   const [frame, setFrame] = useState(0);
+  const onCycleRef = useRef(onCycle);
+  useEffect(() => { onCycleRef.current = onCycle; }, [onCycle]);
+  // Кадр/аккумулятор в рефах: смена фазы (holdAtFrame/speed) перезапускает эффект,
+  // но анимация продолжается с текущего кадра, а не начинается заново.
+  const frameRef = useRef(0);
+  const accRef = useRef(0);
+  const doneRef = useRef(false);
   useEffect(() => {
     if (!atlas) return;
-    const interval = 1000 / (atlas.fps || 12);
-    const id = setInterval(() => {
-      setFrame((f) => (f + 1) % atlas.frameCount);
-    }, interval);
-    return () => clearInterval(id);
-  }, [atlas]);
+    const frameMs = 1000 / (atlas.fps || 12);
+    if (!gameTime) {
+      const id = setInterval(() => {
+        setFrame((f) => (f + 1) % atlas.frameCount);
+      }, frameMs);
+      return () => clearInterval(id);
+    }
+    if (doneRef.current) return; // once: цикл доигран, стоим на последнем кадре
+    let rafId = 0;
+    let last = performance.now();
+    const tick = (ts) => {
+      const dt = Math.min(100, ts - last);
+      last = ts;
+      accRef.current += dt * (ignoreSlowMo ? 1 : qteSlowMo.scale) * speed;
+      if (accRef.current >= frameMs) {
+        const adv = Math.floor(accRef.current / frameMs);
+        accRef.current -= adv * frameMs;
+        let next = frameRef.current + adv;
+        if (holdAtFrame != null && next >= holdAtFrame) {
+          next = holdAtFrame; // холд: ждём вердикта QTE на кадре перед ударом
+        } else if (next >= atlas.frameCount) {
+          if (once) { next = atlas.frameCount - 1; doneRef.current = true; }
+          else next %= atlas.frameCount;
+          onCycleRef.current?.();
+        }
+        if (next !== frameRef.current) { frameRef.current = next; setFrame(next); }
+        if (doneRef.current) return; // стоп rAF: заморожены на последнем кадре
+      }
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafId);
+  }, [atlas, gameTime, ignoreSlowMo, speed, holdAtFrame, once]);
   if (!atlas) return null;
   const col = frame % atlas.cols;
   const row = Math.floor(frame / atlas.cols);
@@ -516,32 +624,40 @@ const pickRandomAliveIndices = (alive, count, seed = null) => {
 // GDD 3.2: чёткие архетипы. Воин — Джаггернаут (тяжёлые одиночные удары, CC, скейл от брони).
 // Разбойник — Тысяча порезов (дешёвые мульти-удары, кровотечение, мостики комбо).
 // Маг — Катализатор (дорогие нюки, метка/дебаффы, спред эффектов).
+//
+// qte: { mechanic, trigger } — QTE-профиль карты (реестр механик: qteMechanics.js,
+// дизайн-гайд и полная таблица ревизии: docs/qte-design.md).
+//   RHYTHM/ALWAYS      — мульти-удары: стрим = идентичность карты, каждый розыгрыш.
+//   PRECISION/ALWAYS   — сигнатурные нюки (эпик+): кольцо на каждом розыгрыше.
+//   PRECISION/IMPORTANT— обычные удары: кольцо только в значимый момент
+//                        (комбо 2+, босс, метка, летальный удар).
+//   NONE               — утилити/спам: никогда (0 маны банится и движком).
 const HERO_ABILITIES = {
   p1: {
-    basic: { id: 'b1', name: 'Удар мечом', cost: 1, mult: 1.8, dmgType: 'melee', icon: '⚔️', targeting: 'random2', rarity: 'COMMON', vfxType: 'slash' },
+    basic: { id: 'b1', name: 'Удар мечом', cost: 1, mult: 1.8, dmgType: 'melee', icon: '⚔️', targeting: 'random2', rarity: 'COMMON', vfxType: 'slash', qte: { mechanic: 'RHYTHM', trigger: 'ALWAYS' } },
     skills: [
-      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.8, dmgType: 'melee', icon: '🔨', targeting: 'strongest', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' } },
-      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.7, dmgType: 'melee', icon: '🌪️', targeting: 'all', rarity: 'COMMON', vfxType: 'slash' },
-      { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, mult: 1.6, dmgType: 'melee', icon: '🏃', targeting: 'strongest', rarity: 'COMMON', vfxType: 'slash', secondary: { effect: 'vuln' } },
-      { id: 's1_4', ownerId: 'p1', name: 'Берсерк', cost: 3, mult: 3.0, dmgType: 'melee', icon: '🪓', targeting: 'random2', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' } }
+      { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.8, dmgType: 'melee', icon: '🔨', targeting: 'strongest', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' }, qte: { mechanic: 'PRECISION', trigger: 'ALWAYS' } },
+      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.7, dmgType: 'melee', icon: '🌪️', targeting: 'all', rarity: 'COMMON', vfxType: 'slash', qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } },
+      { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, mult: 1.6, dmgType: 'melee', icon: '🏃', targeting: 'strongest', rarity: 'COMMON', vfxType: 'slash', secondary: { effect: 'vuln' }, qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } },
+      { id: 's1_4', ownerId: 'p1', name: 'Берсерк', cost: 3, mult: 3.0, dmgType: 'melee', icon: '🪓', targeting: 'random2', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' }, qte: { mechanic: 'RHYTHM', trigger: 'ALWAYS' } }
     ]
   },
   p2: {
-    basic: { id: 'b2', name: 'Кинжал', cost: 0, mult: 2.0, dmgType: 'ranged', icon: '🗡️', targeting: 'random2', rarity: 'COMMON', vfxType: 'dagger_single' },
+    basic: { id: 'b2', name: 'Кинжал', cost: 0, mult: 2.0, dmgType: 'ranged', icon: '🗡️', targeting: 'random2', rarity: 'COMMON', vfxType: 'dagger_single', qte: { mechanic: 'NONE' } },
     skills: [
-      { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.8, dmgType: 'ranged', icon: '🧪', targeting: 'random2', rarity: 'COMMON', vfxType: 'poison', secondary: { effect: 'bleed' } },
-      { id: 's2_2', ownerId: 'p2', name: 'Тысяча порезов', cost: 1, mult: 1.4, dmgType: 'ranged', icon: '✂️', targeting: 'all', rarity: 'RARE', vfxType: 'daggers', secondary: { effect: 'bleed' } },
-      { id: 's2_3', ownerId: 'p2', name: 'Танец стали', cost: 2, mult: 2.2, dmgType: 'ranged', icon: '⚔️', targeting: 'random2', rarity: 'RARE', vfxType: 'daggers' },
-      { id: 's2_4', ownerId: 'p2', name: 'Кровопускание', cost: 3, mult: 2.6, dmgType: 'ranged', icon: '🩸', targeting: 'all', rarity: 'EPIC', vfxType: 'daggers', secondary: { effect: 'bleed' } }
+      { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.8, dmgType: 'ranged', icon: '🧪', targeting: 'random2', rarity: 'COMMON', vfxType: 'poison', secondary: { effect: 'bleed' }, qte: { mechanic: 'RHYTHM', trigger: 'ALWAYS' } },
+      { id: 's2_2', ownerId: 'p2', name: 'Тысяча порезов', cost: 1, mult: 1.4, dmgType: 'ranged', icon: '✂️', targeting: 'all', rarity: 'RARE', vfxType: 'daggers', secondary: { effect: 'bleed' }, qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } },
+      { id: 's2_3', ownerId: 'p2', name: 'Танец стали', cost: 2, mult: 2.2, dmgType: 'ranged', icon: '⚔️', targeting: 'random2', rarity: 'RARE', vfxType: 'daggers', qte: { mechanic: 'RHYTHM', trigger: 'ALWAYS' } },
+      { id: 's2_4', ownerId: 'p2', name: 'Кровопускание', cost: 3, mult: 2.6, dmgType: 'ranged', icon: '🩸', targeting: 'all', rarity: 'EPIC', vfxType: 'daggers', secondary: { effect: 'bleed' }, qte: { mechanic: 'PRECISION', trigger: 'ALWAYS' } }
     ]
   },
   p3: {
-    basic: { id: 'b3', name: 'Искра', cost: 2, mult: 1.0, dmgType: 'magic', icon: '✨', targeting: 'all', rarity: 'COMMON', vfxType: 'magic_spark' },
+    basic: { id: 'b3', name: 'Искра', cost: 2, mult: 1.0, dmgType: 'magic', icon: '✨', targeting: 'all', rarity: 'COMMON', vfxType: 'magic_spark', qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } },
     skills: [
-      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 2.5, dmgType: 'magic', icon: '☄️', targeting: 'all', rarity: 'RARE', vfxType: 'fireball' },
-      { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, dmgType: 'magic', icon: '❄️', targeting: 'all', rarity: 'RARE', vfxType: 'ice_spike', secondary: { effect: 'mark' } },
-      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, mult: 2.0, dmgType: 'magic', icon: '⚡', targeting: 'random2', rarity: 'RARE', vfxType: 'lightning', secondary: { effect: 'vuln' } },
-      { id: 's3_4', ownerId: 'p3', name: 'Чёрная дыра', cost: 5, mult: 3.2, dmgType: 'magic', icon: '🌌', targeting: 'all', rarity: 'LEGENDARY', vfxType: 'dark_void', secondary: { effect: 'weaken' } }
+      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 2.5, dmgType: 'magic', icon: '☄️', targeting: 'all', rarity: 'RARE', vfxType: 'fireball', qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } },
+      { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, dmgType: 'magic', icon: '❄️', targeting: 'all', rarity: 'RARE', vfxType: 'ice_spike', secondary: { effect: 'mark' }, qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } },
+      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, mult: 2.0, dmgType: 'magic', icon: '⚡', targeting: 'random2', rarity: 'RARE', vfxType: 'lightning', secondary: { effect: 'vuln' }, qte: { mechanic: 'RHYTHM', trigger: 'ALWAYS' } },
+      { id: 's3_4', ownerId: 'p3', name: 'Чёрная дыра', cost: 5, mult: 3.2, dmgType: 'magic', icon: '🌌', targeting: 'all', rarity: 'LEGENDARY', vfxType: 'dark_void', secondary: { effect: 'weaken' }, qte: { mechanic: 'PRECISION', trigger: 'ALWAYS' } }
     ]
   }
 };
@@ -610,13 +726,18 @@ const resolveSkillTemplate = (heroId, card) => {
   if (card.skillId) return catalog.find(s => s.id === card.skillId) || null;
   return catalog.find(s => s.id === card.id || s.name === card.name) || null;
 };
-const getOwnedSkillKeys = (heroId, cards) => {
+const getOwnedSkillKeys = (heroId, cards, extraUnlockedIds = []) => {
   const keys = new Set();
   cards.filter(c => c.ownerId === heroId && isRealDeckCard(c)).forEach(c => {
     keys.add(c.name);
     if (c.skillId) keys.add(c.skillId);
     const tmpl = resolveSkillTemplate(heroId, c);
     if (tmpl) { keys.add(tmpl.id); keys.add(tmpl.name); }
+  });
+  extraUnlockedIds.forEach((skillId) => {
+    keys.add(skillId);
+    const tmpl = resolveSkillById(heroId, skillId, HERO_ABILITIES);
+    if (tmpl?.name) keys.add(tmpl.name);
   });
   return keys;
 };
@@ -627,17 +748,31 @@ const heroOwnsSkill = (heroId, skill, ownedKeys) =>
 
 // Стартовая карта героя — его базовая атака как полноценная карта колоды (1-й заполненный слот).
 // id не начинается с 'b', поэтому isRealDeckCard === true (карта считается в пулле).
-const createStarterCard = (heroId) => {
+const createStarterCard = (heroId, progression = {}) => {
   const basic = HERO_ABILITIES[heroId].basic;
-  return { ...basic, id: `start_${heroId}`, ownerId: heroId, level: 1, skillId: basic.id, isStarter: true };
+  return {
+    ...basic,
+    id: `start_${heroId}`,
+    ownerId: heroId,
+    level: getPersistentCardLevel(progression, heroId, basic.id),
+    skillId: basic.id,
+    isStarter: true,
+  };
 };
 
 // Стартовые универсальные мод-карты: по умолчанию в общей колоде (без владельца).
 const createStarterModCards = () => MOD_CARD_LIST.map(m => ({ ...m, id: `mod_start_${m.modType}`, level: 1 }));
 
-// Старт: каждому герою по 1 реальной карте (базовая) + 2 универсальные мод-карты в общую колоду.
-const createInitialDeck = () => shuffleArray([
-  ...INITIAL_PLAYERS_DATA.map(({ id }) => createStarterCard(id)),
+// Старт: каждому герою по 1 базовой карте + персистентные разблокировки + 2 мод-карты.
+const createInitialDeck = (
+  permanentlyUnlocked = createEmptyUnlockedCards(),
+  cardLoadouts = {},
+  cardProgression = {},
+) => shuffleArray([
+  ...INITIAL_PLAYERS_DATA.flatMap(({ id }) => [
+    createStarterCard(id, cardProgression),
+    ...instantiateUnlockedCards(id, permanentlyUnlocked, HERO_ABILITIES, [], cardLoadouts[id] || [], cardProgression),
+  ]),
   ...createStarterModCards(),
 ]);
 
@@ -658,8 +793,8 @@ const getLevelMultiplier = (card) => Math.pow(2, getCardLevel(card) - 1);
 // --- МОДИФИКАЦИОННЫЕ КАРТЫ: универсальные, не привязаны к классу, выдаются любому герою ---
 // armor: +броня герою до конца раунда (сбрасывается при новой раздаче). chain: +к следующей карте в этом ходу игрока.
 const MOD_CARDS = {
-  armor: { id: 'mod_armor', name: 'Закал брони', cost: 0, icon: '🛡️', type: 'self', rarity: 'RARE', vfxType: null, modType: 'armor', modValue: 8 },
-  chain: { id: 'mod_chain', name: 'Усиление цепи', cost: 1, icon: '🔗', type: 'self', rarity: 'RARE', vfxType: null, modType: 'chain', modValue: 12 },
+  armor: { id: 'mod_armor', name: 'Закал брони', cost: 0, icon: '🛡️', type: 'self', rarity: 'RARE', vfxType: null, modType: 'armor', modValue: 8, qte: { mechanic: 'NONE' } },
+  chain: { id: 'mod_chain', name: 'Усиление цепи', cost: 1, icon: '🔗', type: 'self', rarity: 'RARE', vfxType: null, modType: 'chain', modValue: 12, qte: { mechanic: 'NONE' } },
 };
 const MOD_CARD_LIST = Object.values(MOD_CARDS);
 const isModCard = (card) => !!(card && card.modType);
@@ -738,20 +873,9 @@ const calculateQteDuration = (card, chainPos) => {
   return Math.max(QTE_MIN_MS, QTE_BASE_MS - rarityPenalty - comboPenalty);
 };
 
-// QTE положен, если карта «важная»: звено комбо 2+, эпик/легендарка,
-// мульти-удар по 2+ целям (ритм-стрим — витрина механики, должен случаться),
-// в целях босс или цель с Меткой, либо удар ожидаемо летален.
-// ЖЁСТКИЙ ЗАПРЕТ: карты за 0 маны (спам-карты вроде Кинжала) НИКОГДА не триггерят
-// QTE — перекрывает ВСЕ остальные правила (комбо, редкость, босса, летальность).
-const shouldTriggerQte = (card, chainPos, targets, expectedLethal) =>
-  card.cost > 0 && (
-    chainPos >= 2 ||
-    card.rarity === 'EPIC' || card.rarity === 'LEGENDARY' ||
-    (getCardTargeting(card) !== CARD_TARGETING.ALL && targets.length > 1) ||
-    targets.some(t => t.isBoss) ||
-    targets.some(t => t.statuses?.mark) ||
-    expectedLethal
-  );
+// Какой QTE играть на розыгрыше — решает resolveCardQte (см. qteMechanics.js):
+// карта несёт декларативный профиль qte: { mechanic, trigger }, дизайн и ревизия
+// всех карт — docs/qte-design.md. Здесь остались только тайминги кольца.
 
 // Броня поглощает урон и уменьшается; остаток идёт в HP
 const applyIncomingDamage = (player, rawDmg) => {
@@ -1289,6 +1413,24 @@ const FlyingItem = React.memo(({ id, item, startX, startY, endX, endY, onComplet
   );
 });
 
+// Глобальный кошелёк: 🪙 золото + 🔥 огоньки души. Единственный источник
+// правды о балансе на ВСЕХ экранах (бой, таверна, инвентарь героев, ночная
+// встреча) — рендерится один раз в App поверх всего (z 9650).
+const WalletHUD = React.memo(({ gold, soulEmbers }) => (
+  <div
+    className="fixed top-4 right-4 z-[9650] flex items-center gap-3 bg-slate-900/85 border border-slate-700 rounded-xl px-3.5 py-2 backdrop-blur-sm shadow-lg pointer-events-none select-none"
+    style={{ fontFamily: "'Greybeard', sans-serif" }}
+  >
+    <span className="flex items-center gap-1.5 text-amber-300" style={{ fontSize: '13px' }}>
+      <span className="text-base leading-none">🪙</span>{String(gold)}
+    </span>
+    <span className="w-px h-4 bg-slate-600" />
+    <span className="flex items-center gap-1.5 text-sky-300" style={{ fontSize: '13px' }}>
+      <span className="text-base leading-none">🔥</span>{String(soulEmbers)}
+    </span>
+  </div>
+));
+
 const ItemTooltip = React.memo(({ item, x, y }) => {
   if (!item) return null;
   const rarity = RARITIES[item.rarity] || RARITIES.COMMON;
@@ -1300,7 +1442,7 @@ const ItemTooltip = React.memo(({ item, x, y }) => {
     ? Math.max(8, y - 10)
     : Math.max(8, y - TT_H - 10);
   return (
-    <div className="fixed z-[5000] pointer-events-none w-52 bg-slate-950/95 border border-slate-600 rounded-xl p-3 shadow-2xl backdrop-blur-md"
+    <div className="fixed z-[9700] pointer-events-none w-52 bg-slate-950/95 border border-slate-600 rounded-xl p-3 shadow-2xl backdrop-blur-md"
       style={{ left, top }}>
       <div className="flex items-center gap-2 mb-2">
         <ItemIcon item={item} className="w-10 h-10 rounded-lg border border-slate-600 overflow-hidden" />
@@ -2026,6 +2168,7 @@ const PRELOAD_ASSETS = [
   './corner.webp',
   // Атласы спрайтов: прогреваем заранее, чтобы враги/бойцы не подгружались рывками в бою
   ...Object.values(CHAR_ATLASES).map(a => a.url),
+  ...Object.values(CHAR_ATTACK_ATLASES).map(a => a.url),
   ...Object.values(ENEMY_ATLASES).map(a => a.url),
 ];
 
@@ -2068,7 +2211,7 @@ const SquadSlotsBoard = ({ players, pools, newCardId = null, hoveredId = null, o
       return (
         <div key={p.id} className={`flex items-center gap-6 bg-slate-900/70 border border-slate-700/60 rounded-3xl px-8 py-3 min-w-[560px] animate-in slide-in-from-bottom-4 fade-in duration-500 ${isDead ? 'grayscale' : ''}`}>
           <div className={`w-[100px] h-[100px] overflow-hidden flex items-end justify-center shrink-0 ${isDead ? 'opacity-50' : ''}`}>
-            <CharSprite atlas={CHAR_ATLASES[p.id]} size={100} {...CHAR_COLORIZE[p.id]} />
+            <CharSprite atlas={getHeroAtlas(p.id)} size={100} {...getHeroColorize(p.id)} />
           </div>
           <div className="w-28 shrink-0">
             <p className={`font-black uppercase tracking-tight ${isDead ? 'text-slate-500' : 'text-white'}`}>{String(p.name)}</p>
@@ -2259,12 +2402,7 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
         <p className="text-slate-200 italic text-xl max-w-2xl text-center mb-2 leading-relaxed font-medium drop-shadow-lg">«{phrase}»</p>
 
         <div className="flex items-center gap-6 mb-8 mt-4">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl drop-shadow-[0_0_12px_rgba(96,165,250,0.9)]">🔥</span>
-            <span className="text-2xl font-black text-sky-300">{String(soulEmbers)}</span>
-            <span className="text-[10px] text-sky-400/80 uppercase tracking-[0.25em] font-black self-end pb-1">Огоньки души</span>
-          </div>
-          {/* Глобальная шкала прогресса: переносится между забегами */}
+          {/* Баланс 🔥/🪙 — глобальный WalletHUD в правом верхнем углу */}
           <div className="flex flex-col gap-1 w-44">
             <div className="flex justify-between text-[9px] uppercase tracking-[0.2em] font-black text-amber-300/70">
               <span>След. огонёк</span>
@@ -2283,7 +2421,7 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
             return (
               <div key={p.id} className="flex items-center gap-6 bg-slate-900/60 backdrop-blur-md border border-slate-700/60 rounded-3xl px-8 py-3 min-w-[560px] animate-in slide-in-from-bottom-4 fade-in duration-500">
                 <div className="w-[100px] h-[100px] overflow-hidden flex items-end justify-center shrink-0">
-                  <CharSprite atlas={CHAR_ATLASES[p.id]} size={100} {...CHAR_COLORIZE[p.id]} />
+                  <CharSprite atlas={getHeroAtlas(p.id)} size={100} {...getHeroColorize(p.id)} />
                 </div>
                 <div className="w-28 shrink-0">
                   <p className="font-black uppercase tracking-tight text-white">{String(p.name)}</p>
@@ -2293,11 +2431,8 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
                   {Array.from({ length: CARD_POOL_SIZE }).map((_, i) => {
                     const card = cards[i];
                     if (card) {
-                      const glow = RARITY_GLOW[card.rarity] || '#64748b';
                       return (
-                        <div key={i} className="relative group w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5" style={{ borderColor: glow, boxShadow: `inset 0 0 12px ${glow}33` }}>
-                          <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
-                          <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
+                        <PreparationCardSlot key={i} card={card} level={getCardLevel(card)}>
                           {!card.isStarter && (
                           <button
                             type="button"
@@ -2307,7 +2442,7 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
                             className={`absolute -top-2 -right-2 w-6 h-6 rounded-full border text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 hover:scale-110 transition-all shadow-lg z-10 ${soulEmbers >= PREP_BURN_COST ? 'bg-red-900 border-red-500 cursor-pointer' : 'bg-slate-800 border-slate-600 opacity-40 cursor-not-allowed'}`}
                           >🔥</button>
                           )}
-                        </div>
+                        </PreparationCardSlot>
                       );
                     }
                     const isFirstEmpty = i === cards.length;
@@ -2326,11 +2461,7 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
                         </button>
                       );
                     }
-                    return (
-                      <div key={i} className="w-16 h-20 rounded-xl border-2 border-dashed border-slate-700 bg-slate-800/30 flex items-center justify-center">
-                        <span className="text-slate-700 text-xl font-black">+</span>
-                      </div>
-                    );
+                    return <PreparationCardSlot key={i} />;
                   })}
                 </div>
               </div>
@@ -2422,9 +2553,17 @@ const CardRevealOverlay = ({ card, owner, bgHue = 260, bgSat = 60, onDismiss }) 
   const scale = slammed ? 1 : 0.6;
 
   return (
-    <div className="absolute inset-0 z-[2600] overflow-hidden flex flex-col items-center justify-center animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-[10050] overflow-hidden flex flex-col items-center justify-center animate-in fade-in duration-150">
       <ShaderBackground hue={bgHue} sat={bgSat} speed={0.6} embedded />
       <div className="absolute inset-0 bg-black/40 pointer-events-none" />
+      <div className="absolute top-10 text-center drop-shadow-[0_0_16px_rgba(0,0,0,0.95)]">
+        <p className="text-amber-300 text-xl uppercase tracking-[0.28em] font-black">
+          Карта разблокирована
+        </p>
+        <p className="mt-2 text-slate-100 text-sm uppercase tracking-[0.2em] font-black">
+          {owner ? `Герой: ${owner.name}` : 'Общая карта отряда'}
+        </p>
+      </div>
       <div className="relative" style={{ perspective: '1400px' }} onMouseMove={handleMove} onMouseLeave={() => setTilt({ x: 0, y: 0 })}>
         {/* Tier-colored flash burst — расширяющееся кольцо в момент переворота */}
         {flash && (
@@ -2464,7 +2603,7 @@ const CardRevealOverlay = ({ card, owner, bgHue = 260, bgSat = 60, onDismiss }) 
             }}
           >
             <div className="absolute inset-0 rounded-2xl overflow-hidden" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', boxShadow: `0 0 55px ${glow}` }}>
-              <AbilityCard card={card} owner={owner} mana={5} maxMana={5} isDisabled={false} comboState={{ isCandidate: false, willGiveBonus: false }} />
+              <AbilityCard card={card} owner={owner} mana={5} maxMana={5} isDisabled={false} showOwnerLabel={Boolean(owner)} comboState={{ isCandidate: false, willGiveBonus: false }} />
             </div>
             <div
               className="absolute inset-0 rounded-2xl border-2 border-slate-600 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center"
@@ -3113,14 +3252,54 @@ const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNod
 // --- 3. ГЛАВНОЕ ПРИЛОЖЕНИЕ ---
 
 export default function App() {
-  const [players, setPlayers] = useState(() => INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p })));
+  // Мета-прогресс между перезапусками пока не сохраняем — чистим хвосты localStorage.
+  useEffect(() => {
+    clearMetaSessionStorage();
+    [STRANGER_IN_TAVERN_STORAGE_KEY, STRANGER_HIRED_STORAGE_KEY].forEach((key) => {
+      try { localStorage.removeItem(key); } catch { /* quota */ }
+    });
+  }, []);
+
+  const [players, setPlayers] = useState(() => (
+    INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p }))
+  ));
   const [enemies, setEnemies] = useState([]);
   
   const [maxMana, setMaxMana] = useState(MAX_MANA);
   const [mana, setMana] = useState(0); 
   const [turnState, setTurnState] = useState('map'); 
-  
-  const [drawPile, setDrawPile] = useState(() => createInitialDeck());
+
+  // Коллекция и разблокировки — только в рамках текущей сессии (без localStorage).
+  const [permanentlyUnlockedCards, setPermanentlyUnlockedCards] = useState(() => createEmptyUnlockedCards());
+  const permanentlyUnlockedRef = useRef(permanentlyUnlockedCards);
+  useEffect(() => { permanentlyUnlockedRef.current = permanentlyUnlockedCards; }, [permanentlyUnlockedCards]);
+
+  const [initialHeroInventoryMeta] = useState(() => {
+    const freshMeta = createEmptyHeroInventoryMeta();
+    return {
+      ...freshMeta,
+      cardProgression: sanitizeHeroCardProgression(freshMeta.cardProgression, HERO_ABILITIES),
+    };
+  });
+  const [heroCardLoadouts, setHeroCardLoadouts] = useState(initialHeroInventoryMeta.cardLoadouts);
+  const [heroCardProgression, setHeroCardProgression] = useState(initialHeroInventoryMeta.cardProgression);
+  // Открытые слоты лоадаута героя (0..HERO_CARD_LOADOUT_SIZE):
+  // каждый покупается за огоньки души по общей лестнице цен.
+  const [heroSlotsUnlocked, setHeroSlotsUnlocked] = useState(initialHeroInventoryMeta.slotsUnlocked);
+  const [gold, setGold] = useState(initialHeroInventoryMeta.gold);
+  const [ascensionShards] = useState(initialHeroInventoryMeta.ascensionShards);
+  const heroCardLoadoutsRef = useRef(heroCardLoadouts);
+  const heroCardProgressionRef = useRef(heroCardProgression);
+  const heroSlotsUnlockedRef = useRef(heroSlotsUnlocked);
+  useEffect(() => { heroCardLoadoutsRef.current = heroCardLoadouts; }, [heroCardLoadouts]);
+  useEffect(() => { heroCardProgressionRef.current = heroCardProgression; }, [heroCardProgression]);
+  useEffect(() => { heroSlotsUnlockedRef.current = heroSlotsUnlocked; }, [heroSlotsUnlocked]);
+
+  const [drawPile, setDrawPile] = useState(() => createInitialDeck(
+    createEmptyUnlockedCards(),
+    initialHeroInventoryMeta.cardLoadouts,
+    initialHeroInventoryMeta.cardProgression,
+  ));
   const [discardPile, setDiscardPile] = useState([]);
   const [xp, setXp] = useState(0);
   const [playerLevel, setPlayerLevel] = useState(1); 
@@ -3132,10 +3311,11 @@ export default function App() {
   const [soulProgress, setSoulProgress] = useState(0);
   // Очередь невыбранных левелапов: каждый полученный уровень = 1 выбор карт по очереди
   const [levelUpQueue, setLevelUpQueue] = useState(0);
-  const [showPrep, setShowPrep] = useState(false);
+  const [showHeroInventory, setShowHeroInventory] = useState(false);
+  const [inventoryHeroId, setInventoryHeroId] = useState('p1');
   const [prepCardsBought, setPrepCardsBought] = useState(0);
   // Секвенция раскрытия полученной карты: { card, owner } | null
-  const [cardReveal, setCardReveal] = useState(null);
+  const [cardReveal, setCardReveal] = useState(null); // { card, owner?, fromTavern? }
   const xpToNextRef = useRef(XP_BASE_THRESHOLD);
   const [rewardOptions, setRewardOptions] = useState([]);
   
@@ -3156,6 +3336,14 @@ export default function App() {
   const [currentStage, setCurrentStage] = useState(0); 
   const [sector, setSector] = useState(1);
   const [sectorSplash, setSectorSplash] = useState(null);
+  // Лучший достигнутый сектор (переживает смерть и перезапуск) — мета-прогресс
+  // для условий разблокировки («Дойдите до пыточных» = сектор 2, torture).
+  const [maxSectorReached, setMaxSectorReached] = useState(() => {
+    try { return Math.max(1, Number(localStorage.getItem('idler_maxSectorReached')) || 1); } catch { return 1; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('idler_maxSectorReached', String(maxSectorReached)); } catch { /* quota */ }
+  }, [maxSectorReached]);
   const sectorRef = useRef(sector);
   const currentStageRef = useRef(currentStage);
   useEffect(() => { sectorRef.current = sector; }, [sector]);
@@ -3202,8 +3390,7 @@ export default function App() {
   const [craftWarning, setCraftWarning] = useState('');
   const [showLevelUp, setShowLevelUp] = useState(false);
   const [rewardTitle, setRewardTitle] = useState('УРОВЕНЬ ПОВЫШЕН!');
-  // Попап «слоты отряда» после добавления новой карты: { newCardId }
-  const [slotsPopup, setSlotsPopup] = useState(null);
+  // Попап «слоты отряда» устарел — заменён на CardRevealOverlay (cardReveal).
   const [showReserve, setShowReserve] = useState(false);
   const [appReady, setAppReady] = useState(false);
   // Стартовый экран Таверны-Хаба: показывается один раз после прелоадера,
@@ -3213,7 +3400,28 @@ export default function App() {
   // встречает историей незнакомца (триггер FIRST_DEATH), по её завершении отряд
   // бесплатно получает по новой карте в свободные слоты. Одноразово за сессию.
   const [firstDeathStoryPending, setFirstDeathStoryPending] = useState(false);
-  const hasDiedOnceRef = useRef(false);
+  const deathCountRef = useRef(0); // счётчик смертей за сессию: 1-я и 2-я — сюжетные
+  // Событие «вторая смерть»: НОЧЬЮ после возвращения в таверну наёмник Незнакомец
+  // стучится в дверь — открыв её, игрок попадает в ветвящийся скрипт
+  // STRANGER_SECOND_DEATH_SCRIPT (вместо случайного ночного гостя). Впустили →
+  // перманентно занимает место одного из посетителей (strangerInTavern).
+  // Прогнали — придёт снова ночью после следующей смерти.
+  const [strangerStoryPending, setStrangerStoryPending] = useState(false);
+  const [strangerInTavern, setStrangerInTavern] = useState(false);
+  // Наём Незнакомца: heroId заменённого героя (null = ещё не нанят), только в сессии.
+  const [strangerHiredAs, setStrangerHiredAs] = useState(null);
+  const hireStranger = (targetHeroId) => {
+    if (strangerHiredAs || !HERO_IDS.includes(targetHeroId)) return false;
+    if (maxSectorReached < STRANGER_HIRE_MIN_SECTOR || gold < STRANGER_HIRE_GOLD_COST) return false;
+    setGold(value => value - STRANGER_HIRE_GOLD_COST);
+    // Оверрайд спрайта — модульная мапа: её читают ВСЕ потребители атласов
+    // (бой, борды, таверна) в момент рендера; setState ниже даёт ререндер.
+    HERO_SPRITE_OVERRIDES[targetHeroId] = STRANGER_BATTLE_ATLAS;
+    setStrangerHiredAs(targetHeroId);
+    setPlayers(prev => applyStrangerIdentity(prev, targetHeroId));
+    playSound('./assets/sfx/game/level_up.wav', 0.6);
+    return true;
+  };
   const [vfxList, setVfxList] = useState([]);
   const [flashingTargets, setFlashingTargets] = useState([]);
 
@@ -3362,6 +3570,57 @@ export default function App() {
   const [hoveredPlayerId, setHoveredPlayerId] = useState(null);
   const [hoveredTargetIds, setHoveredTargetIds] = useState([]);
 
+  // Анимация атаки героя (спрайт-замах) — ПЕР-ГЕРОЙНАЯ, в отличие от animatingPlayerId
+  // (он один на всех и параллельный розыгрыш перетирает его).
+  // Форма: { [heroId]: { play, phase, holdAtFrame, cycled } }.
+  //  - play — счётчик перезапусков: каждое звено ритм-серии инкрементит его,
+  //    key ремоунтит CharSprite → каждый удар мульти-атаки = своя анимация с 0-го кадра;
+  //  - phase 'windup' → замах играет (в слоу-мо под QTE) и, если holdAtFrame задан,
+  //    ЖДЁТ на кадре перед ударом — не завершается сам, только по вердикту кольца;
+  //  - phase 'fastFinish' (клик Perfect/Good) — быстрый доигрыш до конца в реальном времени;
+  //  - phase 'finish' (miss) — холд снят, замах доигрывается сам в обычном темпе;
+  //  - cycled — цикл доигран (спрайт заморожен на последнем кадре): idle вернём сразу
+  //    при release, не дожидаясь onCycle, которого уже не будет.
+  const [attackAnims, setAttackAnims] = useState({});
+  const attackSeqActiveRef = useRef({});
+  const startAttackAnim = useCallback((heroId, { holdBeforeImpact = false } = {}) => {
+    attackSeqActiveRef.current[heroId] = true;
+    const atlas = CHAR_ATTACK_ATLASES[heroId];
+    const holdAtFrame = holdBeforeImpact && atlas ? Math.max(0, (atlas.impactFrame || 1) - 1) : null;
+    setAttackAnims(prev => ({ ...prev, [heroId]: { play: (prev[heroId]?.play || 0) + 1, phase: 'windup', holdAtFrame, cycled: false } }));
+  }, []);
+  // Вердикт QTE по замаху героя: снять холд и доиграть до конца.
+  const finishAttackAnim = useCallback((heroId, { fast = false } = {}) => {
+    setAttackAnims(prev => {
+      const e = prev[heroId];
+      if (!e) return prev;
+      return { ...prev, [heroId]: { ...e, holdAtFrame: null, phase: fast ? 'fastFinish' : 'finish' } };
+    });
+  }, []);
+  // Пайплайн героя закончился: если цикл уже доигран — idle сразу, иначе снимет onCycle
+  const releaseAttackAnim = useCallback((heroId) => {
+    attackSeqActiveRef.current[heroId] = false;
+    setAttackAnims(prev => {
+      const e = prev[heroId];
+      if (!e || !e.cycled) return prev;
+      const next = { ...prev };
+      delete next[heroId];
+      return next;
+    });
+  }, []);
+  const handleAttackAnimCycle = useCallback((heroId) => {
+    setAttackAnims(prev => {
+      const e = prev[heroId];
+      if (!e) return prev;
+      if (attackSeqActiveRef.current[heroId]) return { ...prev, [heroId]: { ...e, cycled: true } };
+      const next = { ...prev };
+      delete next[heroId];
+      return next;
+    });
+  }, []);
+  // Герой, отыгрывающий QTE прямо сейчас: подсветка модельки его цветом + рост ×1.1
+  const [qteHeroId, setQteHeroId] = useState(null);
+
   // QTE «Perfect Hit»: активный оверлей { targetType, targetNode, duration, resolve } | null.
   // setQte — событие (1 раз на розыгрыш), покадровая анимация живёт внутри QteOverlay.
   // qteActiveRef — синхронный гвард: при параллельном розыгрыше второй QTE не запускается.
@@ -3388,6 +3647,9 @@ export default function App() {
       setAttackTranslate({ dx: 0, dy: 0 });
       setEnemyAttackTranslate({ dx: 0, dy: 0 });
       setVfxList([]);
+      attackSeqActiveRef.current = {};
+      setAttackAnims({});
+      setQteHeroId(null);
     }, COMBAT_ANIM_TIMEOUT_MS);
     return () => clearTimeout(t);
   }, [isAnimating]);
@@ -3406,6 +3668,9 @@ export default function App() {
       setVfxList([]);
       setAttackTranslate({ dx: 0, dy: 0 });
       setEnemyAttackTranslate({ dx: 0, dy: 0 });
+      attackSeqActiveRef.current = {};
+      setAttackAnims({});
+      setQteHeroId(null);
     }
   }, []);
 
@@ -3581,6 +3846,8 @@ export default function App() {
   const resetGame = (fullReset = false, advanceSector = false, fromDeath = false) => {
     const nextSector = (fullReset || fromDeath) ? 1 : advanceSector ? sector + 1 : sector;
     setSector(nextSector);
+    // Мета-прогресс «лучший сектор» только растёт (смерть его не откатывает).
+    setMaxSectorReached(prev => Math.max(prev, nextSector));
 
     musicFadeToRandom();
 
@@ -3590,13 +3857,29 @@ export default function App() {
     const currentFullDeck = [...drawPile, ...discardPile, ...handCards];
 
     if (fullReset || fromDeath) {
-      // Новая игра или смерть: уровень обнуляется, колода — пустой балласт.
-      // При смерти надетый шмот сохраняется (ненадетый продан за огоньки на экране смерти).
-      setPlayers(INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p }, fromDeath ? equipped[p.id] : null)));
+      // Новая игра или смерть: уровень обнуляется. При смерти перманентные
+      // разблокировки/лоадауты сохраняются, полный сброс очищает их.
+      // Надетый шмот после смерти сохраняется (ненадетый продан за огоньки).
+      setPlayers(applyStrangerIdentity(
+        INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p }, fromDeath ? equipped[p.id] : null)),
+        strangerHiredAs,
+      ));
       // Уровень/опыт обнуляются. xpToNextRef синхронизируем тут же: он обновляется
       // отложенным эффектом, иначе первый gainXp после смерти взял бы старый порог.
       setXp(0); setXpToNext(XP_BASE_THRESHOLD); xpToNextRef.current = XP_BASE_THRESHOLD; setPlayerLevel(1); setMaxMana(MAX_MANA);
-      setDrawPile(createInitialDeck()); setDiscardPile([]);
+      const nextLoadouts = fullReset ? createEmptyHeroCardLoadouts() : heroCardLoadoutsRef.current;
+      const nextUnlockedCards = fullReset ? createEmptyUnlockedCards() : permanentlyUnlockedRef.current;
+      if (fullReset) {
+        heroCardLoadoutsRef.current = nextLoadouts;
+        permanentlyUnlockedRef.current = nextUnlockedCards;
+        setHeroCardLoadouts(nextLoadouts);
+        setPermanentlyUnlockedCards(nextUnlockedCards);
+      }
+      setDrawPile(createInitialDeck(
+        nextUnlockedCards,
+        nextLoadouts,
+        heroCardProgressionRef.current,
+      )); setDiscardPile([]);
       setInventory(Array(INVENTORY_SIZE).fill(null));
       if (fullReset) setEquipped({ p1: null, p2: null, p3: null });
     } else {
@@ -3618,8 +3901,11 @@ export default function App() {
     // Слоу-мо выключаем принудительно: onResolve оверлея при сбросе не вызовется.
     setQte(prev => { prev?.resolve?.(1.0); return null; });
     qteActiveRef.current = false;
+    setQteHeroId(null);
+    attackSeqActiveRef.current = {};
+    setAttackAnims({});
     qteSlowMo.end();
-    setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setComboCount(0); setChainAttackBonus(0); fxRef.current?.clearAll(); setShowLevelUp(false); setSlotsPopup(null); setLevelUpQueue(0); setRewardOptions([]);
+    setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setComboCount(0); setChainAttackBonus(0); fxRef.current?.clearAll(); setShowLevelUp(false); setCardReveal(null); setLevelUpQueue(0); setRewardOptions([]);
     setDragSrcIdx(null); setDragOverPlayerId(null); setItemTooltip(null);
     setShowCraft(false); setCraftSlots([null, null, null]); setCraftWarning('');
     setCurrentEvent(null);
@@ -3649,14 +3935,82 @@ export default function App() {
     setSoulProgress(total % EMBER_JUNK_THRESHOLD);
     resetGame(false, false, true);
     setPrepCardsBought(0);
-    // Первая смерть за сессию: таверна встретит историей незнакомца + бесплатными картами.
-    if (!hasDiedOnceRef.current) {
-      hasDiedOnceRef.current = true;
+    // Сюжетные смерти: 1-я — история + бесплатные карты; начиная со 2-й —
+    // визит Незнакомца (повторяется после каждой смерти, пока его не впустят).
+    deathCountRef.current += 1;
+    if (deathCountRef.current === 1) {
       setFirstDeathStoryPending(true);
+    } else if (deathCountRef.current >= 2 && !strangerInTavern) {
+      setStrangerStoryPending(true);
     }
     // Цикл замыкается на Таверне: после смерти возвращаемся в неё, а не на экран подготовки.
     setShowTavern(true);
   };
+
+  // Показать секвенцию получения карты (крутящаяся/переворачивающаяся анимация).
+  const presentCardReveal = useCallback((card, owner = null, { fromTavern = false } = {}) => {
+    if (!card) return;
+    setCardReveal({ card, owner, fromTavern });
+  }, []);
+
+  // UNLOCK_HERO_CARD: ПЕРМАНЕНТНАЯ карта (награда события/диалога) — строго
+  // heroId + cardId → только инвентарь этого героя + инстанс в колоде.
+  // Требует свободный перманентный слот героя (MAX_PERMANENT_CARDS).
+  const dispatchUnlockHeroCard = useCallback(({ heroId, cardId, fromTavern = false, showPopup = true } = {}) => {
+    if (!heroId || !cardId) return null;
+    const tmpl = resolveSkillById(heroId, cardId, HERO_ABILITIES);
+    if (!tmpl || tmpl.id?.startsWith('b')) return null;
+    if (!hasFreePermanentSlot(permanentlyUnlockedRef.current, heroId)) return null;
+
+    const all = [...drawPileRef.current, ...discardPileRef.current];
+    const owned = all.filter(c => c.ownerId === heroId && isRealDeckCard(c));
+    const extraUnlocked = permanentlyUnlockedRef.current[heroId] || [];
+    const ownedKeys = getOwnedSkillKeys(heroId, owned, extraUnlocked);
+    if (owned.length >= CARD_POOL_SIZE) return null;
+    if (ownedKeys.has(cardId) || ownedKeys.has(tmpl.name)) return null;
+
+    const nextUnlocked = unlockHeroCard(permanentlyUnlockedRef.current, heroId, cardId);
+    if (nextUnlocked === permanentlyUnlockedRef.current) return null;
+    permanentlyUnlockedRef.current = nextUnlocked;
+    setPermanentlyUnlockedCards(nextUnlocked);
+    const newCard = {
+      ...tmpl,
+      id: `unlock_${heroId}_${cardId}_${Date.now()}`,
+      ownerId: heroId,
+      level: 1,
+      skillId: cardId,
+    };
+    setDrawPile(prev => [...prev, newCard]);
+    if (showPopup) {
+      presentCardReveal(newCard, players.find(p => p.id === heroId) ?? null, { fromTavern });
+    }
+    return newCard;
+  }, [presentCardReveal, players]);
+
+  const handleDialogueCommand = useCallback((cmd) => {
+    if (!cmd?.type) return;
+    switch (cmd.type) {
+      case 'UNLOCK_HERO_CARD': {
+        const card = dispatchUnlockHeroCard({
+          heroId: cmd.heroId,
+          cardId: cmd.cardId,
+          fromTavern: true,
+        });
+        if (card) playSound('./assets/sfx/game/level_up.wav', 0.6);
+        break;
+      }
+      case 'GIVE_GOLD':
+        if (cmd.amount > 0) setGold(value => value + cmd.amount);
+        break;
+      // Незнакомца впустили (скрипт 2-й смерти): перманентно поселяется
+      // в таверне вместо одного из посетителей (см. TavernHubScreen).
+      case 'STRANGER_JOIN_TAVERN':
+        setStrangerInTavern(true);
+        break;
+      default:
+        break;
+    }
+  }, [dispatchUnlockHeroCard]);
 
   // Покупка стартовой карты: система сама случайно выбирает карту из доступного пула
   // героя и заменяет ею пустую карту-балласт в колоде
@@ -3665,10 +4019,13 @@ export default function App() {
     if (prepCardsBought >= PREP_MAX_BUYS || soulEmbers < price) return;
     const all = [...drawPileRef.current, ...discardPileRef.current];
     const owned = all.filter(c => c.ownerId === heroId && isRealDeckCard(c));
-    const ownedKeys = getOwnedSkillKeys(heroId, owned);
-    // Скиллы — только в свободный слот пулла героя. Мод-карты универсальны: не занимают
-    // персональные слоты, учитываются глобально (по всей колоде).
-    const skillOptions = owned.length >= CARD_POOL_SIZE ? [] : getUnownedSkills(heroId, ownedKeys);
+    const ownedKeys = getOwnedSkillKeys(heroId, owned, permanentlyUnlockedRef.current[heroId] || []);
+    // Скиллы за огоньки — ПЕРМАНЕНТНЫЕ: нужен свободный перманентный слот героя
+    // (MAX_PERMANENT_CARDS) и свободный слот пулла. Мод-карты универсальны: не
+    // занимают персональные слоты, учитываются глобально (по всей колоде).
+    const canBuySkill = owned.length < CARD_POOL_SIZE
+      && hasFreePermanentSlot(permanentlyUnlockedRef.current, heroId);
+    const skillOptions = canBuySkill ? getUnownedSkills(heroId, ownedKeys) : [];
     const ownedModTypes = new Set(all.filter(isModCard).map(c => c.modType));
     const modOptions = MOD_CARD_LIST.filter(m => !ownedModTypes.has(m.modType));
     const options = [...skillOptions, ...modOptions];
@@ -3678,7 +4035,12 @@ export default function App() {
     // Мод-карта — без ownerId (попадает в общую колоду, придёт в руку по очереди раздачи).
     const newCard = isMod
       ? { ...pick, id: `mod_${Date.now()}_${Math.random()}`, level: 1 }
-      : { ...pick, id: `prep_${Date.now()}_${Math.random()}`, level: 1, skillId: pick.id };
+      : { ...pick, id: `prep_${Date.now()}_${Math.random()}`, ownerId: heroId, level: 1, skillId: pick.id };
+    if (!isMod) {
+      const nextUnlocked = unlockHeroCard(permanentlyUnlockedRef.current, heroId, pick.id);
+      permanentlyUnlockedRef.current = nextUnlocked;
+      setPermanentlyUnlockedCards(nextUnlocked);
+    }
     setDrawPile(prev => [...prev, newCard]);
     setSoulEmbers(e => e - price);
     setPrepCardsBought(c => c + 1);
@@ -3686,27 +4048,26 @@ export default function App() {
     setCardReveal({ card: newCard, owner });
   };
 
-  // Событие «первая смерть», финал: история незнакомца досказана → каждому герою
-  // бесплатно кладём случайный НЕизученный скилл в свободный слот пулла, затем
-  // показываем экран «Новая карта в колоде!» (SquadSlotsPopup, fromTavern-режим —
-  // закрытие возвращает в таверну).
+  // Событие «первая смерть», финал: одна ПЕРМАНЕНТНАЯ карта одному герою
+  // (случайному со свободным перманентным слотом).
   const grantFirstDeathFreeCards = () => {
     setFirstDeathStoryPending(false);
     const all = [...drawPileRef.current, ...discardPileRef.current];
-    const granted = [];
-    INITIAL_PLAYERS_DATA.forEach(p => {
+    const candidates = INITIAL_PLAYERS_DATA.filter(p => {
+      if (!hasFreePermanentSlot(permanentlyUnlockedRef.current, p.id)) return false;
       const owned = all.filter(c => c.ownerId === p.id && isRealDeckCard(c));
-      if (owned.length >= CARD_POOL_SIZE) return;
-      const options = getUnownedSkills(p.id, getOwnedSkillKeys(p.id, owned));
-      if (!options.length) return;
-      const pick = options[Math.floor(Math.random() * options.length)];
-      granted.push({ ...pick, id: `gift_${Date.now()}_${Math.random()}`, level: 1, skillId: pick.id });
+      const extra = permanentlyUnlockedRef.current[p.id] || [];
+      const ownedKeys = getOwnedSkillKeys(p.id, owned, extra);
+      return owned.length < CARD_POOL_SIZE && getUnownedSkills(p.id, ownedKeys).length > 0;
     });
-    if (!granted.length) return; // все пуллы полны — молча остаёмся в таверне
-    setDrawPile(prev => [...prev, ...granted]);
+    if (!candidates.length) return;
+    const hero = candidates[Math.floor(Math.random() * candidates.length)];
+    const owned = all.filter(c => c.ownerId === hero.id && isRealDeckCard(c));
+    const options = getUnownedSkills(hero.id, getOwnedSkillKeys(hero.id, owned, permanentlyUnlockedRef.current[hero.id] || []));
+    const pick = options[Math.floor(Math.random() * options.length)];
+    const card = dispatchUnlockHeroCard({ heroId: hero.id, cardId: pick.id, fromTavern: true, showPopup: true });
+    if (!card) return;
     playSound('./assets/sfx/game/level_up.wav', 0.6);
-    setShowTavern(false);
-    setSlotsPopup({ newCardId: granted[granted.length - 1].id, fromTavern: true });
   };
 
   // Сжечь карту на экране подготовки → −1 огонёк, карта удаляется из колоды (слот освобождается).
@@ -3716,6 +4077,14 @@ export default function App() {
     const all = [...drawPileRef.current, ...discardPileRef.current];
     const card = all.find(c => c.id === cardId);
     if (!card || !isRealDeckCard(card) || card.isStarter) return;
+    if (card.skillId && card.ownerId) {
+      setPermanentlyUnlockedCards(prev => removeUnlockedHeroCard(prev, card.ownerId, card.skillId));
+      setHeroCardLoadouts((previous) => {
+        const next = removeHeroLoadoutCard(previous, card.ownerId, card.skillId);
+        heroCardLoadoutsRef.current = next;
+        return next;
+      });
+    }
     setDrawPile(prev => prev.filter(c => c.id !== cardId));
     setDiscardPile(prev => prev.filter(c => c.id !== cardId));
     setSoulEmbers(e => e - PREP_BURN_COST);
@@ -3792,14 +4161,14 @@ export default function App() {
   // Драйвер очереди левелапов: пока есть невыбранные уровни и не открыт другой попап —
   // показываем выбор награды (каждый уровень — отдельный выбор, поочерёдно).
   useEffect(() => {
-    if (levelUpQueue <= 0 || showLevelUp || slotsPopup) return;
+    if (levelUpQueue <= 0 || showLevelUp || cardReveal) return;
     const opts = buildLevelUpOptions();
     if (opts.length === 0) { setLevelUpQueue(0); runPendingTransition(); return; }
     setRewardTitle('УРОВЕНЬ ПОВЫШЕН!');
     setRewardOptions(opts);
     setShowLevelUp(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [levelUpQueue, showLevelUp, slotsPopup]);
+  }, [levelUpQueue, showLevelUp, cardReveal]);
 
   const addItemToInventory = useCallback((item) => {
     let burnedXp = 0;
@@ -3860,6 +4229,123 @@ export default function App() {
     setEquipped(prev => ({ ...prev, [playerId]: null }));
     setPlayers(prev => prev.map(p => p.id === playerId ? syncPlayerMaxHp(p, null) : p));
     playSound('./assets/sfx/ui/card_discard.wav', 0.35);
+  };
+
+  const syncDeckWithHeroLoadouts = (nextLoadouts) => {
+    setDrawPile(createInitialDeck(
+      permanentlyUnlockedRef.current,
+      nextLoadouts,
+      heroCardProgressionRef.current,
+    ));
+    setDiscardPile([]);
+  };
+
+  const assignHeroInventoryCard = (heroId, cardId, targetIndex = null) => {
+    const next = assignHeroLoadoutCard(
+      heroCardLoadoutsRef.current,
+      heroId,
+      cardId,
+      permanentlyUnlockedRef.current,
+      targetIndex,
+      heroSlotsUnlockedRef.current[heroId] ?? DEFAULT_UNLOCKED_SLOTS,
+    );
+    if (next === heroCardLoadoutsRef.current) return;
+    heroCardLoadoutsRef.current = next;
+    setHeroCardLoadouts(next);
+    syncDeckWithHeroLoadouts(next);
+  };
+
+  // Разблокировка карты коллекции — за ЗОЛОТО, цена по редкости карты
+  // (getCardUnlockGoldCost). Огоньки души в карты больше не тратятся —
+  // они идут на слоты лоадаута и prep-покупки.
+  const unlockHeroInventoryCard = (heroId, cardId) => {
+    const currentUnlocked = permanentlyUnlockedRef.current;
+    const skill = resolveSkillById(heroId, cardId, HERO_ABILITIES);
+    const isValidSkill = skill && HERO_ABILITIES[heroId]?.basic?.id !== cardId;
+    if (!isValidSkill) return false;
+    const price = getCardUnlockGoldCost(skill.rarity);
+    if (
+      gold < price
+      || !hasFreePermanentSlot(currentUnlocked, heroId)
+      || currentUnlocked[heroId]?.includes(cardId)
+    ) return false;
+
+    const nextUnlocked = unlockHeroCard(currentUnlocked, heroId, cardId);
+    permanentlyUnlockedRef.current = nextUnlocked;
+    setPermanentlyUnlockedCards(nextUnlocked);
+    setGold((value) => value - price);
+    presentCardReveal({ ...skill, level: 1 }, players.find((p) => p.id === heroId) ?? null);
+    return true;
+  };
+
+  // Разблокировка слота лоадаута — за огоньки души (лестница цен как на prep-экране).
+  const unlockHeroLoadoutSlot = (heroId) => {
+    const current = heroSlotsUnlockedRef.current[heroId] ?? DEFAULT_UNLOCKED_SLOTS;
+    const price = getLoadoutSlotUnlockPrice(heroSlotsUnlockedRef.current);
+    if (!HERO_IDS.includes(heroId) || current >= HERO_CARD_LOADOUT_SIZE) return false;
+    if (soulEmbers < price) return false;
+    setSoulEmbers((value) => value - price);
+    const next = { ...heroSlotsUnlockedRef.current, [heroId]: current + 1 };
+    heroSlotsUnlockedRef.current = next;
+    setHeroSlotsUnlocked(next);
+    playSound('./assets/sfx/events/powerup_select.wav', 0.45);
+    return true;
+  };
+
+  const reorderHeroInventoryCard = (heroId, fromIndex, toIndex) => {
+    const next = reorderHeroLoadoutCard(
+      heroCardLoadoutsRef.current,
+      heroId,
+      fromIndex,
+      toIndex,
+      heroSlotsUnlockedRef.current[heroId] ?? DEFAULT_UNLOCKED_SLOTS,
+    );
+    if (next === heroCardLoadoutsRef.current) return;
+    heroCardLoadoutsRef.current = next;
+    setHeroCardLoadouts(next);
+    syncDeckWithHeroLoadouts(next);
+  };
+
+  const removeHeroInventoryCard = (heroId, cardId) => {
+    const next = removeHeroLoadoutCard(heroCardLoadoutsRef.current, heroId, cardId);
+    if (next === heroCardLoadoutsRef.current) return;
+    heroCardLoadoutsRef.current = next;
+    setHeroCardLoadouts(next);
+    syncDeckWithHeroLoadouts(next);
+  };
+
+  const upgradeHeroInventoryCard = (heroId, cardId) => {
+    const isBasic = HERO_ABILITIES[heroId]?.basic?.id === cardId;
+    const isUnlocked = permanentlyUnlockedRef.current[heroId]?.includes(cardId);
+    if (!isBasic && !isUnlocked) return false;
+    const level = getPersistentCardLevel(heroCardProgressionRef.current, heroId, cardId);
+    const price = getUpgradeCost(level);
+    if (level >= 5 || gold < price) return false;
+    setGold((value) => value - price);
+    setHeroCardProgression((previous) => {
+      const next = upgradeHeroCard(previous, heroId, cardId);
+      heroCardProgressionRef.current = next;
+      return next;
+    });
+    playSound('./assets/sfx/events/powerup_select.wav', 0.45);
+    return true;
+  };
+
+  const equipFromHeroInventory = (heroId, itemUid) => {
+    const inventoryIndex = inventory.findIndex((item) => item?.uid === itemUid);
+    if (inventoryIndex < 0) return;
+    const item = inventory[inventoryIndex];
+    const current = equipped[heroId];
+    setInventory((previous) => {
+      const next = [...previous];
+      next[inventoryIndex] = current;
+      return next;
+    });
+    setEquipped((previous) => ({ ...previous, [heroId]: item }));
+    setPlayers((previous) => previous.map((player) => (
+      player.id === heroId ? syncPlayerMaxHp(player, item) : player
+    )));
+    playSound('./assets/sfx/events/powerup_select.wav', 0.45);
   };
 
   // --- Крафт ---
@@ -3979,7 +4465,7 @@ export default function App() {
     INITIAL_PLAYERS_DATA.forEach(({ id: pid }) => {
       if (!aliveIds.has(pid)) return;
       const owned = full.filter(c => c.ownerId === pid && isRealDeckCard(c));
-      const ownedKeys = getOwnedSkillKeys(pid, owned);
+      const ownedKeys = getOwnedSkillKeys(pid, owned, permanentlyUnlockedRef.current[pid] || []);
       const unownedSkills = getUnownedSkills(pid, ownedKeys);
       // Новые скиллы — только если есть свободный слот пулла героя
       if (owned.length < CARD_POOL_SIZE) {
@@ -4079,7 +4565,7 @@ export default function App() {
       }
       const newCard = { ...option.card, id: `mod_${Date.now()}_${Math.random()}`, level: 1 };
       setDrawPile(prev => [...prev, newCard]);
-      setSlotsPopup({ newCardId: newCard.id });
+      presentCardReveal(newCard, null);
       return;
     }
 
@@ -4093,29 +4579,28 @@ export default function App() {
     const ownerId = option.card.ownerId;
     const hand = playersRef.current.map(p => p.currentCard).filter(isRealDeckCard);
     const full = [...drawPileRef.current, ...discardPileRef.current, ...hand];
-    const ownedKeys = getOwnedSkillKeys(ownerId, full.filter(c => c.ownerId === ownerId));
+    const ownedKeys = getOwnedSkillKeys(ownerId, full.filter(c => c.ownerId === ownerId), permanentlyUnlockedRef.current[ownerId] || []);
     // Дубликат: скилл уже есть у героя (любой уровень) — не выдаём повторно
     if (heroOwnsSkill(ownerId, option.card, ownedKeys)) {
       if (remaining === 0) runPendingTransition();
       return;
     }
 
-    const newCard = { ...option.card, id: `rew_${Date.now()}_${Math.random()}`, level: 1, skillId: option.card.id };
+    // Run-карта: живёт только в колоде текущего забега, при смерти отряда
+    // исчезает (resetGame пересоберёт колоду из стартовых + перманентных).
+    // В permanentlyUnlockedCards НЕ пишется — перманентны только покупки за
+    // огоньки (buyPrepCard) и награды событий (dispatchUnlockHeroCard).
+    const skillId = option.card.id;
+    const newCard = { ...option.card, id: `rew_${Date.now()}_${Math.random()}`, ownerId, level: 1, skillId };
     // Колода без балласта: новая карта просто добавляется в резерв (в свободный слот пулла)
     setDrawPile(prev => [...prev, newCard]);
-    // Показываем схему слотов отряда; следующий уровень/переход — при закрытии попапа
-    setSlotsPopup({ newCardId: newCard.id });
+    presentCardReveal(newCard, playersRef.current.find((p) => p.id === ownerId) ?? null);
   };
 
-  const closeSlotsPopup = () => {
-    const wasFromTavern = slotsPopup?.fromTavern;
-    setSlotsPopup(null);
-    if (wasFromTavern) {
-      // Возврат в Таверну — никаких отложенных боевых переходов не запускаем.
-      setShowTavern(true);
-      return;
-    }
-    // Очередь пуста — выполняем отложенный переход; иначе эффект откроет следующий выбор
+  const dismissCardReveal = () => {
+    const wasFromTavern = cardReveal?.fromTavern;
+    setCardReveal(null);
+    if (wasFromTavern) return;
     if (levelUpQueue <= 0) runPendingTransition();
   };
 
@@ -4290,17 +4775,19 @@ export default function App() {
     const qteTargets = targetIndices.map(idx => enemiesRef.current[idx]).filter(t => t && !t.isDead);
     const expectedLethal = qteTargets.some(t =>
       computePreviewDamageOnEnemy(effectivePlayer, card, t, comboDamageMult, chainBonusAtPlay).isLethal);
-    const qteEligible = !qteActiveRef.current && shouldTriggerQte(card, chainPos, qteTargets, expectedLethal);
-    // РЕЖИМЫ QTE:
-    // - Одновременный AoE (targeting 'all'): один большой центральный QTE, один резолв,
-    //   урон всем целям разом. Гейтится shouldTriggerQte (только «значимые» удары).
-    // - Последовательная серия (мульти-удар: random2 и будущие цепные атаки, 2+ живые
-    //   цели): локальный QTE над КАЖДОЙ целью по очереди — ритм-стрим ударов.
-    //   НЕ гейтится shouldTriggerQte: стрим — это идентичность мульти-ударной карты,
-    //   он играет при каждом розыгрыше (иначе random2 неотличим от обычного удара).
-    // card.cost > 0 — жёсткий бан QTE на картах за 0 маны (перекрывает всё).
-    const isSequentialStrike = card.cost > 0 && !qteActiveRef.current && getCardTargeting(card) !== CARD_TARGETING.ALL && qteTargets.length > 1;
+    // РЕЗОЛВ МЕХАНИКИ (qteMechanics.js, профиль card.qte + контекст розыгрыша):
+    // - 'PRECISION' — одиночное кольцо: при 2+ целях большое в центре зоны врагов,
+    //   при одной — локально над спрайтом цели.
+    // - 'RHYTHM' — ритм-стрим мульти-удара: кольцо над каждой целью по очереди.
+    // - null — без QTE (профиль NONE, не сработал триггер, 0 маны или QTE уже активен).
+    // НОВАЯ МЕХАНИКА: добавить ветку по qteMechanic здесь + раннер ниже (см. docs/qte-design.md).
+    const qteMechanic = qteActiveRef.current
+      ? null
+      : resolveCardQte(card, { chainPos, targets: qteTargets, expectedLethal });
+    const qteEligible = qteMechanic === 'PRECISION';
+    const isSequentialStrike = qteMechanic === 'RHYTHM';
     let qtePromise = Promise.resolve(1.0);
+    let qteRingMounted = false; // кольцо реально смонтировано → замах героя ждёт вердикта на холде
     if (qteEligible && !isSequentialStrike) {
       // Массовая атака — центр зоны врагов, укрупнённо;
       // одиночная (или жив 1 враг) — локально над спрайтом цели.
@@ -4310,8 +4797,10 @@ export default function App() {
         : enemyRefs.current[qteTargets[0]?.id]?.getBoundingClientRect();
       if (rect) {
         qteActiveRef.current = true;
+        qteRingMounted = true;
         // Bullet-time: мир плавно замедляется на время кольца (выход — в onResolve)
         qteSlowMo.start();
+        setQteHeroId(player.id); // подсветка модельки цветом героя на время кольца
         qtePromise = new Promise(resolve => setQte({
           id: `qte_${Date.now()}`,
           targetType: isAoe ? 'aoe' : 'single',
@@ -4319,7 +4808,13 @@ export default function App() {
           duration: calculateQteDuration(card, chainPos),
           card: { icon: card.icon, name: card.name }, // контекст: что усиливаем
           resolve,
-        }));
+        })).then((mult) => {
+          // Вердикт кольца: гасим подсветку и доигрываем замах — быстро при попадании
+          // (mult > 1), в обычном темпе при miss. До этого момента замах ЖДАЛ на холде.
+          setQteHeroId(prev => prev === player.id ? null : prev);
+          finishAttackAnim(player.id, { fast: mult > 1 });
+          return mult;
+        });
       }
     } else if (isSequentialStrike) {
       // Гвард захватывается синхронно на ВСЮ серию: параллельный розыгрыш
@@ -4351,6 +4846,10 @@ export default function App() {
     const playSlotRect = slotRefs.current[player.id]?.getBoundingClientRect();
     setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, currentCard: null, hasActed: true } : p));
     setAnimatingPlayerId(player.id); setAnimatingTargetIds(targetIndices.map(idx => enemiesRef.current[idx]?.id).filter(Boolean));
+    // Спрайт-замах: играет при ЛЮБОЙ атаке героя, живёт своим пер-геройным состоянием.
+    // Если смонтировано кольцо PRECISION — замах дойдёт до кадра перед ударом и будет
+    // ждать вердикта (holdBeforeImpact), завершение — только по клику/miss.
+    startAttackAnim(player.id, { holdBeforeImpact: qteRingMounted });
 
     // Прыжок — только у ближников (физ. урон). Дальники (ranged/magic) стоят на месте.
     setAttackTranslate({ dx: 0, dy: 0 });
@@ -4417,9 +4916,29 @@ export default function App() {
           }
        }
     });
-    setVfxList(vfxArr);
-
-    const animDuration = player.id === 'p2' ? 600 : 300;
+    // ТАЙМИНГИ АТАКИ — от анимации атаки героя (CHAR_ATTACK_ATLASES):
+    //  - melee: импакт на кадре удара (impactFrame), VFX-слэш сразу;
+    //  - ranged/magic (одиночный удар) БЕЗ кольца: снаряд вылетает так, чтобы прилететь
+    //    ровно к последнему кадру анимации (launch = animMs − flightMs), импакт = конец
+    //    анимации. Каст отыгрывается целиком, урон — в момент прилёта снаряда;
+    //  - ranged/magic С КОЛЬЦОМ: замах ждёт вердикта на холде, поэтому снаряд привязан
+    //    к ВЕРДИКТУ — спавнится в qtePromise.then (см. impactDelay ниже), не по таймеру.
+    // Задержки в ИГРОВОМ времени (qteSlowMo.delay) — под слоу-мо тянутся вместе
+    // с замедленными кадрами и CSS-полётом снаряда (у него playbackRate тоже скейлится).
+    const attackAtlas = CHAR_ATTACK_ATLASES[player.id];
+    const attackAnimMs = attackAtlas ? Math.round((attackAtlas.frameCount / attackAtlas.fps) * 1000) : 300;
+    const strikeFrameMs = attackAtlas ? Math.round((attackAtlas.impactFrame / attackAtlas.fps) * 1000) : 300;
+    const isRangedSingle = !isMelee && !isSequentialStrike;
+    const flightMs = COMBO_VFX_DUR_MS[comboTier] || 420;
+    if (isRangedSingle && !qteRingMounted) {
+      const launchMs = Math.max(0, attackAnimMs - flightMs);
+      qteSlowMo.delay(launchMs).then(() => {
+        // Гвард от «протухшего» спавна: resetGame мог очистить бой, пока ждали каст
+        if (enemiesRef.current.length > 0) setVfxList(vfxArr);
+      });
+    } else if (!isRangedSingle) {
+      setVfxList(vfxArr);
+    }
 
     // Применяет удар карты к списку целей (индексы) с данным QTE-множителем.
     // Общий для обоих режимов: одновременного (все цели разом) и серии (по одной).
@@ -4513,6 +5032,9 @@ export default function App() {
       });
 
       lootToSpawn.forEach(lootData => {
+        // Лут фиксируется в run-state сразу. Полёт — только визуал: переход на карту
+        // очищает FxLayer через 700 мс, раньше завершения FlyingItem (830 мс).
+        addItemToInventory(lootData.item);
         const eRect = enemyRefs.current[lootData.id]?.getBoundingClientRect();
         const iRect = inventoryRef.current?.getBoundingClientRect();
         if (eRect && iRect) {
@@ -4520,10 +5042,8 @@ export default function App() {
             id: Math.random(), item: lootData.item,
             startX: eRect.left + eRect.width / 2, startY: eRect.top + eRect.height / 2,
             endX: iRect.left + iRect.width / 2, endY: iRect.top + iRect.height / 2,
-            onArrive: (item) => { addItemToInventory(item); playSound('./assets/sfx/game/xp_gain.wav', 0.35); },
+            onArrive: () => playSound('./assets/sfx/game/xp_gain.wav', 0.35),
           });
-        } else {
-          addItemToInventory(lootData.item);
         }
       });
     };
@@ -4553,10 +5073,17 @@ export default function App() {
 
     // Импакт и QTE идут параллельно: урон применяется, когда прошла задержка удара
     // И игрок разрешил QTE (или QTE не было — resolve(1.0) мгновенный).
-    // Импакт — 300мс ИГРОВОГО времени (qteSlowMo.delay): без QTE это обычные 300мс,
-    // под слоу-мо тянется вместе с замедленным прыжком/снарядом — удар синхронен
-    // с визуалом. Судья тайминга кольца при этом живёт в реальном времени.
-    const impactDelay = qteSlowMo.delay(300);
+    // Момент импакта: melee — кадр удара замаха (strikeFrameMs); ranged одиночный
+    // без кольца — конец анимации каста = момент прилёта снаряда (attackAnimMs);
+    // ranged С КОЛЬЦОМ — цепочка «вердикт → вылет снаряда → полёт → импакт»:
+    // пока замах ждёт на холде, ничего не летит и урон не приходит.
+    // Игровое время: под слоу-мо тянется синхронно с визуалом, судья кольца — в реальном.
+    const impactDelay = (isRangedSingle && qteRingMounted)
+      ? qtePromise.then(() => {
+          if (enemiesRef.current.length > 0) setVfxList(vfxArr);
+          return qteSlowMo.delay(flightMs);
+        })
+      : qteSlowMo.delay(isRangedSingle ? attackAnimMs : strikeFrameMs);
 
     if (isSequentialStrike) {
       // === ПОСЛЕДОВАТЕЛЬНАЯ СЕРИЯ QTE (ритм-стрим мульти-удара) ===
@@ -4570,6 +5097,7 @@ export default function App() {
           await impactDelay;
           setVfxList([]);
           qteSlowMo.start();
+          setQteHeroId(player.id); // подсветка героя на весь ритм-стрим
           let firstTarget = true;
           for (const idx of targetIndices) {
             // Чек смерти: цель могла умереть от предыдущего удара — безопасно пропускаем
@@ -4582,7 +5110,13 @@ export default function App() {
               await qteSlowMo.delay(200); // дэш с ease-out почти долетел — кольцо монтируем на подлёте
             }
             firstTarget = false;
+            // Каждое звено серии — СВОЯ анимация замаха с 0-го кадра (play-счётчик
+            // ремоунтит спрайт). Замах играет в слоу-мо, доходит до кадра перед ударом
+            // и ЖДЁТ на холде — завершается только вердиктом этого звена.
+            startAttackAnim(player.id, { holdBeforeImpact: true });
             const qteMult = await runSequentialQte(target.id);
+            // Вердикт звена: клик (mult > 1) — быстрый доигрыш замаха; miss — сам в обычном темпе
+            finishAttackAnim(player.id, { fast: qteMult > 1 });
             // Повторный чек ПОСЛЕ ожидания: во время кольца мог случиться resetGame
             // (снапшот резолвится ×1.0) или цель исчезла — удар в пустоту не наносим
             const after = enemiesRef.current[idx];
@@ -4594,9 +5128,11 @@ export default function App() {
         } finally {
           qteSlowMo.end();
           qteActiveRef.current = false;
+          setQteHeroId(prev => prev === player.id ? null : prev);
           // Все цели отработаны — рывок домой (transform к {0,0}, transition доигрывает)
           setAttackTranslate({ dx: 0, dy: 0 });
           setAnimatingPlayerId(prev => prev === player.id ? null : prev);
+          releaseAttackAnim(player.id); // замах доиграет текущий цикл и вернётся в idle
           safeAnim(finishCardPlay)();
         }
       })();
@@ -4607,6 +5143,7 @@ export default function App() {
         applyStrike(targetIndices, qteMult);
         // Сбрасываем прыжок только если с тех пор не начал бить другой боец
         setAnimatingPlayerId(prev => prev === player.id ? null : prev);
+        releaseAttackAnim(player.id); // замах доиграет текущий цикл и вернётся в idle
         finishCardPlay();
       })());
     }
@@ -4680,14 +5217,14 @@ export default function App() {
         });
       });
       bleedLoot.forEach(ld => {
+        addItemToInventory(ld.item);
         const eRect = enemyRefs.current[ld.id]?.getBoundingClientRect(); const iRect = inventoryRef.current?.getBoundingClientRect();
         if (eRect && iRect) fxRef.current?.spawnFlyingItem({
           id: Math.random(), item: ld.item,
           startX: eRect.left + eRect.width/2, startY: eRect.top + eRect.height/2,
           endX: iRect.left + iRect.width/2, endY: iRect.top + iRect.height/2,
-          onArrive: (item) => { addItemToInventory(item); playSound('./assets/sfx/game/xp_gain.wav', 0.35); },
+          onArrive: () => playSound('./assets/sfx/game/xp_gain.wav', 0.35),
         });
-        else addItemToInventory(ld.item);
       });
     }
 
@@ -4961,13 +5498,14 @@ export default function App() {
         />
       )}
 
-      {appReady && showTavern && (
+      {appReady && showTavern && !cardReveal && (
         <TavernHubScreen
           activeParty={players.map(p => ({
             id: p.id,
             name: p.name,
             // Передаём атлас целиком — TavernSprite сам анимирует idle по cols/rows/frameCount/fps.
-            sprite: CHAR_ATLASES[p.id],
+            // getHeroAtlas учитывает найм Незнакомца (оверрайд спрайта героя).
+            sprite: getHeroAtlas(p.id),
           }))}
           currentSector={sector}
           onAction={(payload) => {
@@ -4977,20 +5515,23 @@ export default function App() {
               setShowTavern(false);
               return;
             }
-            // Прочие действия (OPEN_BARTENDER_DIALOG, INSPECT_RECRUIT)
-            // подключим, когда будут готовы соответствующие экраны.
+            if (payload.action === 'DIALOGUE_COMMAND') {
+              handleDialogueCommand(payload.command);
+            }
           }}
-          onOpenPrepScreen={() => {
-            // HERO_ACTIVE → переход на экран подготовки к бою.
-            // Таверну прячем (PrepScreen рендерится при !showTavern && showPrep).
+          onOpenHeroInventory={({ hero, slotIndex }) => {
             playSound('./assets/sfx/ui/click.wav', 0.5);
+            setInventoryHeroId(hero?.id || INITIAL_PLAYERS_DATA[slotIndex]?.id || 'p1');
             setShowTavern(false);
-            setShowPrep(true);
+            setShowHeroInventory(true);
           }}
           entryDialogueTrigger={firstDeathStoryPending ? 'FIRST_DEATH' : 'TAVERN_ENTER'}
           onEntryDialogueComplete={(triggerId) => {
             if (triggerId === 'FIRST_DEATH') grantFirstDeathFreeCards();
           }}
+          nightScript={strangerStoryPending ? STRANGER_SECOND_DEATH_SCRIPT : null}
+          onNightScriptComplete={() => setStrangerStoryPending(false)}
+          strangerInTavern={strangerInTavern}
         />
       )}
 
@@ -5010,9 +5551,7 @@ export default function App() {
           </div>
         </div>
       )}
-      {/* Экран подготовки рисует собственный шейдер+картинку. Чтобы не было двух шейдеров
-          и лишних наложений одновременно, глобальный фон и декор боя под ним отключены. */}
-      {!showPrep && (
+      {!showHeroInventory && (
         <>
           <ShaderBackground hue={bgLocation.hue} sat={bgLocation.sat} speed={bgSpeed} />
           <ImageBackground imageUrl={bgLocation.url} hue={bgLocation.hue} sat={bgLocation.sat} />
@@ -5091,8 +5630,11 @@ export default function App() {
 
       <audio ref={audioRef} loop preload="auto" />
 
-      {/* Музыка + SFX + полноэкран */}
-      <div className="absolute top-4 right-[52px] z-[9000] flex items-center gap-3 bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg">
+      {/* Глобальный кошелёк — поверх всех экранов, правый верхний угол */}
+      {appReady && <WalletHUD gold={gold} soulEmbers={soulEmbers} />}
+
+      {/* Музыка + SFX + полноэкран (сдвинуты под кошелёк) */}
+      <div className="absolute top-14 right-[52px] z-[9000] flex items-center gap-3 bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg">
         {/* Кнопка вкл/выкл музыки */}
         <button onClick={toggleMusic} className="text-slate-400 hover:text-white transition-colors flex items-center" title={musicOn ? "Выключить музыку" : "Включить музыку"}>
           {musicOn ? (
@@ -5113,7 +5655,7 @@ export default function App() {
           className="w-14 h-1 accent-[#1E88E5] cursor-pointer" title="Громкость SFX" />
       </div>
 
-      <button onClick={toggleFullscreen} className="absolute top-4 right-4 z-[9100] bg-slate-900/80 border border-slate-700 text-slate-400 hover:text-white hover:border-[#1E88E5] p-2 rounded-xl backdrop-blur-sm transition-all shadow-lg flex items-center justify-center group" title={isFullscreen ? "Выйти из полноэкранного режима" : "Развернуть игру на всё окно"}>
+      <button onClick={toggleFullscreen} className="absolute top-14 right-4 z-[9100] bg-slate-900/80 border border-slate-700 text-slate-400 hover:text-white hover:border-[#1E88E5] p-2 rounded-xl backdrop-blur-sm transition-all shadow-lg flex items-center justify-center group" title={isFullscreen ? "Выйти из полноэкранного режима" : "Развернуть игру на всё окно"}>
         {isFullscreen ? (
           <svg className="w-5 h-5 group-hover:scale-110 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></svg>
         ) : (
@@ -5142,6 +5684,12 @@ export default function App() {
             <div className="relative w-1/2 z-20 h-full overflow-visible">
               {players.map((player, pIdx) => {
                 const isHovered = hoveredPlayerId === player.id; const isAttacking = animatingPlayerId === player.id; const isBeingAttacked = animatingTargetIds.includes(player.id);
+                // Герой отыгрывает свой QTE: свечение собственным цветом + рост ×1.1 через изинг
+                const isQteHero = qteHeroId === player.id;
+                // Текущий замах героя (фазы см. attackAnims): windup — слоу-мо + холд перед
+                // ударом; fastFinish — быстрый доигрыш в реальном времени (×3); finish — miss,
+                // доигрывается сам в обычном темпе (реальное время: слоу-мо серии не тянет его).
+                const attackAnim = attackAnims[player.id];
                 
                 let avatarTransform = '';
                 let transitionClass = 'transition-all duration-600 ease-out';
@@ -5161,9 +5709,39 @@ export default function App() {
                 const pos = CHAR_FORMATION[player.id] || { left: 0, top: pIdx * 110 };
                 return (
                   <div key={`field-${player.id}`} ref={el => setAvatarRef(player.id, el)} className={`absolute flex items-center ${transitionClass} ${player.hp <= 0 ? 'opacity-30 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(59,130,246,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: avatarTransform, left: pos.left, top: pos.top }}>
-                    <div className={`relative ${CHAR_ATLASES[player.id] ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`} style={{ transition: 'all 0.15s ease-out' }}>
+                    <div
+                      className={`relative ${getHeroAtlas(player.id) ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`}
+                      style={{
+                        transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)', // изинг с лёгким овершутом на рост/спад
+                        ...(isQteHero ? {
+                          transform: 'scale(1.1)',
+                          filter: `drop-shadow(0 0 14px ${CHAR_QTE_GLOW[player.id]}) drop-shadow(0 0 36px ${CHAR_QTE_GLOW[player.id]})`,
+                        } : {}),
+                      }}
+                    >
                       <HeroFieldBadges armor={player.armor || 0} chainBonus={turnState === 'player' ? chainAttackBonus : 0} />
-                      {CHAR_ATLASES[player.id] ? <CharSprite atlas={CHAR_ATLASES[player.id]} size={CHAR_SPRITE_SIZE} {...CHAR_COLORIZE[player.id]} /> : String(player.icon)}
+                      {/* Атака: свой атлас, играет один цикл (once) и замирает на последнем кадре,
+                          idle возвращается на границе цикла / при release. key включает play-счётчик:
+                          каждое звено ритм-серии ремоунтит спрайт → своя анимация с 0-го кадра.
+                          При QTE замах ждёт вердикта на holdAtFrame (кадр перед ударом). */}
+                      {getHeroAtlas(player.id) ? (
+                        /* У нанятого Незнакомца нет атласа атаки — замах играет idle
+                           (тайминги импакта всё равно считаются от атласа класса). */
+                        attackAnim && CHAR_ATTACK_ATLASES[player.id] && !HERO_SPRITE_OVERRIDES[player.id]
+                          ? <CharSprite
+                              key={`attack-${attackAnim.play}`}
+                              atlas={CHAR_ATTACK_ATLASES[player.id]}
+                              size={CHAR_SPRITE_SIZE}
+                              gameTime
+                              once
+                              holdAtFrame={attackAnim.phase === 'windup' ? attackAnim.holdAtFrame : null}
+                              speed={attackAnim.phase === 'fastFinish' ? 3 : 1}
+                              ignoreSlowMo={attackAnim.phase !== 'windup'}
+                              onCycle={() => handleAttackAnimCycle(player.id)}
+                              {...CHAR_COLORIZE[player.id]}
+                            />
+                          : <CharSprite key="idle" atlas={getHeroAtlas(player.id)} size={CHAR_SPRITE_SIZE} {...getHeroColorize(player.id)} />
+                      ) : String(player.icon)}
                       {isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}
                     </div>
                   </div>
@@ -5534,22 +6112,72 @@ export default function App() {
         />
       )}
 
-      {showPrep && (
-        <PrepScreen
-          players={players}
-          pools={getHeroPools()}
+      {showHeroInventory && !cardReveal && (
+        <HeroInventoryScreen
+          heroes={[
+            ...players.map((player) => ({
+              id: player.id,
+              name: player.name,
+              sprite: getHeroAtlas(player.id),
+              // Нанятый Незнакомец: атлас-портрет вместо статичного арта класса.
+              portraitSprite: HERO_SPRITE_OVERRIDES[player.id] || null,
+            })),
+            // Заглушка наёмника (пока не нанят): замок в карусели, условие —
+            // дойти до пыточных (сектор 2), затем найм за золото с заменой героя.
+            ...(strangerHiredAs ? [] : [{
+              id: 'stranger',
+              name: STRANGER_NAME,
+              portraitSprite: { url: './assets/tavern/stranger.png', cols: 4, rows: 4, frameCount: 16, fps: 4 },
+              locked: true,
+              lockHint: maxSectorReached >= STRANGER_HIRE_MIN_SECTOR
+                ? 'Готов вступить в отряд'
+                : 'Дойдите до пыточных',
+              hire: {
+                cost: STRANGER_HIRE_GOLD_COST,
+                available: maxSectorReached >= STRANGER_HIRE_MIN_SECTOR,
+                // Кандидаты на замену — текущая тройка отряда.
+                options: players.map((player) => ({ id: player.id, name: player.name })),
+              },
+            }]),
+          ]}
+          initialHeroId={inventoryHeroId}
+          abilities={HERO_ABILITIES}
+          permanentlyUnlockedCards={permanentlyUnlockedCards}
+          cardLoadouts={heroCardLoadouts}
+          cardProgression={heroCardProgression}
+          slotsUnlocked={heroSlotsUnlocked}
+          slotUnlockCost={getLoadoutSlotUnlockPrice(heroSlotsUnlocked)}
+          inventory={inventory}
+          equipped={equipped}
+          gold={gold}
           soulEmbers={soulEmbers}
-          soulProgress={soulProgress}
-          emberThreshold={EMBER_JUNK_THRESHOLD}
-          prepCardsBought={prepCardsBought}
-          onBuyCard={buyPrepCard}
-          onBurnCard={burnPrepCard}
-          onStart={() => setShowPrep(false)}
-          // PrepScreen сейчас открывается ИСКЛЮЧИТЕЛЬНО из таверны (HERO_ACTIVE-клик),
-          // потому это всегда оверлей-режим: крестик + кнопка «ОК» вместо «Старт».
-          fromTavern={true}
+          onHire={hireStranger}
+          onUnlockSlot={unlockHeroLoadoutSlot}
+          onAssign={assignHeroInventoryCard}
+          onReorder={reorderHeroInventoryCard}
+          onRemove={removeHeroInventoryCard}
+          onUnlock={unlockHeroInventoryCard}
+          onUpgrade={upgradeHeroInventoryCard}
+          onEquip={equipFromHeroInventory}
+          renderCardPreview={(card, heroId) => (
+            <AbilityCard
+              card={card}
+              owner={players.find((player) => player.id === heroId)}
+              mana={maxMana}
+              maxMana={maxMana}
+              isDisabled={false}
+              showOwnerLabel={true}
+              comboState={{ isCandidate: false, willGiveBonus: false }}
+            />
+          )}
+          renderBackground={() => (
+            <ShaderBackground hue={0} sat={0} speed={0} embedded />
+          )}
+          renderItemTooltip={({ item, x, y }) => (
+            <ItemTooltip item={item} x={x} y={y} />
+          )}
           onClose={() => {
-            setShowPrep(false);
+            setShowHeroInventory(false);
             setShowTavern(true);
           }}
         />
@@ -5561,7 +6189,7 @@ export default function App() {
           owner={cardReveal.owner}
           bgHue={bgLocation.hue}
           bgSat={bgLocation.sat}
-          onDismiss={() => setCardReveal(null)}
+          onDismiss={dismissCardReveal}
         />
       )}
 
@@ -5604,15 +6232,6 @@ export default function App() {
             </div>
           </div>
         </div>
-      )}
-
-      {slotsPopup && (
-        <SquadSlotsPopup
-          players={players}
-          pools={getHeroPools()}
-          newCardId={slotsPopup.newCardId}
-          onClose={closeSlotsPopup}
-        />
       )}
 
       {showReserve && (

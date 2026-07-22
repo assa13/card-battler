@@ -1,8 +1,10 @@
 // Декларативный конфиг сцены Таверны-Хаба.
 //
-// Источник истины компоновки: Figma node 3477:18544 (frame 2558×1389).
-// Координаты сущностей пересчитаны из Figma в проценты от размеров сцены:
-//   cx = (left + size/2) / 2558,  cy = (top + size/2) / 1389,  scale = size / 1389.
+// Источник истины компоновки: Figma-холст 3200×1800 (см. screenScale.js, шаблон
+// «Screen Template 3200×1800» в Figma). Координаты сущностей — проценты от сцены:
+//   cx% = (left + width/2)  / 3200 × 100
+//   cy% = (top  + height/2) / 1800 × 100
+//   scale = size / 1800
 // flipX:true соответствует Figma-обёртке `-scale-y-100 rotate-180` (горизонтальный флип).
 //
 // Глубина (z-sorting) задаётся ИНДИВИДУАЛЬНО через поле `zIndex`. Никаких DOM-«слоёв».
@@ -15,15 +17,19 @@
 //   40-63 — массовка/мебель ближнего плана (по индивидуальному порядку Figma)
 //   200+  — UI-бейджи и подписи поверх сцены
 
-// Aspect ratio сцены == натуральному соотношению фона (1024×529 ≈ 1.936):
-// bg_base рисуется object-cover БЕЗ обрезания по ширине — виден весь арт.
-// Раньше было строгое 16:9 и бока фона срезались по ~4.4% с каждой стороны.
+
+// Пропорция сцены = натуральному aspect фона bg_base (1024×529 ≈ 1.936).
+// Шире стандартного 16∶9 — object-cover заполняет контейнер без обрезания
+// боков; все сущности (% от сцены) масштабируются вместе с холстом.
 export const TAVERN_STAGE_RATIO = 1024 / 529;
-export const TAVERN_PADDING_PX = 32; // letterbox-отступ от краёв окна
 
 // Ночная фаза (NIGHT_KNOCKING): таверна пустеет — скрываются все посетители
 // и активные герои, остаётся только бармен (NPC), фон, мебель и клик-зоны.
 export const NIGHT_HIDDEN_ENTITY_TYPES = ['VISITOR', 'HERO_ACTIVE'];
+
+// Атласы персонажей таверны: 4×4 кадра, покадровая idle-анимация.
+// fps=4 — нарочито медленный «ленивый» ритм таверны (в 2 раза медленнее боевых).
+const TAVERN_ATLAS = (url, fps = 4) => ({ url, cols: 4, rows: 4, frameCount: 16, fps });
 
 export const TAVERN_ENTITIES = [
   // ─── ФОН ────────────────────────────────────────────────────────────
@@ -43,6 +49,7 @@ export const TAVERN_ENTITIES = [
   // ОТНОСИТЕЛЬНО фоновой картинки (bg_base 1: 2433×1260 @ 19,10):
   //   door 162×750 @ 2268,384 → cx=0.9574, cy=0.5944, h=0.5952 от фона.
   // Сцена теперь в пропорции фона (кропа нет) — проценты фона == процентам сцены.
+  // Ночное состояние: дверь закрыта (в неё стучат). Видна ТОЛЬКО ночью.
   {
     id: 'door_night',
     type: 'PROP',
@@ -51,14 +58,29 @@ export const TAVERN_ENTITIES = [
     scale: 0.5952,
     aspect: 162 / 750, // натуральная пропорция спрайта — держит ширину у края сцены
     zIndex: 24, // над фоном/тонировкой пола, под клик-зоной door_to_map (25)
+    visibleWhen: 'NIGHT',
+    interactive: false,
+  },
+  // Дневное состояние: дверь распахнута. Та же высота, на 250px левее ночной
+  // (280 влево − 30 вправо; 250/2433.34 от ширины фона = 10.27% сцены).
+  {
+    id: 'door_day',
+    type: 'PROP',
+    assetUrl: './assets/tavern/door_open.webp',
+    pos: { left: '85.47%', top: '59.44%' },
+    scale: 0.5952,
+    aspect: 296 / 750,
+    zIndex: 24,
+    visibleWhen: 'DAY',
     interactive: false,
   },
 
   // ─── БАРМЕН (за стойкой) ────────────────────────────────────────────
+  // Анимированный атлас barman.webp (4×4, протирает кружку полотенцем).
   {
     id: 'npc_bartender',
     type: 'NPC',
-    assetUrl: './assets/tavern/npc_bartender.webp',
+    sprite: TAVERN_ATLAS('./assets/tavern/barman.webp'),
     pos: { left: '42.61%', top: '35.57%' },
     scale: 0.4003, // 556/1389
     zIndex: 10,
@@ -93,7 +115,7 @@ export const TAVERN_ENTITIES = [
     interactive: true,
     // Узкая центральная вертикаль — корпус персонажа без воздуха по бокам.
     hitbox: { left: '32%', top: '10%', width: '36%', height: '85%' },
-    payload: { action: 'OPEN_PREP_SCREEN', slot: 0 },
+    payload: { action: 'OPEN_HERO_INVENTORY', slot: 0 },
   },
   {
     id: 'hero_slot_1',
@@ -105,7 +127,7 @@ export const TAVERN_ENTITIES = [
     zIndex: 31,
     interactive: true,
     hitbox: { left: '32%', top: '10%', width: '36%', height: '85%' },
-    payload: { action: 'OPEN_PREP_SCREEN', slot: 1 },
+    payload: { action: 'OPEN_HERO_INVENTORY', slot: 1 },
   },
   {
     id: 'hero_slot_2',
@@ -117,19 +139,19 @@ export const TAVERN_ENTITIES = [
     zIndex: 32,
     interactive: true,
     hitbox: { left: '32%', top: '10%', width: '36%', height: '85%' },
-    payload: { action: 'OPEN_PREP_SCREEN', slot: 2 },
+    payload: { action: 'OPEN_HERO_INVENTORY', slot: 2 },
   },
 
   // ─── МАССОВКА ДАЛЬНЕГО ПЛАНА ────────────────────────────────────────
   // Вся зона столов и посетителей опущена на +20px (арт-правка).
-  // visitor_cloaked 2 (за самым правым столом, зеркальный)
+  // Посетители — анимированные атласы visitor0/visitor1 (4×4), чередуются.
   {
     id: 'visitor_cloaked_back_right',
     type: 'VISITOR',
-    assetUrl: './assets/tavern/visitor_cloaked.webp',
+    sprite: TAVERN_ATLAS('./assets/tavern/visitor0.webp'),
     pos: { left: '90.19%', top: 'calc(68.76% + 20px)' },
     scale: 0.4435, // 616/1389
-    aspect: 1, // спрайт 320×320; без aspect у края сцены контейнер схлопывается
+    aspect: 1, // кадр атласа квадратный; без aspect у края сцены контейнер схлопывается
     flipX: true,
     zIndex: 40,
     interactive: false,
@@ -141,7 +163,7 @@ export const TAVERN_ENTITIES = [
     type: 'PROP',
     assetUrl: './assets/tavern/table_round.webp',
     pos: { left: '82.49%', top: 'calc(71.06% + 20px)' },
-    scale: 0.7003,
+    scale: 0.4003, // как у остальных столов (0.7 был компенсацией старого сжатия)
     aspect: 1, // спрайт 320×320; фиксирует ширину у правого края (искажался)
     zIndex: 50,
     interactive: false,
@@ -169,7 +191,7 @@ export const TAVERN_ENTITIES = [
   {
     id: 'visitor_walker_a_center',
     type: 'VISITOR',
-    assetUrl: './assets/tavern/visitor_walker_a.webp',
+    sprite: TAVERN_ATLAS('./assets/tavern/visitor1.webp'),
     pos: { left: '59.73%', top: 'calc(73.79% + 20px)' },
     scale: 0.4435,
     flipX: true,
@@ -179,7 +201,7 @@ export const TAVERN_ENTITIES = [
   {
     id: 'visitor_drunk_right',
     type: 'VISITOR',
-    assetUrl: './assets/tavern/visitor_drunk.webp',
+    sprite: TAVERN_ATLAS('./assets/tavern/visitor0.webp'),
     pos: { left: '73.57%', top: 'calc(71.78% + 20px)' },
     scale: 0.4435,
     zIndex: 61,
@@ -188,7 +210,7 @@ export const TAVERN_ENTITIES = [
   {
     id: 'visitor_cloaked_center',
     type: 'VISITOR',
-    assetUrl: './assets/tavern/visitor_cloaked.webp',
+    sprite: TAVERN_ATLAS('./assets/tavern/visitor1.webp'),
     pos: { left: '41.05%', top: 'calc(74.51% + 20px)' },
     scale: 0.4435,
     zIndex: 62,
@@ -197,9 +219,10 @@ export const TAVERN_ENTITIES = [
   {
     id: 'visitor_walker_a_left',
     type: 'VISITOR',
-    assetUrl: './assets/tavern/visitor_walker_a.webp',
+    sprite: TAVERN_ATLAS('./assets/tavern/visitor0.webp'),
     pos: { left: '10.79%', top: 'calc(69.98% + 20px)' },
     scale: 0.4435,
+    flipX: true,
     zIndex: 63,
     interactive: false,
   },

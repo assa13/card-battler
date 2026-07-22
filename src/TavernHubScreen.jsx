@@ -1,54 +1,17 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { NIGHT_HIDDEN_ENTITY_TYPES, TAVERN_ENTITIES, TAVERN_PADDING_PX, TAVERN_STAGE_RATIO } from './TavernSceneConfig';
+import { NIGHT_HIDDEN_ENTITY_TYPES, TAVERN_ENTITIES, TAVERN_STAGE_RATIO } from './TavernSceneConfig';
+import ScreenStage from './ScreenStage';
 import ShaderOutlineWrapper from './ShaderOutlineWrapper';
 import DialogueOverlay from './DialogueOverlay';
 import { getBarkeepHint, getDialogueForTrigger } from './DialogueConfig';
 import SleepModal from './SleepModal';
 import NightSplashOverlay from './NightSplashOverlay';
-
-// Анимированный спрайт по атласу. Если атлас не задан — просто <img>.
-// Намеренно изолирован от глобального CharSprite, чтобы Таверна не зависела от App.jsx.
-const TavernSprite = React.memo(({ sprite, assetUrl, alt = '' }) => {
-  const [frame, setFrame] = useState(0);
-  useEffect(() => {
-    if (!sprite) return;
-    const fps = sprite.fps || 10;
-    const id = setInterval(() => setFrame(f => (f + 1) % sprite.frameCount), 1000 / fps);
-    return () => clearInterval(id);
-  }, [sprite]);
-
-  if (!sprite) {
-    return (
-      <img
-        src={assetUrl}
-        alt={alt}
-        draggable={false}
-        className="w-auto h-full block select-none"
-        style={{ imageRendering: 'pixelated' }}
-        onError={(e) => { e.currentTarget.style.opacity = 0; }}
-      />
-    );
-  }
-  const col = frame % sprite.cols;
-  const row = Math.floor(frame / sprite.cols);
-  return (
-    <div className="h-full aspect-square overflow-hidden relative">
-      <img
-        src={sprite.url}
-        alt={alt}
-        draggable={false}
-        className="block max-w-none absolute top-0 left-0 select-none"
-        style={{
-          height: `${sprite.rows * 100}%`,
-          width: `${sprite.cols * 100}%`,
-          transform: `translate(${-col * (100 / sprite.cols)}%, ${-row * (100 / sprite.rows)}%)`,
-          imageRendering: 'pixelated',
-        }}
-        onError={(e) => { e.currentTarget.style.opacity = 0; }}
-      />
-    </div>
-  );
-});
+import NightEncounterScreen from './dialogue/NightEncounterScreen';
+import { pickWeightedScript } from './dialogue/scriptRunner';
+import { NIGHT_VISITOR_SCRIPTS } from './dialogue/scripts';
+// Общий рендерер атлас-спрайтов (см. AtlasSprite.jsx) — используется и другими
+// сценами (ночная встреча), чтобы анимация персонажей была идентична.
+import TavernSprite from './AtlasSprite';
 
 const LockedBadge = ({ minSector }) => (
   <div
@@ -280,7 +243,7 @@ const TavernEntity = React.memo(function TavernEntity({ entity, locked, activePa
  *  - recruitsPool:   [{ id, sprite?, assetUrl? }, ...] — данные потенциальных наёмников.
  *  - currentSector:  number — текущий мета-прогресс, используется для блокировок (minSectorRequired).
  *  - onAction:         (payload, entity) => void — generic-диспетчер кликов (карта, бармен, и т.п.).
- *  - onOpenPrepScreen: (heroPayload) => void — выделенный маршрут на экран подготовки к бою
+ *  - onOpenHeroInventory: (heroPayload) => void — выделенный маршрут в инвентарь героя
  *    (срабатывает при клике на HERO_ACTIVE у барной стойки). Намеренно отдельный проп,
  *    а не ветка onAction — ключевой UX-поток не должен растворяться в generic-диспетчере.
  */
@@ -289,31 +252,45 @@ export default function TavernHubScreen({
   recruitsPool = [],
   currentSector = 1,
   onAction,
-  onOpenPrepScreen,
+  onOpenHeroInventory,
   // Триггер диалога при входе (по умолчанию — обычная болтовня посетителей)
   // и колбэк его завершения — на нём App вешает сюжетные события
   // (например, выдачу бесплатных карт после истории о первой смерти).
   entryDialogueTrigger = 'TAVERN_ENTER',
   onEntryDialogueComplete,
+  // Сюжетный ночной скрипт (например, Незнакомец после 2-й смерти): если задан,
+  // играет при открытии двери НОЧЬЮ вместо случайной ночной истории.
+  nightScript = null,
+  onNightScriptComplete,
+  // Незнакомца впустили: он перманентно занимает место посетителя за столом.
+  strangerInTavern = false,
 }) {
   // ─── Ночное событие: машина состояний времени суток ───────────────────
   // 'DAY' → (клик «Отдохнуть») → 'NIGHT_SPLASH' → (сплеш дочитан) → 'NIGHT_KNOCKING'
   // → (лестница = сбежать спать) → fade → 'DAY' + hasRested.
   const [tavernTimeState, setTavernTimeState] = useState('DAY');
-  const [showStrangerPrompt, setShowStrangerPrompt] = useState(false);
+  const [activeScript, setActiveScript] = useState(null); // ветвящийся диалог (ночной гость)
   const [fadeVeil, setFadeVeil] = useState(null); // null | 'in' | 'out' — чёрная вуаль переходов
   const fadeTimersRef = useRef([]);
   useEffect(() => () => fadeTimersRef.current.forEach(clearTimeout), []);
 
   const isNight = tavernTimeState === 'NIGHT_KNOCKING';
 
-  // Y-sort + ночной фильтр: в фазе стука таверна пустеет — прячем посетителей
-  // и активных героев, остаётся только бармен (и фон/мебель/клик-зоны).
+  // Y-sort + фильтр времени суток:
+  //   - ночью (фаза стука) таверна пустеет — прячем посетителей и героев;
+  //   - visibleWhen: 'DAY' | 'NIGHT' — сущности одного времени суток
+  //     (например, два состояния двери: door_day открыта / door_night закрыта).
   const sortedEntities = useMemo(
     () => TAVERN_ENTITIES
       .filter(e => !isNight || !NIGHT_HIDDEN_ENTITY_TYPES.includes(e.type))
+      .filter(e => !e.visibleWhen || e.visibleWhen === (isNight ? 'NIGHT' : 'DAY'))
+      // Незнакомец в таверне: атлас stranger.png (4×4 idle, курит трубку)
+      // вместо посетителя за центральным столом (позиция/масштаб не меняются).
+      .map(e => (strangerInTavern && e.id === 'visitor_cloaked_center')
+        ? { ...e, sprite: { url: './assets/tavern/stranger.png', cols: 4, rows: 4, frameCount: 16, fps: 4 }, flipX: false }
+        : e)
       .sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0)),
-    [isNight]
+    [isNight, strangerInTavern]
   );
 
   // ─── Диалоговая система: фундамент триггеров ──────────────────────────
@@ -380,12 +357,46 @@ export default function TavernHubScreen({
     fadeTimersRef.current.push(setTimeout(() => {
       setTavernTimeState('DAY');
       setHasRested(true);
-      setShowStrangerPrompt(false);
       setActiveDialogue(null);
+      setActiveScript(null);
       setFadeVeil('out');
       fadeTimersRef.current.push(setTimeout(() => setFadeVeil(null), 700));
     }, 700));
   }, []);
+
+  // ─── Ветвящиеся диалог-скрипты (система Yarn-like, см. docs/dialogue-authoring.md) ──
+  // Диспетчер внешних команд скрипта. Локальные (ночь/тосты) исполняем здесь,
+  // остальные (награды, спавн...) поднимаем в App через onAction — единый канал
+  // DIALOGUE_COMMAND, чтобы новые команды не требовали правок таверны.
+  const handleScriptCommand = useCallback((cmd) => {
+    switch (cmd.type) {
+      case 'END_NIGHT_SLEEP':
+        goBackToBed();
+        break;
+      case 'SHOW_TOAST':
+        showToast(cmd.text ?? '');
+        break;
+      default:
+        onAction?.({ action: 'DIALOGUE_COMMAND', command: cmd });
+        break;
+    }
+  }, [goBackToBed, showToast, onAction]);
+
+  const startNightVisitorScript = useCallback(() => {
+    // Сюжетный ночной гость (nightScript) имеет приоритет над случайным роллом.
+    const script = nightScript || pickWeightedScript(NIGHT_VISITOR_SCRIPTS);
+    if (!script) return;
+    setActiveDialogue(null); // линейная болтовня (бармен) уступает сцену скрипту
+    setActiveScript(script);
+  }, [nightScript]);
+
+  const handleScriptComplete = useCallback(() => {
+    const wasNightScript = !!nightScript && activeScript === nightScript;
+    setActiveScript(null);
+    // Сюжетный ночной скрипт закончился — App снимает pending-флаг
+    // (следующей ночью за дверью снова случайный гость).
+    if (wasNightScript) onNightScriptComplete?.();
+  }, [activeScript, nightScript, onNightScriptComplete]);
 
   const handleClick = (entity) => {
     if (!entity.interactive) return;
@@ -398,18 +409,18 @@ export default function TavernHubScreen({
         goBackToBed();
         return;
       }
-      // Дверь → подтверждение разговора с незнакомцем.
+      // Дверь → экран ночной встречи (диалог с гостем играет прямо на нём).
       if (entity.payload?.action === 'OPEN_MAP') {
-        setShowStrangerPrompt(true);
+        startNightVisitorScript();
         return;
       }
       return; // прочие сущности ночью не активны
     }
 
-    // HERO_ACTIVE → выделенный маршрут на PrepScreen. payload содержит slot/действие.
+    // HERO_ACTIVE → выделенный маршрут в Hero Inventory. payload содержит slot/действие.
     if (entity.type === 'HERO_ACTIVE') {
       const hero = activeParty?.[entity.slotIndex] ?? null;
-      onOpenPrepScreen?.({ ...entity.payload, slotIndex: entity.slotIndex, hero });
+      onOpenHeroInventory?.({ ...entity.payload, slotIndex: entity.slotIndex, hero });
       return;
     }
 
@@ -429,35 +440,16 @@ export default function TavernHubScreen({
   };
 
   // ────────────────────────────────────────────────────────────────────────
-  // ЗАМОРОЗКА ГЕОМЕТРИИ (Cinematic Letterbox), масштаб сцены = 0.75 от макс.
-  //   height = 0.75 * min(viewportH - pad, (viewportW - pad) * 9/16)
-  // Это ЕДИНСТВЕННЫЙ источник размера. Ширина высчитывается через aspect-ratio.
-  // Дети сцены расположены в % от сцены — относительные позиции и пропорции
-  // между объектами сохраняются при любом ресайзе окна.
+  // Геометрия сцены — единый холст 3200×1800, масштаб от высоты (ScreenStage).
   // ────────────────────────────────────────────────────────────────────────
-  const SCENE_SCALE = 0.75;
-  const sceneHeight =
-    `min(calc((100vh - ${TAVERN_PADDING_PX}px) * ${SCENE_SCALE}),` +
-    ` calc((100vw - ${TAVERN_PADDING_PX}px) * ${SCENE_SCALE} / ${TAVERN_STAGE_RATIO}))`;
 
   return (
-    // КИНОЛЕТТЕРБОКС: корень — 100vw x 100vh, чёрный, центрирует сцену.
-    // z-index выше боевого HUD и оверлеев — Таверна целиком перекрывает игру.
-    <div
-      className="fixed inset-0 w-screen h-screen bg-black flex items-center justify-center overflow-hidden"
-      style={{ zIndex: 9000 }}
-    >
-      {/* СЦЕНА: строгое 16:9, размер — ЭКСКЛЮЗИВНО по min()-формуле выше. */}
-      {/* overflow НЕ скрываем: дети-визитёры около краёв (visitor_cloaked_back_right
-          и пр.) уезжают на 1–2% за bbox сцены и при clip получают «срез/сплющ». */}
-      <div
-        className="relative shadow-[0_0_60px_rgba(0,0,0,0.9)]"
-        style={{
-          aspectRatio: String(TAVERN_STAGE_RATIO),
-          height: sceneHeight,
-          backgroundColor: '#0a0608',
-        }}
-      >
+    <div className="fixed inset-0" style={{ zIndex: 9000 }}>
+    {/* z-index выше боевого HUD — Таверна целиком перекрывает игру. */}
+    {/* aspectRatio = пропорция bg_base (1024/529): весь холст шире 16∶9,
+        object-cover фона совпадает с контейнером — края не режутся.
+        fill — визуальный скейл сцены; scale сущностей в конфиге не меняется. */}
+    <ScreenStage fill={0.8203125} aspectRatio={TAVERN_STAGE_RATIO}>
         {sortedEntities.map((entity) => {
           const locked = !!(entity.minSectorRequired && currentSector < entity.minSectorRequired);
           return (
@@ -487,7 +479,7 @@ export default function TavernHubScreen({
 
         {/* Плавающие «Тук-тук» у двери — кто-то снаружи */}
         {isNight && <KnockEffects />}
-      </div>
+    </ScreenStage>
 
       {/* Диалоги: экран-агностик оверлей, якорится к DOM-узлам спикеров сам */}
       {activeDialogue && (
@@ -507,38 +499,14 @@ export default function TavernHubScreen({
         <NightSplashOverlay onComplete={handleNightSplashComplete} />
       )}
 
-      {/* Подтверждение у двери в фазе стука: говорить с незнакомцем? */}
-      {showStrangerPrompt && (
-        <div
-          className="fixed inset-0 flex items-center justify-center animate-in fade-in duration-200"
-          style={{ zIndex: 9600 }}
-        >
-          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={() => setShowStrangerPrompt(false)} />
-          <div className="relative flex flex-col items-center gap-7 px-14 py-10 bg-slate-950/90 border border-slate-700/70 rounded-[28px] shadow-[0_0_80px_rgba(0,0,0,0.9)] animate-in zoom-in-95 duration-200">
-            <div className="text-4xl select-none" aria-hidden="true">🚪</div>
-            <h2 className="text-2xl font-black text-amber-400 uppercase italic tracking-tighter text-center drop-shadow-2xl">
-              Поговорить с незнакомцем?
-            </h2>
-            <div className="flex gap-4">
-              <button
-                onClick={() => {
-                  // TODO(night-stranger): здесь начнётся встреча с ночным гостем
-                  // (диалог/торговец/угроза). Пока — заглушка, дверь не открываем.
-                  setShowStrangerPrompt(false);
-                }}
-                className="px-10 py-4 bg-amber-600 hover:bg-amber-500 rounded-2xl font-black uppercase tracking-widest text-xs text-black transition-all shadow-[0_0_25px_rgba(245,158,11,0.4)] border border-amber-400 hover:scale-105 active:scale-95"
-              >
-                Да
-              </button>
-              <button
-                onClick={() => setShowStrangerPrompt(false)}
-                className="px-10 py-4 bg-slate-800 hover:bg-slate-700 rounded-2xl font-black uppercase tracking-widest text-xs text-slate-300 transition-all border border-slate-600 hover:scale-105 active:scale-95"
-              >
-                Нет
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Экран ночной встречи: открывается кликом по двери в фазе стука,
+          диалог-скрипт (ночной гость) играет прямо на нём */}
+      {activeScript && (
+        <NightEncounterScreen
+          script={activeScript}
+          onCommand={handleScriptCommand}
+          onComplete={handleScriptComplete}
+        />
       )}
 
       {/* Чёрная вуаль перехода (побег в кровать): наплыв → сброс ночи → рассвет */}

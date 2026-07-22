@@ -75,6 +75,9 @@ const ensureLoop = () => {
 };
 
 export const qteSlowMo = {
+  /** Текущий масштаб игрового времени (1 = реальное). Для ручных rAF-тикеров
+   *  (спрайт атаки героя): кадры листаются по dt × scale и замедляются вместе с миром. */
+  get scale() { return current; },
   /** Вход в слоу-мо (вызывать при старте QTE). Ease-in: погружение нарастает к концу. */
   start() {
     if (target === SLOW_SCALE) return;
