@@ -1,0 +1,314 @@
+{
+  "cellSize": 256,
+  "cols": 5,
+  "rows": 5,
+  "atlas": "cards-5x5.webp",
+  "cards": [
+    {
+      "id": "b1",
+      "hero": "p1",
+      "name": "Удар мечом",
+      "emoji": "⚔️",
+      "dmgType": "melee",
+      "rarity": "COMMON",
+      "file": "card-icons/b1.png",
+      "atlas": {
+        "index": 0,
+        "row": 0,
+        "col": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "s1_1",
+      "hero": "p1",
+      "name": "Молот Тора",
+      "emoji": "🔨",
+      "dmgType": "melee",
+      "rarity": "EPIC",
+      "file": "card-icons/s1_1.png",
+      "atlas": {
+        "index": 1,
+        "row": 0,
+        "col": 1,
+        "x": 256,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "s1_2",
+      "hero": "p1",
+      "name": "Размах",
+      "emoji": "🌪️",
+      "dmgType": "melee",
+      "rarity": "COMMON",
+      "file": "card-icons/s1_2.png",
+      "atlas": {
+        "index": 2,
+        "row": 0,
+        "col": 2,
+        "x": 512,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "s1_3",
+      "hero": "p1",
+      "name": "Рывок",
+      "emoji": "🏃",
+      "dmgType": "melee",
+      "rarity": "COMMON",
+      "file": "card-icons/s1_3.png",
+      "atlas": {
+        "index": 3,
+        "row": 0,
+        "col": 3,
+        "x": 768,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "s1_4",
+      "hero": "p1",
+      "name": "Берсерк",
+      "emoji": "🪓",
+      "dmgType": "melee",
+      "rarity": "EPIC",
+      "file": "card-icons/s1_4.png",
+      "atlas": {
+        "index": 4,
+        "row": 0,
+        "col": 4,
+        "x": 1024,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "b2",
+      "hero": "p2",
+      "name": "Кинжал",
+      "emoji": "🗡️",
+      "dmgType": "ranged",
+      "rarity": "COMMON",
+      "file": "card-icons/b2.png",
+      "atlas": {
+        "index": 5,
+        "row": 1,
+        "col": 0,
+        "x": 0,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "s2_1",
+      "hero": "p2",
+      "name": "Яд",
+      "emoji": "🧪",
+      "dmgType": "ranged",
+      "rarity": "COMMON",
+      "file": "card-icons/s2_1.png",
+      "atlas": {
+        "index": 6,
+        "row": 1,
+        "col": 1,
+        "x": 256,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "s2_2",
+      "hero": "p2",
+      "name": "Тысяча порезов",
+      "emoji": "✂️",
+      "dmgType": "ranged",
+      "rarity": "RARE",
+      "file": "card-icons/s2_2.png",
+      "atlas": {
+        "index": 7,
+        "row": 1,
+        "col": 2,
+        "x": 512,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "s2_3",
+      "hero": "p2",
+      "name": "Танец стали",
+      "emoji": "⚔️",
+      "dmgType": "ranged",
+      "rarity": "RARE",
+      "file": "card-icons/s2_3.png",
+      "atlas": {
+        "index": 8,
+        "row": 1,
+        "col": 3,
+        "x": 768,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "s2_4",
+      "hero": "p2",
+      "name": "Кровопускание",
+      "emoji": "🩸",
+      "dmgType": "ranged",
+      "rarity": "EPIC",
+      "file": "card-icons/s2_4.png",
+      "atlas": {
+        "index": 9,
+        "row": 1,
+        "col": 4,
+        "x": 1024,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "b3",
+      "hero": "p3",
+      "name": "Мертвая лошадь",
+      "emoji": "🐎",
+      "dmgType": "magic",
+      "rarity": "COMMON",
+      "file": "card-icons/b3.png",
+      "atlas": {
+        "index": 10,
+        "row": 2,
+        "col": 0,
+        "x": 0,
+        "y": 512,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "s3_1",
+      "hero": "p3",
+      "name": "Огненный шар",
+      "emoji": "☄️",
+      "dmgType": "magic",
+      "rarity": "RARE",
+      "file": "card-icons/s3_1.png",
+      "atlas": {
+        "index": 11,
+        "row": 2,
+        "col": 1,
+        "x": 256,
+        "y": 512,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "s3_2",
+      "hero": "p3",
+      "name": "Ледяной шип",
+      "emoji": "❄️",
+      "dmgType": "magic",
+      "rarity": "RARE",
+      "file": "card-icons/s3_2.png",
+      "atlas": {
+        "index": 12,
+        "row": 2,
+        "col": 2,
+        "x": 512,
+        "y": 512,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "s3_3",
+      "hero": "p3",
+      "name": "Цепная молния",
+      "emoji": "⚡",
+      "dmgType": "magic",
+      "rarity": "RARE",
+      "file": "card-icons/s3_3.png",
+      "atlas": {
+        "index": 13,
+        "row": 2,
+        "col": 3,
+        "x": 768,
+        "y": 512,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "s3_4",
+      "hero": "p3",
+      "name": "Чёрная дыра",
+      "emoji": "🌌",
+      "dmgType": "magic",
+      "rarity": "LEGENDARY",
+      "file": "card-icons/s3_4.png",
+      "atlas": {
+        "index": 14,
+        "row": 2,
+        "col": 4,
+        "x": 1024,
+        "y": 512,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "mod_armor",
+      "hero": "mod",
+      "name": "Закал брони",
+      "emoji": "🛡️",
+      "dmgType": null,
+      "rarity": "RARE",
+      "file": "card-icons/mod_armor.png",
+      "atlas": {
+        "index": 15,
+        "row": 3,
+        "col": 0,
+        "x": 0,
+        "y": 768,
+        "width": 256,
+        "height": 256
+      }
+    },
+    {
+      "id": "mod_chain",
+      "hero": "mod",
+      "name": "Усиление цепи",
+      "emoji": "🔗",
+      "dmgType": null,
+      "rarity": "RARE",
+      "file": "card-icons/mod_chain.png",
+      "atlas": {
+        "index": 16,
+        "row": 3,
+        "col": 1,
+        "x": 256,
+        "y": 768,
+        "width": 256,
+        "height": 256
+      }
+    }
+  ]
+}

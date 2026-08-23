@@ -35,7 +35,13 @@ const NightEncounterScreen = ({ script, onCommand, onComplete }) => {
             zIndex: 0,
           }}
         >
-          <AtlasSprite sprite={guest.sprite} assetUrl={guest.assetUrl} alt="" />
+          <AtlasSprite
+            sprite={guest.sprite}
+            assetUrl={guest.assetUrl}
+            alt=""
+            hue={guest.colorize?.hue}
+            sat={guest.colorize?.sat}
+          />
         </div>
 
         <div

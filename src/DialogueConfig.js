@@ -55,8 +55,9 @@ export const DIALOGUE_TRIGGERS = {
     ],
   },
 
-  // Первая смерть отряда: незнакомец рассказывает мрачную историю,
-  // после которой отряд бесплатно получает новые карты в слоты (см. App.jsx).
+  // Первая смерть отряда: один случайный посетитель рассказывает мрачную
+  // историю и отдаёт отряду карту. Это отдельное дневное событие; обязательный
+  // ночной визит скелета-поручителя запускается после него.
   FIRST_DEATH: {
     pick: 'randomStory',
     stories: [
@@ -66,6 +67,22 @@ export const DIALOGUE_TRIGGERS = {
         { speakerId: 'visitor_cloaked_center', name: 'Незнакомец', text: 'Тьма запомнила ваши имена.' },
         { speakerId: 'visitor_cloaked_center', name: 'Незнакомец', text: 'Вот. Возьмите.' },
         { speakerId: 'visitor_cloaked_center', name: 'Незнакомец', text: 'Мёртвым они уже не нужны.' },
+      ],
+      [
+        { speakerId: 'visitor_drunk_right', name: 'Пьянчуга', text: 'Ик... видел, как вас вынесли.' },
+        { speakerId: 'visitor_drunk_right', name: 'Пьянчуга', text: 'А потом вы снова вошли в дверь.' },
+        { speakerId: 'visitor_drunk_right', name: 'Пьянчуга', text: 'Такой фокус надо отметить.' },
+        { speakerId: 'visitor_drunk_right', name: 'Пьянчуга', text: 'Держите карту. Я всё равно букв не различаю.' },
+      ],
+      [
+        { speakerId: 'visitor_walker_a_left', name: 'Бродяга', text: 'Смерть вернула вас не с пустыми руками.' },
+        { speakerId: 'visitor_walker_a_left', name: 'Бродяга', text: 'Я слышу, как за вами шепчется тьма.' },
+        { speakerId: 'visitor_walker_a_left', name: 'Бродяга', text: 'Возьмите это заклинание. Оно знает дорогу обратно.' },
+      ],
+      [
+        { speakerId: 'visitor_cloaked_back_right', name: 'Посетитель', text: 'Я ставил на то, что вы не вернётесь.' },
+        { speakerId: 'visitor_cloaked_back_right', name: 'Посетитель', text: 'Похоже, долг теперь за мной.' },
+        { speakerId: 'visitor_cloaked_back_right', name: 'Посетитель', text: 'Вот карта. Не заставляйте меня проиграть снова.' },
       ],
     ],
   },

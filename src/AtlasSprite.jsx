@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { spriteColorizeFilter } from './spriteColorize';
 
 // Общий рендерер анимированного атлас-спрайта (или статичного <img>, если атлас
 // не задан). Раньше был приватной копией внутри TavernHubScreen — вынесен сюда,
@@ -7,7 +8,7 @@ import React, { useEffect, useState } from 'react';
 //
 // Рассинхрон массовки: каждый инстанс стартует со случайного кадра и со
 // случайной задержкой первого тика — иначе все копии двигаются в такт.
-const AtlasSprite = React.memo(({ sprite, assetUrl, alt = '' }) => {
+const AtlasSprite = React.memo(({ sprite, assetUrl, alt = '', hue, sat }) => {
   const [frame, setFrame] = useState(() => Math.floor(Math.random() * (sprite?.frameCount ?? 1)));
   useEffect(() => {
     if (!sprite) return;
@@ -28,7 +29,10 @@ const AtlasSprite = React.memo(({ sprite, assetUrl, alt = '' }) => {
         alt={alt}
         draggable={false}
         className="w-auto h-full block select-none"
-        style={{ imageRendering: 'pixelated' }}
+        style={{
+          imageRendering: 'pixelated',
+          ...(hue != null ? { filter: spriteColorizeFilter(hue, sat) } : {}),
+        }}
         onError={(e) => { e.currentTarget.style.opacity = 0; }}
       />
     );
@@ -36,7 +40,10 @@ const AtlasSprite = React.memo(({ sprite, assetUrl, alt = '' }) => {
   const col = frame % sprite.cols;
   const row = Math.floor(frame / sprite.cols);
   return (
-    <div className="h-full aspect-square overflow-hidden relative">
+    <div
+      className="h-full aspect-square overflow-hidden relative"
+      style={hue != null ? { filter: spriteColorizeFilter(hue, sat) } : undefined}
+    >
       <img
         src={sprite.url}
         alt={alt}

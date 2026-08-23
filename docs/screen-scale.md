@@ -1,7 +1,11 @@
 # Система вёрстки и масштаба экранов
 
 Единый источник истины по геометрии сцен, Figma → код и подключению экранов.
-Роль-промпт для агента-верстальщика: [`layout-designer-prompt.md`](./layout-designer-prompt.md).
+Роли:
+
+- сцены и сущности: [`layout-designer-prompt.md`](./layout-designer-prompt.md);
+- UI Kit, игровые интерфейсы и 9-slice:
+  [`game-ui-implementer-prompt.md`](./game-ui-implementer-prompt.md).
 
 ---
 
@@ -198,8 +202,8 @@ aspect = width_px / height_px             → entity.aspect (если нужна
 пузырь-якорь, а плашка, встроенная в композицию окна (белый текст, кнопки-
 «заклёпки» bg `#3d3d3e`/`#1a1a1b`). Позиция считается из `computeStageRect()`
 (`screenScale.js`) — тех же формул, что и CSS-скейл `ScreenStage`, без
-DOM-измерений. Шрифт Greybeard из Figma в проекте недоступен (нет файла
-шрифта) — используется существующий пиксель-суррогат Courier New. Старый
+DOM-измерений. Для реплик используется проектный пиксельный шрифт Greybeard
+(`public/fonts/Greybeard-11px*.ttf`), Courier New остаётся fallback. Старый
 вариант `variant="bubble"` (пузырь у DOM-якоря `data-entity-id`) сохранён по
 умолчанию для обратной совместимости, но экраном ночной встречи не используется.
 
@@ -219,7 +223,7 @@ DOM-измерений. Шрифт Greybeard из Figma в проекте нед
 
 | Компонент | Ограничение |
 |-----------|-------------|
-| `SpeechBubble` | max-width **200px**, шрифт Courier 14px |
+| `SpeechBubble` | max-width **200px**, шрифт Greybeard 14px (Courier fallback) |
 | Реплика | ~**70–90 символов** (иначе пузырь слишком высокий) |
 | Якорь | центр X спикера; `bottomY = top bbox + 24px` |
 | Панель выборов | 2–4 кнопки, без скролла |

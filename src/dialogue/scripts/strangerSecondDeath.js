@@ -11,6 +11,10 @@
 
 export const STRANGER_SECOND_DEATH_SCRIPT = {
   id: 'stranger_second_death',
+  // Обязательный гость: в ночь его визита «Спать до утра» недоступно и сбежать
+  // по лестнице из фазы стука нельзя — разговор состоится в любом случае
+  // (отказать ему можно только в самом диалоге).
+  mandatory: true,
   encounter: {
     character: 'stranger',
     offset: { x: 160, y: -40 },

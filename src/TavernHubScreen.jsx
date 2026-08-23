@@ -9,9 +9,19 @@ import NightSplashOverlay from './NightSplashOverlay';
 import NightEncounterScreen from './dialogue/NightEncounterScreen';
 import { pickWeightedScript } from './dialogue/scriptRunner';
 import { NIGHT_VISITOR_SCRIPTS } from './dialogue/scripts';
+import { STRANGER_COLORIZE } from './spriteColorize';
 // Общий рендерер атлас-спрайтов (см. AtlasSprite.jsx) — используется и другими
 // сценами (ночная встреча), чтобы анимация персонажей была идентична.
 import TavernSprite from './AtlasSprite';
+
+// Нарратив ночного сплеша под выбор игрока: проспал он ночь или встретил её,
+// и был ли этой ночью гость (см. ролл в openSleepModal).
+const NIGHT_SPLASH_TEXTS = {
+  sleepQuiet: 'Вы гасите свечи и проваливаетесь в сон.\nНочь проходит тихо, без снов и без гостей.',
+  sleepMissed: 'Вы гасите свечи и проваливаетесь в сон.\nСквозь дрёму чудится стук в дверь — но утро приходит раньше, чем вы решаетесь встать.',
+  listenVisitor: 'В ночи нас посетил таинственный посетитель...\nКто-то настойчиво стучит в дверь таверны.',
+  listenQuiet: 'Вы вслушиваетесь в темноту до рези в ушах.\nНи шороха, ни шага. Этой ночью никто не пришёл.',
+};
 
 const LockedBadge = ({ minSector }) => (
   <div
@@ -96,6 +106,36 @@ const KnockEffects = () => {
   );
 };
 
+// Нотификатор «есть дело» над персонажем: пульсирующий восклицательный знак.
+// Клики пропускает насквозь (интерактив живёт в ShaderOutlineWrapper под ним).
+// top ≈ 2%: у атласов персонажей голова начинается с ~10% высоты бокса
+// (см. hitbox в TavernSceneConfig), значок встаёт прямо над ней.
+const NotifierBadge = ({ hint }) => (
+  <div
+    className="absolute left-1/2 -translate-x-1/2 pointer-events-none"
+    style={{ top: '2%', zIndex: 210, animation: 'tavernNotifierBob 1.1s ease-in-out infinite' }}
+    title={hint}
+  >
+    <div
+      className="flex items-center justify-center rounded-full bg-amber-400 text-black font-black
+                 border-2 border-amber-100"
+      style={{
+        width: 'clamp(18px, 2.1vw, 34px)',
+        height: 'clamp(18px, 2.1vw, 34px)',
+        fontSize: 'clamp(12px, 1.5vw, 24px)',
+        lineHeight: 1,
+        boxShadow: '0 0 18px rgba(245,158,11,0.85), 0 2px 6px rgba(0,0,0,0.7)',
+      }}
+    >
+      !
+    </div>
+    <style>{`@keyframes tavernNotifierBob {
+      0%, 100% { transform: translate(-50%, 0) scale(1); }
+      50%      { transform: translate(-50%, -18%) scale(1.14); }
+    }`}</style>
+  </div>
+);
+
 const ActionLabel = ({ children }) => (
   <div
     className="absolute left-1/2 -top-4 -translate-x-1/2 px-2 py-0.5 text-[11px] font-black uppercase
@@ -118,18 +158,42 @@ const renderEntityContent = ({ entity, activeParty, recruitsPool }) => {
           </div>
         );
       }
-      return <TavernSprite sprite={hero.sprite} assetUrl={hero.assetUrl} alt={hero.name} />;
+      return (
+        <TavernSprite
+          sprite={hero.sprite}
+          assetUrl={hero.assetUrl}
+          alt={hero.name}
+          hue={hero.hue}
+          sat={hero.sat}
+        />
+      );
     }
     case 'HERO_RECRUIT': {
       const recruit = recruitsPool?.find?.(r => r.id === entity.recruitId);
-      return <TavernSprite sprite={recruit?.sprite} assetUrl={recruit?.assetUrl || entity.assetUrl} alt={entity.id} />;
+      return (
+        <TavernSprite
+          sprite={recruit?.sprite}
+          assetUrl={recruit?.assetUrl || entity.assetUrl}
+          alt={entity.id}
+          hue={recruit?.hue}
+          sat={recruit?.sat}
+        />
+      );
     }
     default:
-      return <TavernSprite sprite={entity.sprite} assetUrl={entity.assetUrl} alt={entity.id} />;
+      return (
+        <TavernSprite
+          sprite={entity.sprite}
+          assetUrl={entity.assetUrl}
+          alt={entity.id}
+          hue={entity.colorize?.hue}
+          sat={entity.colorize?.sat}
+        />
+      );
   }
 };
 
-const TavernEntity = React.memo(function TavernEntity({ entity, locked, activeParty, recruitsPool, onClick }) {
+const TavernEntity = React.memo(function TavernEntity({ entity, locked, activeParty, recruitsPool, notify, onClick }) {
   const isBg = entity.type === 'BG';
   const isPortal = entity.type === 'PORTAL';
 
@@ -230,6 +294,7 @@ const TavernEntity = React.memo(function TavernEntity({ entity, locked, activePa
       {locked && entity.minSectorRequired && (
         <LockedBadge minSector={entity.minSectorRequired} />
       )}
+      {notify && !locked && <NotifierBadge hint={notify.hint} />}
       {wrappedSprite}
     </div>
   );
@@ -254,8 +319,7 @@ export default function TavernHubScreen({
   onAction,
   onOpenHeroInventory,
   // Триггер диалога при входе (по умолчанию — обычная болтовня посетителей)
-  // и колбэк его завершения — на нём App вешает сюжетные события
-  // (например, выдачу бесплатных карт после истории о первой смерти).
+  // и необязательный колбэк его завершения для линейных историй.
   entryDialogueTrigger = 'TAVERN_ENTER',
   onEntryDialogueComplete,
   // Сюжетный ночной скрипт (например, Незнакомец после 2-й смерти): если задан,
@@ -264,6 +328,18 @@ export default function TavernHubScreen({
   onNightScriptComplete,
   // Незнакомца впустили: он перманентно занимает место посетителя за столом.
   strangerInTavern = false,
+  // Скелет-поручитель появляется после обязательной ночи первой смерти.
+  // Активный атлас означает: есть новое поручение или готовая награда.
+  taskMasterVisible = false,
+  taskMasterActive = false,
+  // Отдых отряда — контролируемое состояние из App: экран таверны размонтируется
+  // на оверлеях (например, реванш карты из ночной награды), и локальный флаг
+  // терял бы засчитанную ночёвку.
+  hasRested = false,
+  onRested,
+  // Нотификаторы над сущностями: { [entityId]: { hint } } — рендерятся поверх
+  // спрайта пульсирующим «!».
+  notifications = null,
 }) {
   // ─── Ночное событие: машина состояний времени суток ───────────────────
   // 'DAY' → (клик «Отдохнуть») → 'NIGHT_SPLASH' → (сплеш дочитан) → 'NIGHT_KNOCKING'
@@ -284,13 +360,33 @@ export default function TavernHubScreen({
     () => TAVERN_ENTITIES
       .filter(e => !isNight || !NIGHT_HIDDEN_ENTITY_TYPES.includes(e.type))
       .filter(e => !e.visibleWhen || e.visibleWhen === (isNight ? 'NIGHT' : 'DAY'))
+      .filter(e => e.id !== 'npc_task_master' || taskMasterVisible)
       // Незнакомец в таверне: атлас stranger.png (4×4 idle, курит трубку)
       // вместо посетителя за центральным столом (позиция/масштаб не меняются).
-      .map(e => (strangerInTavern && e.id === 'visitor_cloaked_center')
-        ? { ...e, sprite: { url: './assets/tavern/stranger.png', cols: 4, rows: 4, frameCount: 16, fps: 4 }, flipX: false }
-        : e)
+      .map((e) => {
+        if (strangerInTavern && e.id === 'visitor_cloaked_center') {
+          return {
+            ...e,
+            sprite: { url: './assets/tavern/stranger.png', cols: 4, rows: 4, frameCount: 16, fps: 4 },
+            colorize: STRANGER_COLORIZE,
+            flipX: false,
+          };
+        }
+        if (e.id === 'npc_task_master') {
+          return {
+            ...e,
+            sprite: {
+              ...e.sprite,
+              url: taskMasterActive
+                ? './assets/tavern/task_master.webp'
+                : './assets/tavern/task_master_inactive.webp',
+            },
+          };
+        }
+        return e;
+      })
       .sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0)),
-    [isNight, strangerInTavern]
+    [isNight, strangerInTavern, taskMasterVisible, taskMasterActive]
   );
 
   // ─── Диалоговая система: фундамент триггеров ──────────────────────────
@@ -318,8 +414,7 @@ export default function TavernHubScreen({
   }, [activeDialogue, entryDialogueTrigger, onEntryDialogueComplete]);
 
   // ─── Система сна: обязательный отдых перед выходом в поход ────────────
-  // hasRested сбрасывается при каждом входе в таверну (маунт экрана).
-  const [hasRested, setHasRested] = useState(false);
+  // hasRested приходит из App и сбрасывается при выходе в поход.
   const [showSleepModal, setShowSleepModal] = useState(false);
   const [toast, setToast] = useState(null); // { id, text } — id перезапускает CSS-анимацию
   const toastTimerRef = useRef(null);
@@ -333,36 +428,81 @@ export default function TavernHubScreen({
     toastTimerRef.current = setTimeout(() => setToast(null), 2000);
   }, []);
 
-  // «Отдохнуть» больше не даёт отдых мгновенно — запускает ночное событие.
-  // async сохранён: сюда позже встанут трата ресурсов и спавн юнитов.
-  const handleRest = async () => {
+  // ─── Кто придёт этой ночью ────────────────────────────────────────────
+  // Гость роллится ОДИН раз — при открытии модалки сна — и живёт до рассвета:
+  // отмена и повторное открытие модалки не перекатывают обязательного гостя.
+  // night === null — ночь ещё не разыграна; night.script === null — тихая ночь.
+  const [night, setNight] = useState(null);
+  const [nightIntent, setNightIntent] = useState(null); // 'sleep' | 'listen'
+  const tonight = night?.script ?? null;
+  const isMandatoryNight = !!tonight?.mandatory;
+  // Не скипаемый гость: сбежать по лестнице из фазы стука нельзя.
+  const canEscapeNight = !tonight || (tonight.escapable !== false && !tonight.mandatory);
+
+  // Текст сплеша зависит от выбора и от того, кто (не) пришёл этой ночью.
+  const nightSplashText = nightIntent === 'sleep'
+    ? (tonight ? NIGHT_SPLASH_TEXTS.sleepMissed : NIGHT_SPLASH_TEXTS.sleepQuiet)
+    : (tonight ? NIGHT_SPLASH_TEXTS.listenVisitor : NIGHT_SPLASH_TEXTS.listenQuiet);
+
+  const openSleepModal = () => {
+    // Сюжетный гость (nightScript) имеет приоритет над случайным роллом.
+    if (!night) setNight({ script: nightScript || pickWeightedScript(NIGHT_VISITOR_SCRIPTS) || null });
+    setShowSleepModal(true);
+  };
+
+  // «Спать до утра»: сон без стука. Если гость всё же собирался прийти —
+  // он уйдёт ни с чем, игрок узнает об этом только из текста сплеша.
+  const sleepUntilMorning = () => {
+    if (isMandatoryNight) return;
     setShowSleepModal(false);
+    setNightIntent('sleep');
     setTavernTimeState('NIGHT_SPLASH');
   };
 
-  // Сплеш дочитан → фаза стука. Бармен рассказывает мини-историю про гостя
-  // за дверью (взвешенный ролл из BARKEEP_WARNINGS, якорь — npc_bartender).
+  // «Прислушаться к ночи»: прежний поток — стук, подсказка бармена, дверь.
+  const listenToNight = () => {
+    setShowSleepModal(false);
+    setNightIntent('listen');
+    setTavernTimeState('NIGHT_SPLASH');
+  };
+
+  // Побег «обратно в кровать»: чёрная вуаль наплывает, ночь безопасно
+  // сворачивается (стук прекращается), отряд считается отдохнувшим.
+  // Флаг-страж: ночь сворачивается ровно один раз, даже если END_NIGHT_SLEEP
+  // и завершение скрипта прилетят подряд.
+  const nightEndingRef = useRef(false);
+  const goBackToBed = useCallback(() => {
+    if (nightEndingRef.current) return;
+    nightEndingRef.current = true;
+    // Отдых фиксируем сразу, а не в таймере вуали: команда награды ночного гостя
+    // может открыть оверлей карты и размонтировать таверну вместе с таймерами.
+    onRested?.();
+    setFadeVeil('in');
+    fadeTimersRef.current.push(setTimeout(() => {
+      setTavernTimeState('DAY');
+      // Ночь разыграна — следующий сон роллит гостя заново. Сбрасываем под
+      // вуалью: раньше сменился бы текст ещё видимого сплеша.
+      setNight(null);
+      setNightIntent(null);
+      setActiveDialogue(null);
+      setActiveScript(null);
+      setFadeVeil('out');
+      nightEndingRef.current = false;
+      fadeTimersRef.current.push(setTimeout(() => setFadeVeil(null), 700));
+    }, 700));
+  }, [onRested]);
+
+  // Сплеш дочитан. «Спать до утра» и тихая ночь ведут прямо в рассвет,
+  // «прислушаться» с гостем — в фазу стука: бармен рассказывает мини-историю
+  // про того, кто за дверью (ролл из BARKEEP_WARNINGS, якорь — npc_bartender).
   const handleNightSplashComplete = useCallback(() => {
+    if (nightIntent === 'sleep' || !tonight) { goBackToBed(); return; }
     setTavernTimeState('NIGHT_KNOCKING');
     setTimeout(() => {
       const queue = getBarkeepHint('UNKNOWN_VISITOR');
       if (queue.length) setActiveDialogue({ triggerId: 'NIGHT_KNOCK_BARKEEP', queue });
     }, 500);
-  }, []);
-
-  // Побег «обратно в кровать»: чёрная вуаль наплывает, ночь безопасно
-  // сворачивается (стук прекращается), отряд считается отдохнувшим.
-  const goBackToBed = useCallback(() => {
-    setFadeVeil('in');
-    fadeTimersRef.current.push(setTimeout(() => {
-      setTavernTimeState('DAY');
-      setHasRested(true);
-      setActiveDialogue(null);
-      setActiveScript(null);
-      setFadeVeil('out');
-      fadeTimersRef.current.push(setTimeout(() => setFadeVeil(null), 700));
-    }, 700));
-  }, []);
+  }, [nightIntent, tonight, goBackToBed]);
 
   // ─── Ветвящиеся диалог-скрипты (система Yarn-like, см. docs/dialogue-authoring.md) ──
   // Диспетчер внешних команд скрипта. Локальные (ночь/тосты) исполняем здесь,
@@ -383,20 +523,22 @@ export default function TavernHubScreen({
   }, [goBackToBed, showToast, onAction]);
 
   const startNightVisitorScript = useCallback(() => {
-    // Сюжетный ночной гость (nightScript) имеет приоритет над случайным роллом.
-    const script = nightScript || pickWeightedScript(NIGHT_VISITOR_SCRIPTS);
-    if (!script) return;
+    if (!tonight) return;
     setActiveDialogue(null); // линейная болтовня (бармен) уступает сцену скрипту
-    setActiveScript(script);
-  }, [nightScript]);
+    setActiveScript(tonight);
+  }, [tonight]);
 
   const handleScriptComplete = useCallback(() => {
     const wasNightScript = !!nightScript && activeScript === nightScript;
     setActiveScript(null);
     // Сюжетный ночной скрипт закончился — App снимает pending-флаг
     // (следующей ночью за дверью снова случайный гость).
-    if (wasNightScript) onNightScriptComplete?.();
-  }, [activeScript, nightScript, onNightScriptComplete]);
+    if (wasNightScript) onNightScriptComplete?.(nightScript.id);
+    // Страховка от концовки без END_NIGHT_SLEEP: ночь всё равно сворачивается
+    // (у не скипаемого гостя лестница закрыта — иначе игрок запрётся в ночи).
+    // Повторный вызов безопасен: goBackToBed защищён флагом-стражем.
+    goBackToBed();
+  }, [activeScript, nightScript, onNightScriptComplete, goBackToBed]);
 
   const handleClick = (entity) => {
     if (!entity.interactive) return;
@@ -405,7 +547,12 @@ export default function TavernHubScreen({
     // ─── Ночная фаза стука: свои маршруты для лестницы и двери ──────────
     if (isNight) {
       // Лестница → сбежать спать: ночь сворачивается, отдых засчитан.
+      // Не скипаемый гость побега не допускает — он дождётся разговора.
       if (entity.payload?.action === 'OPEN_SLEEP_MODAL') {
+        if (!canEscapeNight) {
+          showToast('Он не уйдёт, пока вы не откроете');
+          return;
+        }
         goBackToBed();
         return;
       }
@@ -426,7 +573,7 @@ export default function TavernHubScreen({
 
     // Лестница → модалка сна (локальное состояние таверны, App не участвует).
     if (entity.payload?.action === 'OPEN_SLEEP_MODAL') {
-      setShowSleepModal(true);
+      openSleepModal();
       return;
     }
 
@@ -459,6 +606,7 @@ export default function TavernHubScreen({
               locked={locked}
               activeParty={activeParty}
               recruitsPool={recruitsPool}
+              notify={isNight ? null : (notifications?.[entity.id] ?? null)}
               onClick={handleClick}
             />
           );
@@ -489,14 +637,20 @@ export default function TavernHubScreen({
         />
       )}
 
-      {/* Модалка сна (лестница) */}
+      {/* Модалка сна (лестница): проспать ночь, встретить её или отменить */}
       {showSleepModal && (
-        <SleepModal onRest={handleRest} onCancel={() => setShowSleepModal(false)} />
+        <SleepModal
+          onSleep={sleepUntilMorning}
+          onListen={listenToNight}
+          onCancel={() => setShowSleepModal(false)}
+          sleepDisabled={isMandatoryNight}
+          sleepHint={isMandatoryNight ? 'Кто-то ждёт у двери — этой ночью не уснуть' : ''}
+        />
       )}
 
       {/* Ночной сплеш: медленный fade-in, тайпрайтер, строгий прогресс-лок */}
       {tavernTimeState === 'NIGHT_SPLASH' && (
-        <NightSplashOverlay onComplete={handleNightSplashComplete} />
+        <NightSplashOverlay text={nightSplashText} onComplete={handleNightSplashComplete} />
       )}
 
       {/* Экран ночной встречи: открывается кликом по двери в фазе стука,

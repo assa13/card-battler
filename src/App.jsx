@@ -1,10 +1,42 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from 'react';
 import TavernHubScreen from './TavernHubScreen';
 import HeroInventoryScreen from './HeroInventoryScreen';
+import ShopScreen from './ShopScreen';
+import TaskMasterScreen from './TaskMasterScreen';
 import PreparationCardSlot from './PreparationCardSlot';
+import SpeechBubble from './SpeechBubble';
 import QteOverlay from './QteOverlay';
+import HorseHerdQte from './HorseHerdQte';
+import EnemyDefenseCue from './EnemyDefenseCue';
+import EnemyDefenseRipples from './EnemyDefenseRipples';
+import { pickEnemyBattleLine } from './enemyBattleLines';
+import {
+  SKELETON_BOSS_NAME,
+  SKELETON_BOSS_PATTERN,
+  resolveSkeletonBossTarget,
+} from './enemyDefensePatterns';
+import { CARD_RARITIES, CARD_RARITY_GLOW } from './cardRarity';
+import {
+  HERO_COLORIZE as CHAR_COLORIZE,
+  STRANGER_COLORIZE,
+  spriteColorizeFilter,
+} from './spriteColorize';
 import { qteSlowMo } from './qteTimeScale';
 import { resolveCardQte } from './qteMechanics';
+import {
+  EMBER_JUNK_THRESHOLD,
+  ITEM_RARITIES,
+  RARITY_TINT,
+  createShopStock,
+  generateItemOfRarity,
+  getItemBuyPrice,
+  getItemIconUrl,
+  getItemSellPrice,
+  getNextRarity,
+  rollLootDrops,
+  sortUniqueItemsByRarity,
+  sumJunkPoints,
+} from './itemSystem';
 import {
   HERO_IDS,
   createEmptyUnlockedCards,
@@ -28,7 +60,21 @@ import {
   HERO_CARD_LOADOUT_SIZE,
   DEFAULT_UNLOCKED_SLOTS,
 } from './heroCardInventory';
-import { STRANGER_SECOND_DEATH_SCRIPT } from './dialogue/scripts';
+import {
+  TASK_METRICS,
+  claimTaskQuest,
+  createTaskMasterState,
+  getTaskRewardItem,
+  progressTaskQuests,
+  replenishTaskMasterQuests,
+  taskMasterHasRewards,
+  taskMasterHasTasks,
+  unlockTaskMaster,
+} from './taskMasterSystem';
+import {
+  SKELETON_FIRST_DEATH_SCRIPT,
+  STRANGER_SECOND_DEATH_SCRIPT,
+} from './dialogue/scripts';
 
 // --- 1. КОНСТАНТЫ И НАСТРОЙКИ ---
 
@@ -36,13 +82,6 @@ const MAX_MANA = 3;
 const ENEMY_POWER_MULT = 0.5; // глобальный нерф врагов: HP и урон ×0.5
 const NUM_STAGES = 15; 
 const STAGE_WIDTH = 160; 
-
-const RARITIES = {
-  COMMON: { name: 'Обычная', border: 'border-slate-500', header: 'bg-[#4a3b69]', text: 'text-slate-300', badgeBg: 'bg-slate-500' }, 
-  RARE: { name: 'Редкая', border: 'border-[#0EA5E9]', header: 'bg-[#3b5384]', text: 'text-[#0EA5E9]', badgeBg: 'bg-[#0EA5E9]' },     
-  EPIC: { name: 'Эпическая', border: 'border-purple-600', header: 'bg-[#7a3b3b]', text: 'text-purple-300', badgeBg: 'bg-purple-600' }, 
-  LEGENDARY: { name: 'Легендарная', border: 'border-amber-400', header: 'bg-[#8a6b3b]', text: 'text-amber-400', badgeBg: 'bg-amber-500' }
-};
 
 // HP больше НЕ зависит от статов: базовое значение + рост за уровень + события + предметы
 const INITIAL_PLAYERS_DATA = [
@@ -81,25 +120,13 @@ const describeStatus = (key, val = {}) => {
   }
 };
 
-const INVENTORY_SIZE = 9;
-// >1.0 — целая часть = гарантированные предметы, дробная — шанс бонусного предмета (см. rollLootDrops)
-const LOOT_DROP_CHANCE = 1.3;
-const ITEM_RARITY_WEIGHTS = { COMMON: 68, RARE: 21, EPIC: 9, LEGENDARY: 2 };
-const ITEM_BURN_XP = { COMMON: 4, RARE: 8, EPIC: 16, LEGENDARY: 30 };
-const getItemBurnXp = (item) => (item && ITEM_BURN_XP[item.rarity]) || 0;
-
-// «Огонёк души» — мета-валюта: хлам копит очки в ГЛОБАЛЬНУЮ шкалу прогресса,
-// которая переносится между забегами и не сгорает при смерти. 1 огонёк за порог,
-// остаток сверх порога переходит в следующий цикл заполнения.
-const JUNK_SOUL_POINTS = { COMMON: 1, RARE: 4, EPIC: 10, LEGENDARY: 25 };
-const EMBER_JUNK_THRESHOLD = 11; // было 15; −30% к стоимости огонька (меньше очков хлама за 1 🔥)
-const getItemJunkPoints = (item) => (item && JUNK_SOUL_POINTS[item.rarity]) || 0;
-const sumJunkPoints = (items) => items.reduce((s, it) => s + getItemJunkPoints(it), 0);
 // Цена открытия слотов на экране подготовки: каждый следующий ×2, базовые значения −30%
 const PREP_SLOT_PRICES = [1, 1, 3, 6, 11, 22];
 const getPrepSlotPrice = (boughtCount) => PREP_SLOT_PRICES[Math.min(boughtCount, PREP_SLOT_PRICES.length - 1)];
 const PREP_MAX_BUYS = 2;
 const PREP_BURN_COST = 1; // сжигание карты всегда стоит ровно 1 огонёк
+const EXPEDITION_EXIT_ITEM_KEEP_RATIO = 0.7; // добровольный выход: теряется 30% предметов
+const PARTY_WIPE_ITEM_KEEP_RATIO = 0.3; // поражение: сохраняется только 30% предметов
 
 // Готичные фразы для экрана подготовки перед забегом
 const GOTHIC_PHRASES = [
@@ -111,117 +138,6 @@ const GOTHIC_PHRASES = [
   'Мрак уже поглотил их надежды. Теперь он голоден до ваших.',
   'Никто не возвращался из этой бездны. Вы — лишь следующая жертва.',
 ];
-// Главный стат предмета — чёткая градация по рарности, ощутимые значения
-const ITEM_STAT_RANGES = {
-  COMMON: { min: 4, max: 7 },
-  RARE: { min: 9, max: 14 },
-  EPIC: { min: 17, max: 25 },
-  LEGENDARY: { min: 30, max: 45 },
-};
-// Кол-во случайных бонусов на предмет по рарности
-const ITEM_BONUS_COUNTS = { COMMON: [1, 1], RARE: [1, 2], EPIC: [2, 3], LEGENDARY: [2, 4] };
-// Возможные типы бонусов предмета — прямые модификаторы, без привязки к статам:
-// atk  — +% к физическому урону, matk — +% к магическому урону,
-// crit — +% к шансу крита, hp — +к здоровью (плоское).
-const ITEM_STAT_TYPES = ['atk', 'matk', 'crit', 'hp'];
-// Оффенсивные статы выбираются СТРОГО равновероятно (uniform по индексу пула, 50/50).
-// Не заменять на цепочки if/random с разными порогами — это источник перекоса баланса.
-const ITEM_OFFENSIVE_STATS = ['atk', 'matk'];
-const ITEM_HP_MULT = 2.5;
-const ITEM_CRIT_MULT = 0.5;
-
-const rollItemStatBundle = (rarity) => {
-  const range = ITEM_STAT_RANGES[rarity];
-  const roll = () => Math.floor(Math.random() * (range.max - range.min + 1)) + range.min;
-  const [minC, maxC] = ITEM_BONUS_COUNTS[rarity] || [1, 1];
-  const count = minC + Math.floor(Math.random() * (maxC - minC + 1));
-  // GDD 6.2: atk и matk взаимоисключающие — предмет либо «оружие воина», либо «инструмент мага».
-  // Сначала фиксируем тип урона (равномерный выбор из пула), затем чистим противоположный.
-  const damageStat = ITEM_OFFENSIVE_STATS[Math.floor(Math.random() * ITEM_OFFENSIVE_STATS.length)];
-  const excluded = ITEM_OFFENSIVE_STATS.find(s => s !== damageStat);
-  const availablePool = ITEM_STAT_TYPES.filter(s => s !== excluded);
-  // Гарантируем, что первый (главный) бонус — именно выбранный тип урона, чтобы фокус предмета был очевиден.
-  const others = shuffleArray(availablePool.filter(s => s !== damageStat));
-  const picked = [damageStat, ...others].slice(0, Math.min(count, availablePool.length));
-  const stats = {};
-  picked.forEach((stat, idx) => {
-    const base = roll();
-    const mult = idx === 0 ? 1 : 0.32 + Math.random() * 0.18;
-    let val = Math.max(1, Math.round(base * mult));
-    if (stat === 'hp') val = Math.max(4, Math.round(val * ITEM_HP_MULT));
-    else if (stat === 'crit') val = Math.max(1, Math.round(val * ITEM_CRIT_MULT));
-    stats[stat] = val;
-  });
-  return stats;
-};
-// Префикс названия отражает редкость
-const ITEM_RARITY_PREFIX = {
-  COMMON: '',
-  RARE: 'Редкий',
-  EPIC: 'Эпический',
-  LEGENDARY: 'Легендарный',
-};
-
-// Каждый предмет имеет ФИКСИРОВАННУЮ базовую рарность (названия соответствуют иконкам).
-// Распределение пирамидой: больше всего обычных, меньше редких/эпиков, мало легендарок.
-const ITEM_TEMPLATES = [
-  // COMMON (11)
-  { name: 'Инструменты палача', icon: 'item_11.webp', focus: 'str', rarity: 'COMMON' },
-  { name: 'Запас зелий', icon: 'item_13.webp', focus: 'dex', rarity: 'COMMON' },
-  { name: 'Статуя горгульи', icon: 'item_14.webp', focus: 'str', rarity: 'COMMON' },
-  { name: 'Зловещий кинжал', icon: 'item_20.webp', focus: 'dex', rarity: 'COMMON' },
-  { name: 'Ступка алхимика', icon: 'item_31.webp', focus: 'int', rarity: 'COMMON' },
-  { name: 'Кожаная перчатка', icon: 'item_34.webp', focus: 'dex', rarity: 'COMMON' },
-  { name: 'Связка ключей', icon: 'item_36.webp', focus: 'dex', rarity: 'COMMON' },
-  { name: 'Проклятые монеты', icon: 'item_39.webp', focus: 'dex', rarity: 'COMMON' },
-  { name: 'Канделябр', icon: 'item_41.webp', focus: 'int', rarity: 'COMMON' },
-  { name: 'Забытая шестерня', icon: 'item_43.webp', focus: 'str', rarity: 'COMMON' },
-  { name: 'Свиток нетопыря', icon: 'item_45.webp', focus: 'int', rarity: 'COMMON' },
-  // RARE (7)
-  { name: 'Астролябия', icon: 'item_15.webp', focus: 'int', rarity: 'RARE' },
-  { name: 'Кости предков', icon: 'item_30.webp', focus: 'str', rarity: 'RARE' },
-  { name: 'Букет аконита', icon: 'item_32.webp', focus: 'int', rarity: 'RARE' },
-  { name: 'Рунические камни', icon: 'item_33.webp', focus: 'int', rarity: 'RARE' },
-  { name: 'Фляга с ядом', icon: 'item_38.webp', focus: 'dex', rarity: 'RARE' },
-  { name: 'Ржавые кандалы', icon: 'item_42.webp', focus: 'str', rarity: 'RARE' },
-  { name: 'Перо и чернила', icon: 'item_44.webp', focus: 'int', rarity: 'RARE' },
-  // EPIC (5)
-  { name: 'Древний гримуар', icon: 'item_10.webp', focus: 'int', rarity: 'EPIC' },
-  { name: 'Череп ворона', icon: 'item_12.webp', focus: 'int', rarity: 'EPIC' },
-  { name: 'Терновый венец', icon: 'item_25.webp', focus: 'int', rarity: 'EPIC' },
-  { name: 'Рутиловый кристалл', icon: 'item_35.webp', focus: 'int', rarity: 'EPIC' },
-  { name: 'Крылатый череп', icon: 'item_37.webp', focus: 'str', rarity: 'EPIC' },
-  // LEGENDARY (2)
-  { name: 'Зеркало скорби', icon: 'item_40.webp', focus: 'int', rarity: 'LEGENDARY' },
-  { name: 'Проклятый гроб', icon: 'item_46.webp', focus: 'str', rarity: 'LEGENDARY' },
-];
-
-// Цвет тинта по рарности — позволяет «перекрашивать» базовую иконку под новую рарность
-const RARITY_TINT = {
-  COMMON: null,
-  RARE: '#0EA5E9',
-  EPIC: '#a855f7',
-  LEGENDARY: '#f59e0b',
-};
-
-const getItemIconUrl = (icon) => `./icons/${icon}`;
-
-// Иконка предмета с опциональным цветным оверлеем (тинтом) для перекрашенной рарности
-const ItemIcon = React.memo(({ item, className = '', imgClassName = 'w-full h-full object-cover' }) => {
-  if (!item) return null;
-  const tint = item.tinted ? RARITY_TINT[item.rarity] : null;
-  return (
-    <div className={`relative ${className}`}>
-      <img src={getItemIconUrl(item.icon)} alt={item.name || ''} className={imgClassName} draggable={false} />
-      {tint && (
-        // Дешёвая перекраска: один полупрозрачный слой обычным наложением (без mix-blend-mode,
-        // который заставлял компоновщик пересчитывать блендинг с анимированным фоном каждый кадр)
-        <div className="absolute inset-0 pointer-events-none rounded-[inherit]" style={{ backgroundColor: tint, opacity: 0.5 }} />
-      )}
-    </div>
-  );
-});
-
 // Атласы idle-анимаций персонажей игрока: спрайт-лист 1280x1280, кадр 320x320, сетка 4x4
 const CHAR_ATLASES = {
   p1: { url: './chars/warrior_atlas.webp', cols: 4, rows: 4, frameCount: 15, fps: 7.5 },
@@ -239,13 +155,6 @@ const CHAR_ATTACK_ATLASES = {
   p2: { url: './chars/rogue_attack_atlas.webp',   cols: 4, rows: 4, frameCount: 16, fps: 14, impactFrame: 8 },
   p3: { url: './chars/priest_attack_atlas.webp',  cols: 4, rows: 4, frameCount: 16, fps: 14, impactFrame: 9 },
 };
-// Hue/Sat (Photoshop Colorize) для героев: p1 — воин, p2 — разбойник, p3 — маг.
-const CHAR_COLORIZE = {
-  p1: { hue: 196, sat: 32 },
-  p2: { hue: 80,  sat: 48 },
-  p3: { hue: 286, sat: 34 },
-};
-
 // ─── Наёмник Незнакомец: замена одного из героев за золото ───────────────
 // Найм доступен после пыточных (сектор STRANGER_HIRE_MIN_SECTOR). Нанятый
 // Незнакомец занимает слот выбранного героя: имя и спрайт меняются, боевой
@@ -260,8 +169,10 @@ const STRANGER_HIRED_STORAGE_KEY = 'idler_strangerHiredAs';
 // Спрайт-оверрайды героев (heroId → атлас): заполняется при найме в текущей сессии.
 const HERO_SPRITE_OVERRIDES = {};
 const getHeroAtlas = (heroId) => HERO_SPRITE_OVERRIDES[heroId] || CHAR_ATLASES[heroId];
-// Атлас Незнакомца — авторский grayscale, колоризация классом не применяется.
-const getHeroColorize = (heroId) => (HERO_SPRITE_OVERRIDES[heroId] ? {} : (CHAR_COLORIZE[heroId] || {}));
+// Незнакомец не наследует палитру заменённого класса: у него собственный тон.
+const getHeroColorize = (heroId) => (
+  HERO_SPRITE_OVERRIDES[heroId] ? STRANGER_COLORIZE : (CHAR_COLORIZE[heroId] || {})
+);
 const applyStrangerIdentity = (list, hiredAs) =>
   hiredAs ? list.map(p => (p.id === hiredAs ? { ...p, name: STRANGER_NAME } : p)) : list;
 // Собственный цвет свечения героя (соответствует hue его colorize) —
@@ -271,13 +182,6 @@ const CHAR_QTE_GLOW = {
   p2: 'rgba(163, 230, 53, 0.9)',   // разбойник — ядовитый лайм
   p3: 'rgba(192, 132, 252, 0.9)',  // маг — фиолет
 };
-// Colorize без оверлея: sepia + hue-rotate + saturate на видимом кадре (аналог PS Hue/Sat Colorize).
-const charColorizeFilter = (hue, sat) => {
-  const hueRotate = hue - 38; // sepia(1) ≈ 38° на цветовом круге
-  const saturate = Math.round(80 + sat * 2.8);
-  return `sepia(1) saturate(${saturate}%) hue-rotate(${hueRotate}deg)`;
-};
-
 // Зигзаг-формация бойцов игрока. Координаты из макета (контейнер 545px высотой, спрайт 254px)
 // отмасштабированы под высоту арены 355px (коэф. ≈0.651).
 const CHAR_SPRITE_SIZE = 166;
@@ -297,6 +201,7 @@ const ENEMY_ATLASES = {
   'Слизень':    { url: './chars/squish_atlas.webp',     cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
   'Стрелок':    { url: './chars/shooter_atlas.webp',    cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
   'Тёмный маг': { url: './chars/dark_mage_atlas.webp',  cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
+  [SKELETON_BOSS_NAME]: { url: './chars/skeleton_boss_atlas.webp', cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
   'Глаз':       { url: './chars/eye_atlas.webp',        cols: 4, rows: 4, frameCount: 16, fps: 7.5 },
 };
 
@@ -313,7 +218,40 @@ const ENEMY_TYPES = {
   'Слизень':    { dmgMult: 0.65, attackStyle: 'melee',  vfxType: 'enemy'       },
   'Стрелок':    { dmgMult: 1.10, attackStyle: 'ranged', vfxType: 'arrow'       },
   'Тёмный маг': { dmgMult: 1.45, attackStyle: 'ranged', vfxType: 'dark_void'   },
+  [SKELETON_BOSS_NAME]: { dmgMult: 1.45, attackStyle: 'boss_pattern', vfxType: 'bone' },
   'Глаз':       { dmgMult: 1.70, attackStyle: 'aoe',    vfxType: 'dark_void'   },
+};
+
+// Telegraph + двухстадийный путь угрозы. QTE duration равен launch + close-in:
+// сначала враг/снаряд быстро входит в опасную дистанцию, затем читаемо дожимает
+// последние пиксели до impact.
+const ENEMY_ATTACK_PROFILES = {
+  'Стрелок':    { telegraphMs: 250, launchMs: 500, closeInMs: 300, approachRatio: 0.78, vfxScale: 0.8 },
+  'Тёмный маг': { telegraphMs: 400, launchMs: 600, closeInMs: 350, approachRatio: 0.72, vfxScale: 0.65 },
+  'Слизень':    { telegraphMs: 350, launchMs: 450, closeInMs: 400, approachRatio: 0.62, vfxScale: 1 },
+  'Гоблин':     { telegraphMs: 300, launchMs: 500, closeInMs: 300, approachRatio: 0.7, vfxScale: 1 },
+  'Волк':       { telegraphMs: 250, launchMs: 500, closeInMs: 300, approachRatio: 0.76, vfxScale: 1 },
+  'Бандит':     { telegraphMs: 320, launchMs: 500, closeInMs: 320, approachRatio: 0.72, vfxScale: 1 },
+  'Зомби':      { telegraphMs: 400, launchMs: 500, closeInMs: 400, approachRatio: 0.68, vfxScale: 1 },
+  'Орк':        { telegraphMs: 400, launchMs: 550, closeInMs: 350, approachRatio: 0.66, vfxScale: 1.15 },
+  [SKELETON_BOSS_NAME]: { telegraphMs: 450, launchMs: 260, closeInMs: 300, approachRatio: 0.74, vfxScale: 1 },
+  // Серия Глаза сохраняет 600 мс на импульс, чтобы три цели уложились < 3 секунд.
+  'Глаз':       { telegraphMs: 300, launchMs: 350, closeInMs: 250, approachRatio: 0.75, vfxScale: 1.2 },
+};
+const getEnemyAttackProfile = (enemy) => {
+  const baseProfile = ENEMY_ATTACK_PROFILES[enemy.name]
+    || (enemy.attackStyle === 'ranged'
+      ? { telegraphMs: 300, launchMs: 500, closeInMs: 300, approachRatio: 0.75, vfxScale: 1 }
+      : { telegraphMs: 320, launchMs: 500, closeInMs: 320, approachRatio: 0.7, vfxScale: 1 });
+  // Launch любой угрозы до точки close-in ускорен на 50%. Close-in melee-врагов
+  // остаётся замедленным ×2 и сохраняет точную синхронизацию с QTE.
+  const movementSlowdown = (enemy.attackStyle || 'melee') === 'melee' ? 2 : 1;
+  const profile = {
+    ...baseProfile,
+    launchMs: Math.round((baseProfile.launchMs * movementSlowdown) / 1.5),
+    closeInMs: baseProfile.closeInMs * movementSlowdown,
+  };
+  return { ...profile, travelMs: profile.launchMs + profile.closeInMs };
 };
 
 // Зеркальная формация врагов — точное зеркало CHAR_FORMATION (left→right, top одинаковые)
@@ -334,7 +272,7 @@ const ENEMY_FORMATIONS = {
 //  - once: цикл играется один раз, затем заморозка на последнем кадре (без лупа).
 // onCycle — завершение полного прохода кадров; родитель решает, вернуть ли idle.
 // При смене key компонент ремоунтится — кадр стартует с 0.
-const CharSprite = React.memo(({ atlas, size = 110, className = '', style = {}, hue, sat, gameTime = false, ignoreSlowMo = false, speed = 1, holdAtFrame = null, once = false, onCycle }) => {
+const CharSprite = React.memo(({ atlas, size = 110, className = '', style = {}, hue, sat, gameTime = false, ignoreSlowMo = false, speed = 1, holdAtFrame = null, once = false, paused = false, onCycle }) => {
   const [frame, setFrame] = useState(0);
   const onCycleRef = useRef(onCycle);
   useEffect(() => { onCycleRef.current = onCycle; }, [onCycle]);
@@ -344,7 +282,7 @@ const CharSprite = React.memo(({ atlas, size = 110, className = '', style = {}, 
   const accRef = useRef(0);
   const doneRef = useRef(false);
   useEffect(() => {
-    if (!atlas) return;
+    if (!atlas || paused) return;
     const frameMs = 1000 / (atlas.fps || 12);
     if (!gameTime) {
       const id = setInterval(() => {
@@ -377,7 +315,7 @@ const CharSprite = React.memo(({ atlas, size = 110, className = '', style = {}, 
     };
     rafId = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafId);
-  }, [atlas, gameTime, ignoreSlowMo, speed, holdAtFrame, once]);
+  }, [atlas, gameTime, ignoreSlowMo, speed, holdAtFrame, once, paused]);
   if (!atlas) return null;
   const col = frame % atlas.cols;
   const row = Math.floor(frame / atlas.cols);
@@ -391,7 +329,7 @@ const CharSprite = React.memo(({ atlas, size = 110, className = '', style = {}, 
         width: size,
         height: size,
         overflow: 'hidden',
-        ...(hue != null ? { filter: charColorizeFilter(hue, sat) } : {}),
+        ...(hue != null ? { filter: spriteColorizeFilter(hue, sat) } : {}),
         ...style,
       }}
     >
@@ -450,9 +388,9 @@ const EnemyHpBar = React.memo(({ hp, maxHp }) => {
   );
 });
 
-// Пузырь речи врага: белый с красной обводкой и хвостиком над спрайтом.
-// Сдвигается внутрь, если упирается в верх/край экрана, чтобы всегда был виден.
-const EnemySpeechBubble = ({ text }) => {
+// Боевой пузырь использует тот же пиксельный компонент, что и диалоги таверны.
+// Обёртка лишь удерживает его над врагом и сдвигает от краёв viewport.
+const EnemySpeechBubble = ({ text, name, onTypingDone }) => {
   const ref = useRef(null);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
 
@@ -471,90 +409,18 @@ const EnemySpeechBubble = ({ text }) => {
   return (
     <div
       ref={ref}
-      className="absolute bottom-full left-1/2 mb-3 w-max max-w-[180px] bg-white text-red-900 text-[11px] font-black px-4 py-2 rounded-2xl shadow-[0_10px_30px_rgba(0,0,0,0.8)] z-[100] animate-in fade-in zoom-in-75 duration-300 leading-tight uppercase border-[3px] border-red-500 pointer-events-none"
+      className="absolute bottom-full left-1/2 z-[100] mb-3 w-max pointer-events-none animate-in fade-in zoom-in-75 duration-300"
       style={{ transform: `translate(calc(-50% + ${offset.x}px), ${offset.y}px)` }}
     >
-      {text}
-      <div className="absolute -bottom-[7px] left-1/2 -translate-x-1/2 w-3 h-3 bg-white border-b-[3px] border-r-[3px] border-red-500 rotate-45" style={{ marginLeft: -offset.x }}></div>
+      <SpeechBubble
+        key={`${name}:${text}`}
+        text={text}
+        name={name}
+        speedMult={1.7}
+        onTypingDone={onTypingDone}
+      />
     </div>
   );
-};
-
-const rollItemRarity = (sector = 1, stage = 0) => {
-  // Чем глубже заход — тем выше шанс редкого лута (сектор + этап карты)
-  const depth = Math.max(0, (sector - 1) * 6 + Math.max(0, stage - 1));
-  const t = Math.min(1, depth / 22);
-  const weights = {
-    COMMON: Math.round(78 - t * 38),
-    RARE: Math.round(16 + t * 14),
-    EPIC: Math.round(5 + t * 15),
-    LEGENDARY: Math.round(1 + t * 9),
-  };
-  const total = Object.values(weights).reduce((a, b) => a + b, 0);
-  let roll = Math.random() * total;
-  for (const [rarity, weight] of Object.entries(weights)) {
-    roll -= weight;
-    if (roll <= 0) return rarity;
-  }
-  return 'COMMON';
-};
-
-const RARITY_ORDER = ['COMMON', 'RARE', 'EPIC', 'LEGENDARY'];
-const getNextRarity = (rarity) => {
-  const idx = RARITY_ORDER.indexOf(rarity);
-  return idx >= 0 && idx < RARITY_ORDER.length - 1 ? RARITY_ORDER[idx + 1] : null;
-};
-
-// Подбор шаблона под целевую рарность:
-// - «родные» шаблоны этой рарности идут без тинта (с весом)
-// - шаблоны более низкой рарности можно «перекрасить» под целевую (тинт) — расширяет ассортимент
-const pickTemplateForRarity = (rarity) => {
-  const targetIdx = RARITY_ORDER.indexOf(rarity);
-  const pool = [];
-  for (const t of ITEM_TEMPLATES) {
-    const tIdx = RARITY_ORDER.indexOf(t.rarity);
-    if (tIdx === targetIdx) {
-      // родной шаблон — больший вес, чтобы доминировал
-      pool.push({ template: t, tinted: false });
-      pool.push({ template: t, tinted: false });
-      pool.push({ template: t, tinted: false });
-    } else if (tIdx < targetIdx) {
-      // более низкий — перекрашиваем под целевую рарность
-      pool.push({ template: t, tinted: true });
-    }
-  }
-  if (pool.length === 0) {
-    return { template: ITEM_TEMPLATES[Math.floor(Math.random() * ITEM_TEMPLATES.length)], tinted: false };
-  }
-  return pool[Math.floor(Math.random() * pool.length)];
-};
-
-const generateItemOfRarity = (rarity) => {
-  const { template, tinted } = pickTemplateForRarity(rarity);
-  const stats = rollItemStatBundle(rarity);
-  const prefix = ITEM_RARITY_PREFIX[rarity];
-  const name = tinted && prefix ? `${prefix} ${template.name.toLowerCase()}` : template.name;
-  return {
-    uid: `item_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-    name,
-    icon: template.icon,
-    rarity,
-    tinted,
-    stats,
-  };
-};
-
-const generateRandomItem = (sector = 1, stage = 0) => generateItemOfRarity(rollItemRarity(sector, stage));
-
-// Возвращает МАССИВ предметов с одного врага: floor(шанса) гарантированных + roll на дробный остаток.
-// При LOOT_DROP_CHANCE = 1.3 это «всегда 1 предмет + 30% шанс второго».
-const rollLootDrops = (sector = 1, stage = 0) => {
-  const drops = [];
-  const guaranteed = Math.floor(LOOT_DROP_CHANCE);
-  for (let i = 0; i < guaranteed; i++) drops.push(generateRandomItem(sector, stage));
-  const remainder = LOOT_DROP_CHANCE - guaranteed;
-  if (remainder > 0 && Math.random() < remainder) drops.push(generateRandomItem(sector, stage));
-  return drops;
 };
 
 const getEffectivePlayer = (player, equippedItem) => {
@@ -565,20 +431,6 @@ const getEffectivePlayer = (player, equippedItem) => {
   const crit = (player.crit || 0) + (bonus.crit || 0);
   const maxHp = (player.baseMaxHp ?? 20) + (bonus.hp || 0);
   return { ...player, atk, matk, crit, maxHp };
-};
-
-// Список бонусов предмета: [{ label, display }] — для зелёного отображения в тултипе
-const formatItemStatsList = (stats = {}) => {
-  const parts = [];
-  if (stats.atk) parts.push({ label: 'Атака', display: `+${stats.atk}%` });
-  if (stats.matk) parts.push({ label: 'Маг. атака', display: `+${stats.matk}%` });
-  if (stats.crit) parts.push({ label: 'Крит', display: `+${stats.crit}%` });
-  if (stats.hp) parts.push({ label: 'HP', display: `+${stats.hp}` });
-  return parts;
-};
-const formatItemStats = (stats = {}) => {
-  const parts = formatItemStatsList(stats).map(p => `${p.label} ${p.display}`);
-  return parts.length ? parts.join(' · ') : 'Без бонусов';
 };
 
 // Цели атаки: all — все враги (дефолт, ~70%), random2 — 2 случайных, strongest — самый сильный
@@ -652,7 +504,7 @@ const HERO_ABILITIES = {
     ]
   },
   p3: {
-    basic: { id: 'b3', name: 'Искра', cost: 2, mult: 1.0, dmgType: 'magic', icon: '✨', targeting: 'all', rarity: 'COMMON', vfxType: 'magic_spark', qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } },
+    basic: { id: 'b3', name: 'Мертвая лошадь', cost: 2, mult: 1.0, dmgType: 'magic', icon: '🐎', targeting: 'all', rarity: 'COMMON', vfxType: 'horse_herd', qte: { mechanic: 'HORSE_HERD', trigger: 'ALWAYS' } },
     skills: [
       { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 2.5, dmgType: 'magic', icon: '☄️', targeting: 'all', rarity: 'RARE', vfxType: 'fireball', qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } },
       { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, dmgType: 'magic', icon: '❄️', targeting: 'all', rarity: 'RARE', vfxType: 'ice_spike', secondary: { effect: 'mark' }, qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } },
@@ -686,20 +538,6 @@ const POWERUPS = [
   { id: 'stats', title: 'Эликсир Мощи', desc: 'Атака и магическая атака каждого бойца увеличиваются на +5%.', icon: '💪' },
   { id: 'hp', title: 'Семя Жизни', desc: 'Максимальное здоровье всех героев увеличивается на +50%.', icon: '❤️' },
   { id: 'cards', title: 'Древний Фолиант', desc: 'Выбрать одну из 3 карт: новую или улучшение имеющейся.', icon: '📜' }
-];
-
-// --- НОВЫЙ БЛОК: ФРАЗЫ ВРАГОВ ---
-const ENEMY_INSULTS = [
-  "Ну всё, вам пиздец, уебки!",
-  "Я ваши кишки на хуй намотаю!",
-  "Сюда идите, сучары!",
-  "Ебать вы лохи, конечно!",
-  "Засуньте свою магию себе в жопу!",
-  "Хули вы тут забыли, мрази?",
-  "Я твою мать на вертеле крутил!",
-  "Ща я вам ебальники вскрою!",
-  "Сосите хуй, ублюдки!",
-  "Гниды ебаные, на куски порву!"
 ];
 
 // Fisher–Yates. `sort(() => random-0.5)` статистически смещён и портит
@@ -864,6 +702,11 @@ const QTE_RESULT_MULT = { perfect: 1.35, good: 1.15, miss: 1.0 };
 const QTE_BASE_MS = 900;
 const QTE_MIN_MS = 350; // хард-кап: предел человеческой реакции
 const QTE_RARITY_PENALTY_MS = { RARE: 100, EPIC: 250, LEGENDARY: 400 };
+// Enemy-QTE теперь определяет только контрудар: входящий урон проходит при
+// любом результате, а собственный урон герой наносит только на Perfect.
+const ENEMY_QTE_DAMAGE_MULT = { perfect: 1, good: 1, miss: 1 };
+const ENEMY_QTE_DURATION_MS = 850;
+const ENEMY_HIT_STOP_MS = 800;
 
 // Скорость сужения кольца: чем сильнее карта и глубже комбо — тем быстрее.
 // chainPos — 1-based позиция карты в цепочке комбо (1 = одиночная / первое звено).
@@ -1173,50 +1016,98 @@ const generateMap = () => {
   return layers.flat();
 };
 
+const ENEMY_STAT_TEMPLATES = {
+  'Зомби':      { baseHp: 70,  perStage: 18, icon: '🧟', xp: 90 },
+  'Волк':       { baseHp: 40,  perStage: 11, icon: '🐺', xp: 50 },
+  'Слизень':    { baseHp: 45,  perStage: 11, icon: '🟢', xp: 65 },
+  'Бандит':     { baseHp: 48,  perStage: 13, icon: '🦹', xp: 60 },
+  'Тёмный маг': { baseHp: 60,  perStage: 18, icon: '🧙', xp: 140 },
+  'Орк':        { baseHp: 100, perStage: 28, icon: '🪓', xp: 150 },
+  'Гоблин':     { baseHp: 45,  perStage: 12, icon: '👺', xp: 55 },
+  'Стрелок':    { baseHp: 55,  perStage: 14, icon: '🏹', xp: 85 },
+  [SKELETON_BOSS_NAME]: { baseHp: 220, perStage: 45, icon: '💀', xp: 300 },
+  'Глаз':       { baseHp: 280, perStage: 65, icon: '👁️', xp: 400 },
+};
+
+const SECTOR_ZONE_ENEMY_POOLS = {
+  1: {
+    start: ['Зомби'],
+    middle: ['Зомби', 'Волк'],
+    end: ['Зомби', 'Слизень', 'Волк'],
+  },
+  2: {
+    start: ['Бандит'],
+    middle: ['Тёмный маг', 'Бандит'],
+    end: ['Орк', 'Тёмный маг', 'Бандит'],
+  },
+};
+
+const LEGACY_ENEMY_POOLS = {
+  combat_easy: ['Слизень', 'Гоблин', 'Волк', 'Бандит'],
+  combat_medium: ['Зомби', 'Стрелок', 'Слизень'],
+  combat_hard: ['Орк', 'Тёмный маг', 'Зомби'],
+};
+
+const getEnemyZone = (stage) => {
+  if (stage <= 1) return 'start';
+  if (stage <= 3) return 'middle';
+  return 'end';
+};
+
+const pickEnemyNames = (pool, count) => {
+  const shuffled = shuffleArray(pool);
+  return Array.from({ length: count }, (_, index) => shuffled[index % shuffled.length]);
+};
+
 const spawnEnemies = (type, stage, sector = 1) => {
   const s = (stage || 1) + (sector - 1) * 6;
   const mult = Math.pow(1.55, sector - 1);
   let counter = 0;
-  const mk = (prefix, name, baseHp, perStage, icon, xp) => {
-    const { dmgMult, attackStyle, vfxType } = ENEMY_TYPES[name] || { dmgMult: 1, attackStyle: 'melee', vfxType: 'enemy' };
-    const hp = Math.round((baseHp + s * perStage) * mult * ENEMY_POWER_MULT);
+  const difficultyMult = type === 'combat_hard' ? 1.25 : type === 'combat_medium' ? 1 : 0.85;
+  const mk = (name, strengthMult = difficultyMult) => {
+    const template = ENEMY_STAT_TEMPLATES[name];
+    const { dmgMult, attackStyle, vfxType } = ENEMY_TYPES[name]
+      || { dmgMult: 1, attackStyle: 'melee', vfxType: 'enemy' };
+    const hp = Math.round(
+      (template.baseHp + s * template.perStage) * mult * ENEMY_POWER_MULT * strengthMult,
+    );
     return {
-      id: `${prefix}_${Date.now()}_${counter++}`,
-      name, hp, maxHp: hp, icon, isDead: false,
-      xpReward: Math.round(xp * mult),
-      dmgMult, attackStyle, vfxType,
+      id: `enemy_${Date.now()}_${counter++}`,
+      name,
+      hp,
+      maxHp: hp,
+      icon: template.icon,
+      isDead: false,
+      xpReward: Math.round(template.xp * mult * strengthMult),
+      dmgMult,
+      attackStyle,
+      vfxType,
       statuses: {},
     };
   };
 
   if (type === 'boss') {
-    // Глаз — единственный босс, AoE. Понерфлен: −30% HP, −25% к атаке
-    const boss = mk('boss', 'Глаз', 280, 65, '👁️', 400);
-    boss.hp = Math.round(boss.hp * 0.7);
-    boss.maxHp = boss.hp;
-    boss.dmgMult = boss.dmgMult * 0.75;
+    const bossName = sector <= 1 ? SKELETON_BOSS_NAME : 'Глаз';
+    const boss = mk(bossName, 1);
+    if (bossName === 'Глаз') {
+      // Глаз остаётся боссом второго сектора. Понерфлен: −30% HP, −25% к атаке.
+      boss.hp = Math.round(boss.hp * 0.7);
+      boss.maxHp = boss.hp;
+      boss.dmgMult *= 0.75;
+    }
     boss.isBoss = true;
     return [boss];
-  } else if (type === 'combat_hard') {
-    return shuffleArray([
-      mk('h1', 'Орк',        100, 28, '🪓', 150),
-      mk('h2', 'Тёмный маг',  60, 18, '🧙', 140),
-      mk('h3', 'Зомби',       95, 26, '🧟', 130),
-    ]);
-  } else if (type === 'combat_medium') {
-    return shuffleArray([
-      mk('m1', 'Зомби',    70, 18, '🧟', 90),
-      mk('m2', 'Стрелок',  55, 14, '🏹', 85),
-      mk('m3', 'Слизень',  45, 11, '🟢', 65),
-    ]).slice(0, 2);
-  } else {
-    return shuffleArray([
-      mk('e1', 'Слизень', 35, 10, '🟢', 50),
-      mk('e2', 'Гоблин',  45, 12, '👺', 55),
-      mk('e3', 'Волк',    40, 11, '🐺', 50),
-      mk('e4', 'Бандит',  48, 13, '🦹', 60),
-    ]).slice(0, 1 + Math.floor(Math.random() * 2));
   }
+
+  const zonePool = SECTOR_ZONE_ENEMY_POOLS[sector]?.[getEnemyZone(stage)];
+  const pool = zonePool || LEGACY_ENEMY_POOLS[type] || LEGACY_ENEMY_POOLS.combat_easy;
+  const count = type === 'combat_hard'
+    ? 3
+    : type === 'combat_medium'
+      ? 2
+      : 1 + Math.floor(Math.random() * 2);
+
+  return shuffleArray(pickEnemyNames(pool, count).map(name => mk(name)));
 };
 
 // --- 2. ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ ---
@@ -1296,6 +1187,100 @@ const TiltWrapper = ({ children, className, isDisabled, globalShake = {x:0, y:0,
     </CardTiltContext.Provider>
   );
 };
+
+const formatItemStatsList = (stats = {}) => {
+  const parts = [];
+  if (stats.atk) parts.push({ label: 'Атака', display: `+${stats.atk}%` });
+  if (stats.matk) parts.push({ label: 'Маг. атака', display: `+${stats.matk}%` });
+  if (stats.crit) parts.push({ label: 'Крит', display: `+${stats.crit}%` });
+  if (stats.hp) parts.push({ label: 'HP', display: `+${stats.hp}` });
+  return parts;
+};
+
+const ItemIcon = React.memo(({ item, className = '', imgClassName = 'w-full h-full object-cover' }) => {
+  if (!item) return null;
+  const tint = item.tinted ? RARITY_TINT[item.rarity] : null;
+  return (
+    <div className={`relative ${className}`}>
+      <img src={getItemIconUrl(item.icon)} alt={item.name || ''} className={imgClassName} draggable={false} />
+      {tint && (
+        <div className="absolute inset-0 pointer-events-none rounded-[inherit]" style={{ backgroundColor: tint, opacity: 0.5 }} />
+      )}
+    </div>
+  );
+});
+
+const ItemTooltip = React.memo(({ item, x, y }) => {
+  if (!item) return null;
+  const rarity = ITEM_RARITIES[item.rarity] || ITEM_RARITIES.COMMON;
+  const tooltipHeight = 130;
+  const left = Math.min(x + 14, window.innerWidth - 220);
+  const fitsBelow = y - 10 + tooltipHeight <= window.innerHeight - 8;
+  const top = fitsBelow ? Math.max(8, y - 10) : Math.max(8, y - tooltipHeight - 10);
+  const stats = formatItemStatsList(item.stats);
+
+  return (
+    <div className="fixed z-[9700] pointer-events-none w-52 bg-slate-950/95 border border-slate-600 rounded-xl p-3 shadow-2xl backdrop-blur-md"
+      style={{ left, top }}>
+      <div className="flex items-center gap-2 mb-2">
+        <ItemIcon item={item} className="w-10 h-10 rounded-lg border border-slate-600 overflow-hidden" />
+        <div>
+          <div className="text-xs font-black text-white uppercase tracking-tight">{item.name}</div>
+          <div className="text-[9px] font-bold uppercase" style={{ color: rarity.color }}>{rarity.name}</div>
+        </div>
+      </div>
+      {!stats.length ? (
+        <div className="text-[12px] text-slate-400 leading-relaxed font-medium">Без бонусов</div>
+      ) : (
+        <div className="flex flex-col gap-0.5">
+          {stats.map((part) => (
+            <div key={part.label} className="text-[12px] leading-relaxed font-bold flex justify-between">
+              <span className="text-slate-300">{part.label}</span>
+              <span className="text-green-400">{part.display}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+const ItemSlot = React.memo(({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLeave, size = 'md', draggable: isDraggable, onDragStart, onDragOver, onDragLeave, onDrop, isDragOver, equip = false }) => {
+  const sizeClass = size === 'sm' ? 'w-[64px] h-[64px]' : 'w-[52px] h-[52px]';
+  const rarity = item ? (ITEM_RARITIES[item.rarity] || ITEM_RARITIES.COMMON) : null;
+  const emptyClass = equip
+    ? 'border-slate-700/40 border-dashed bg-slate-900/25 hover:border-slate-500/50'
+    : 'border-slate-700 border-dashed bg-slate-900/50 hover:border-slate-500';
+  const filledClass = rarity
+    ? (equip
+      ? `${rarity.border} bg-slate-900/40 hover:brightness-110`
+      : `${rarity.border} bg-slate-900 hover:brightness-125`)
+    : '';
+
+  return (
+    <div
+      draggable={isDraggable && Boolean(item)}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      className={`${sizeClass} rounded-lg border-2 flex items-center justify-center transition-all relative overflow-hidden select-none
+        ${item ? `${filledClass} cursor-grab active:cursor-grabbing` : `${emptyClass} cursor-default`}
+        ${isDragOver ? 'ring-2 ring-amber-400 scale-110 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.6)]' : ''}
+        ${selected ? 'ring-2 ring-amber-400 scale-105 shadow-[0_0_15px_rgba(251,191,36,0.5)]' : ''}
+        ${equip ? 'mt-[18px]' : ''}`}
+    >
+      {item ? (
+        <ItemIcon item={item} className="w-full h-full pointer-events-none" imgClassName="w-full h-full object-cover pointer-events-none" />
+      ) : (
+        <span className="text-[8px] text-slate-600 font-bold uppercase">{emptyLabel || ''}</span>
+      )}
+    </div>
+  );
+});
 
 const CARD_DEAL_FLY_MS = 725;
 const CARD_DEAL_STAGGER_MS = 150; // было 300
@@ -1401,7 +1386,7 @@ const FlyingItem = React.memo(({ id, item, startX, startY, endX, endY, onComplet
     return () => { [t, f1, f2, c].forEach(clearTimeout); };
   }, [id, item, endX, endY]);
 
-  const rarity = RARITIES[item.rarity] || RARITIES.COMMON;
+  const rarity = ITEM_RARITIES[item.rarity] || ITEM_RARITIES.COMMON;
   return (
     <div className="fixed z-[810] pointer-events-none"
       style={{ left: 0, top: 0, transform: `translate(${pos.x - 24}px, ${pos.y - 24}px) scale(${pos.scale}) rotate(${pos.rotate}deg)`, opacity: fade, transition: 'transform 600ms cubic-bezier(0.22, 1, 0.36, 1), opacity 120ms ease-out' }}>
@@ -1431,44 +1416,6 @@ const WalletHUD = React.memo(({ gold, soulEmbers }) => (
   </div>
 ));
 
-const ItemTooltip = React.memo(({ item, x, y }) => {
-  if (!item) return null;
-  const rarity = RARITIES[item.rarity] || RARITIES.COMMON;
-  const TT_H = 130; // ориентировочная высота тултипа
-  const left = Math.min(x + 14, window.innerWidth - 220);
-  // Если внизу не помещается — показываем над курсором
-  const fitsBelow = y - 10 + TT_H <= window.innerHeight - 8;
-  const top = fitsBelow
-    ? Math.max(8, y - 10)
-    : Math.max(8, y - TT_H - 10);
-  return (
-    <div className="fixed z-[9700] pointer-events-none w-52 bg-slate-950/95 border border-slate-600 rounded-xl p-3 shadow-2xl backdrop-blur-md"
-      style={{ left, top }}>
-      <div className="flex items-center gap-2 mb-2">
-        <ItemIcon item={item} className="w-10 h-10 rounded-lg border border-slate-600 overflow-hidden" />
-        <div>
-          <div className="text-xs font-black text-white uppercase tracking-tight">{item.name}</div>
-          <div className={`text-[9px] font-bold uppercase ${rarity.text}`}>{rarity.name}</div>
-        </div>
-      </div>
-      {(() => {
-        const list = formatItemStatsList(item.stats);
-        if (!list.length) return <div className="text-[12px] text-slate-400 leading-relaxed font-medium">Без бонусов</div>;
-        return (
-          <div className="flex flex-col gap-0.5">
-            {list.map((p, i) => (
-              <div key={i} className="text-[12px] leading-relaxed font-bold flex justify-between">
-                <span className="text-slate-300">{p.label}</span>
-                <span className="text-green-400">{p.display}</span>
-              </div>
-            ))}
-          </div>
-        );
-      })()}
-    </div>
-  );
-});
-
 // Крутящийся символ комбо/синергии справа от арены. Две руны вращаются
 // независимо в разные стороны, в центре — номер карты в цепочке комбо.
 const ComboIndicator = React.memo(({ count }) => {
@@ -1481,41 +1428,6 @@ const ComboIndicator = React.memo(({ count }) => {
         style={{ animation: 'comboSpinCCW 6s linear infinite', filter: 'drop-shadow(0 0 8px rgba(245,158,11,0.9))' }} />
       <span key={count} className="relative z-10 text-7xl font-black text-amber-200 drop-shadow-[0_0_12px_rgba(245,158,11,1)]"
         style={{ animation: 'comboNumPop 0.35s ease-out' }}>{count}</span>
-    </div>
-  );
-});
-
-const ItemSlot = React.memo(({ item, selected, emptyLabel, onClick, onMouseEnter, onMouseLeave, size = 'md', draggable: isDraggable, onDragStart, onDragOver, onDragLeave, onDrop, isDragOver, equip = false }) => {
-  const sizeClass = size === 'sm' ? 'w-[64px] h-[64px]' : 'w-[52px] h-[52px]';
-  const rarity = item ? (RARITIES[item.rarity] || RARITIES.COMMON) : null;
-  const emptyClass = equip
-    ? 'border-slate-700/40 border-dashed bg-slate-900/25 hover:border-slate-500/50'
-    : 'border-slate-700 border-dashed bg-slate-900/50 hover:border-slate-500';
-  const filledClass = rarity
-    ? (equip
-      ? `${rarity.border} bg-slate-900/40 hover:brightness-110`
-      : `${rarity.border} bg-slate-900 hover:brightness-125`)
-    : '';
-  return (
-    <div
-      draggable={isDraggable && !!item}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-      onClick={onClick}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-      className={`${sizeClass} rounded-lg border-2 flex items-center justify-center transition-all relative overflow-hidden select-none
-        ${item ? `${filledClass} cursor-grab active:cursor-grabbing` : `${emptyClass} cursor-default`}
-        ${isDragOver ? 'ring-2 ring-amber-400 scale-110 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.6)]' : ''}
-        ${selected ? 'ring-2 ring-amber-400 scale-105 shadow-[0_0_15px_rgba(251,191,36,0.5)]' : ''}
-        ${equip ? 'mt-[18px]' : ''}`}>
-      {item ? (
-        <ItemIcon item={item} className="w-full h-full pointer-events-none" imgClassName="w-full h-full object-cover pointer-events-none" />
-      ) : (
-        <span className="text-[8px] text-slate-600 font-bold uppercase">{emptyLabel || ''}</span>
-      )}
     </div>
   );
 });
@@ -1635,10 +1547,10 @@ const HeroFieldBadges = ({ armor, chainBonus }) => {
 const CombatVfx = ({ vfx }) => {
   const cs = vfx.comboScale || 1;
   const tier = vfx.comboTier || 0;
-  const durMs = COMBO_VFX_DUR_MS[tier] || 420;
+  const durMs = vfx.durationMs || COMBO_VFX_DUR_MS[tier] || 420;
   const tx = vfx.endX - vfx.startX;
   const ty = vfx.endY - vfx.startY;
-  const isTravel = ['magic_spark', 'fireball', 'ice_spike', 'lightning', 'dark_void', 'enemy', 'daggers', 'poison', 'dagger_single', 'arrow'].includes(vfx.type);
+  const isTravel = ['magic_spark', 'fireball', 'ice_spike', 'lightning', 'dark_void', 'enemy', 'daggers', 'poison', 'dagger_single', 'arrow', 'bone'].includes(vfx.type);
   const originX = isTravel ? vfx.startX + (vfx.scatterX || 0) : vfx.endX;
   const originY = isTravel ? vfx.startY + (vfx.scatterY || 0) : vfx.endY;
 
@@ -1660,23 +1572,43 @@ const CombatVfx = ({ vfx }) => {
     const tf = (dx, dy, scale, rot = '') =>
       `translate(-50%, -50%) translate3d(${dx}px, ${dy}px, 0) scale(${scale})${rot ? ` ${rot}` : ''}`;
     const trans = `transform ${durMs}ms ease-out, opacity ${Math.min(durMs, 320)}ms ease-out`;
+    const hasCloseIn = vfx.launchMs > 0 && vfx.closeInMs > 0;
+    const approachRatio = vfx.approachRatio || 0.75;
+    const launchTrans = `transform ${vfx.launchMs}ms ease-out, opacity 180ms ease-out`;
+    // Та же ускоряющаяся кривая, что у QTE-кольца (ease-in-quad):
+    // угроза физически достигает цели только в конце окна.
+    const closeInTrans = `transform ${vfx.closeInMs}ms cubic-bezier(0.55, 0.085, 0.68, 0.53), opacity 180ms ease-out`;
+    const runTravel = (approachTransform, impactTransform) => {
+      run(() => {
+        if (!hasCloseIn) {
+          setStyle(s => ({ ...s, opacity: 1, transform: impactTransform, transition: trans }));
+          return;
+        }
+        setStyle(s => ({ ...s, opacity: 1, transform: approachTransform, transition: launchTrans }));
+        run(() => {
+          setStyle(s => ({ ...s, opacity: 1, transform: impactTransform, transition: closeInTrans }));
+        }, vfx.launchMs);
+      }, 20);
+    };
 
     run(() => {
       if (['magic_spark', 'fireball', 'ice_spike', 'lightning', 'dark_void', 'enemy'].includes(vfx.type)) {
         setStyle(s => ({ ...s, opacity: 1, transform: tf(0, 0, 0.5 * cs) }));
-        run(() => setStyle(s => ({ ...s, opacity: 1, transform: tf(tx, ty, 1.5 * cs), transition: trans })), 20);
+        runTravel(
+          tf(tx * approachRatio, ty * approachRatio, 1.15 * cs),
+          tf(tx, ty, 1.5 * cs),
+        );
       } else if (['slash', 'smash', 'dark_strike'].includes(vfx.type)) {
         setStyle(s => ({ ...s, opacity: 1, transform: tf(0, 0, 0.2 * cs, 'rotate(-45deg)') }));
         run(() => setStyle(s => ({ ...s, opacity: 0, transform: tf(0, 0, 2 * cs, 'rotate(45deg)'), transition: trans })), 20);
-      } else if (['daggers', 'poison', 'dagger_single', 'arrow'].includes(vfx.type)) {
+      } else if (['daggers', 'poison', 'dagger_single', 'arrow', 'bone'].includes(vfx.type)) {
         const angle = Math.atan2(ty, tx) * 180 / Math.PI;
-        const spin = vfx.type === 'arrow' ? 0 : 360;
+        const spin = vfx.type === 'arrow' ? 0 : vfx.type === 'bone' ? 540 : 360;
         setStyle(s => ({ ...s, opacity: 1, transform: tf(0, 0, cs, `rotate(${angle + 90}deg)`) }));
-        run(() => setStyle(s => ({
-          ...s, opacity: 1,
-          transform: tf(tx, ty, cs, `rotate(${angle + 90 + spin}deg)`),
-          transition: trans,
-        })), 20);
+        runTravel(
+          tf(tx * approachRatio, ty * approachRatio, cs, `rotate(${angle + 90 + spin * approachRatio}deg)`),
+          tf(tx, ty, cs, `rotate(${angle + 90 + spin}deg)`),
+        );
       }
     }, vfx.delay || 0);
 
@@ -1692,7 +1624,12 @@ const CombatVfx = ({ vfx }) => {
   })) : [];
 
   const wrap = (node) => (
-    <div style={style} className="fixed z-[1000] pointer-events-none flex items-center justify-center">
+    <div
+      style={style}
+      data-qte-realtime={vfx.realTime ? 'true' : undefined}
+      data-enemy-attack-id={vfx.enemyId || undefined}
+      className="fixed z-[1000] pointer-events-none flex items-center justify-center"
+    >
       {node}
       {sparks.map(s => (
         <div key={s.key} className="absolute rounded-full bg-white opacity-90"
@@ -1763,6 +1700,7 @@ const CombatVfx = ({ vfx }) => {
 
   if (vfx.type === 'dagger_single' || vfx.type === 'daggers') return wrap(<div className="drop-shadow-[0_0_10px_#36B373]" style={{ fontSize: `${36 * cs}px` }}>🗡️</div>);
   if (vfx.type === 'arrow') return wrap(<div className="drop-shadow-[0_0_8px_#94a3b8]" style={{ fontSize: `${28 * cs}px` }}>🏹</div>);
+  if (vfx.type === 'bone') return wrap(<div style={{ fontSize: `${48 * cs}px`, filter: `drop-shadow(0 0 ${12 * cs}px #f8fafc) drop-shadow(0 0 ${24 * cs}px #a16207)` }}>🦴</div>);
   if (vfx.type === 'poison') return wrap(<div className="drop-shadow-[0_0_20px_#22c55e]" style={{ fontSize: `${36 * cs}px` }}>🧪</div>);
 
   return null;
@@ -2056,7 +1994,7 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
   }, [growDamage]);
 
   if (!card) return null;
-  const rarity = RARITIES[card.rarity] || RARITIES.COMMON;
+  const rarity = CARD_RARITIES[card.rarity] || CARD_RARITIES.COMMON;
   const { isCandidate, willGiveBonus, comboStep = 0, comboPct = 0 } = comboState;
   const targeting = getCardTargeting(card);
   const level = getCardLevel(card);
@@ -2083,15 +2021,32 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
   const displayRarityName = showOwnerLabel && owner ? `${rarity.name} - ${owner.name}` : rarity.name;
   const parallaxX = tilt.y * 0.5;
   const parallaxY = -tilt.x * 0.5;
+  const damageColor = grow
+    ? 'text-green-400'
+    : willGiveBonus
+      ? 'text-yellow-400'
+      : buffedByChain
+        ? 'text-amber-300'
+        : statColor;
 
   return (
     <div className={`w-full h-full border ${rarity.border} rounded-2xl flex flex-col overflow-hidden relative shadow-inner bg-[#45475a] ${isCandidate && !isDisabled ? 'ring-2 ring-yellow-400 shadow-[0_0_30px_rgba(250,204,21,0.6)]' : ''}`}>
       <div className={`${rarity.header} py-1.5 px-2.5 border-b border-black/20 flex items-center justify-between shadow-md`}>
-        <span className={`font-bold text-[11px] ${rarity.text} uppercase tracking-wider truncate drop-shadow-md`}>{String(card.name)}{level > 1 && <span className="text-amber-300"> ур.{String(level)}</span>}</span>
-        <div className={`w-[22px] h-[22px] rounded-full flex items-center justify-center font-black text-[10px] border-2 border-white/20 shadow-lg text-white ${mana < card.cost ? 'bg-red-500' : 'bg-[#1E88E5]'}`}>{String(card.cost)}</div>
+        <span className={`font-bold text-[11px] ${rarity.text} uppercase tracking-wider truncate drop-shadow-md`}>
+          {String(card.name)}
+          {level > 1 && <span className="text-amber-300"> ур.{String(level)}</span>}
+        </span>
+        <div className={`w-[22px] h-[22px] rounded-full flex items-center justify-center font-black text-[10px] border-2 border-white/20 shadow-lg text-white ${mana < card.cost ? 'bg-red-500' : 'bg-[#1E88E5]'}`}>
+          {String(card.cost)}
+        </div>
       </div>
+
       <div className="flex-1 flex flex-col items-center justify-center relative p-1 bg-[#373945] min-h-[40px] overflow-visible" style={{ transformStyle: 'preserve-3d' }}>
-        {isCandidate && (<div className="absolute top-1 left-1 bg-yellow-400 text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">COMBO{willGiveBonus && comboPct > 0 ? ` +${comboPct}%` : '!'}</div>)}
+        {isCandidate && (
+          <div className="absolute top-1 left-1 bg-yellow-400 text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">
+            COMBO{willGiveBonus && comboPct > 0 ? ` +${comboPct}%` : '!'}
+          </div>
+        )}
         <span
           className="drop-shadow-2xl select-none leading-none"
           style={{
@@ -2099,31 +2054,48 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
             transform: `translate3d(${parallaxX}px, ${parallaxY}px, 0)`,
             transition: 'none',
           }}
-        >{String(card.icon)}</span>
+        >
+          {String(card.icon)}
+        </span>
       </div>
+
       <div className="text-center leading-none bg-[#50546d] border-t border-slate-600/30 px-2 pt-4 pb-2 flex flex-col justify-center gap-0.5 min-h-[76px] relative">
         <div className={`absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-0.5 rounded-full ${rarity.badgeBg} shadow-md z-10 whitespace-nowrap`}>
-          <span className="text-[10px] font-black italic text-[#FFFFE0] uppercase tracking-wide drop-shadow-sm">{displayRarityName}</span>
+          <span className="text-[10px] font-black italic text-[#FFFFE0] uppercase tracking-wide drop-shadow-sm">
+            {displayRarityName}
+          </span>
         </div>
         {mod ? (
           <>
             <p className="text-[11px] text-slate-100 font-semibold leading-tight">
               {card.modType === 'armor' ? (
-                <>Броня <span className={`font-black text-[14px] ${willGiveBonus ? 'text-yellow-400' : 'text-sky-300'}`}>+{modAmount}</span></>
+                <>
+                  Броня <span className={`font-black text-[14px] ${willGiveBonus ? 'text-yellow-400' : 'text-sky-300'}`}>+{modAmount}</span>
+                </>
               ) : (
-                <>След. карта <span className={`font-black text-[14px] ${willGiveBonus ? 'text-yellow-400' : 'text-amber-300'}`}>+{modAmount}</span> урона</>
+                <>
+                  След. карта <span className={`font-black text-[14px] ${willGiveBonus ? 'text-yellow-400' : 'text-amber-300'}`}>+{modAmount}</span> урона
+                </>
               )}
             </p>
-            <p className="text-[10px] leading-none mt-0.5 text-slate-400">{card.modType === 'armor' ? 'Снижает урон до конца раунда' : 'Бонус к следующей карте в этом ходу'}</p>
+            <p className="text-[10px] leading-none mt-0.5 text-slate-400">
+              {card.modType === 'armor' ? 'Снижает урон до конца раунда' : 'Бонус к следующей карте в этом ходу'}
+            </p>
           </>
         ) : (
           <>
             <p className="text-[11px] text-slate-100 font-semibold leading-tight">
               Наносит{' '}
               <span
-                className={`font-black text-[13px] transition-all duration-300 ${grow ? 'text-green-400' : (willGiveBonus ? 'text-yellow-400' : (buffedByChain ? 'text-amber-300' : statColor))}`}
-                style={{ display: 'inline-block', transform: grow ? 'scale(1.4)' : 'scale(1)', textShadow: grow ? '0 0 14px rgba(34,197,94,0.95)' : 'none' }}
-              >{String(dmg)}</span>{' '}
+                className={`font-black text-[13px] transition-all duration-300 ${damageColor}`}
+                style={{
+                  display: 'inline-block',
+                  transform: grow ? 'scale(1.4)' : 'scale(1)',
+                  textShadow: grow ? '0 0 14px rgba(34,197,94,0.95)' : 'none',
+                }}
+              >
+                {String(dmg)}
+              </span>{' '}
               урона <span className="text-slate-300">{targetSuffix}</span>
             </p>
             {effectLine && (
@@ -2165,11 +2137,15 @@ const PRELOAD_ASSETS = [
   './assets/sfx/ui/card_discard.wav',
   './assets/sfx/ui/click.wav',
   './assets/sfx/ui/hover.wav',
+  './assets/tavern/task_master.webp',
+  './assets/tavern/task_master_inactive.webp',
   './corner.webp',
   // Атласы спрайтов: прогреваем заранее, чтобы враги/бойцы не подгружались рывками в бою
   ...Object.values(CHAR_ATLASES).map(a => a.url),
   ...Object.values(CHAR_ATTACK_ATLASES).map(a => a.url),
   ...Object.values(ENEMY_ATLASES).map(a => a.url),
+  './chars/necro_horse_default.webp',
+  './chars/necro_horse_active.webp',
 ];
 
 const MUSIC_URL = './file.mp3';
@@ -2188,7 +2164,7 @@ function playSound(path, volume = 1.0) {
 
 /** Возвращает путь к звуку удара по типу vfxType карты */
 function getCombatHitSound(vfxType) {
-  if (['fireball', 'ice_spike', 'lightning', 'dark_void', 'magic_spark'].includes(vfxType))
+  if (['fireball', 'ice_spike', 'lightning', 'dark_void', 'magic_spark', 'horse_herd'].includes(vfxType))
     return './assets/sfx/combat/hit_magic.wav';
   if (['smash'].includes(vfxType))
     return './assets/sfx/combat/hit_heavy.wav';
@@ -2198,8 +2174,6 @@ function getCombatHitSound(vfxType) {
 }
 
 // --- СХЕМА СЛОТОВ ОТРЯДА (бойцы + пуллы карт) ---
-
-const RARITY_GLOW = { COMMON: '#64748b', RARE: '#0ea5e9', EPIC: '#9333ea', LEGENDARY: '#f59e0b' };
 
 // Переиспользуется в попапе новой карты и в окне колоды.
 // hoveredId/onHoverCard — двусторонняя подсветка карт между слотами и очередью колоды.
@@ -2235,7 +2209,7 @@ const SquadSlotsBoard = ({ players, pools, newCardId = null, hoveredId = null, o
                   </div>
                 );
               }
-              const glow = RARITY_GLOW[card.rarity] || '#64748b';
+              const glow = CARD_RARITY_GLOW[card.rarity] || '#64748b';
               const isNew = card.id === newCardId;
               const isHover = hoveredId === card.id;
               return (
@@ -2293,83 +2267,6 @@ const SquadSlotsPopup = ({ players, pools, newCardId, onClose }) => {
         <div className="absolute bottom-10 left-0 right-0 flex justify-center animate-in fade-in duration-500">
           <p className="text-slate-200 text-sm uppercase tracking-[0.3em] font-black animate-pulse drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]">Нажмите любую клавишу чтобы продолжить</p>
         </div>
-      )}
-    </div>
-  );
-};
-
-// --- ЭКРАН СМЕРТИ: автопродажа хлама -> огоньки души ---
-
-const DeathScreen = ({ items, startProgress = 0, threshold = EMBER_JUNK_THRESHOLD, onDone }) => {
-  // Хлам копится в ГЛОБАЛЬНУЮ шкалу, продолжая её с предыдущего забега (startProgress).
-  // При пересечении порога выдаётся огонёк, остаток переносится дальше.
-  const junkPoints = useMemo(() => sumJunkPoints(items), [items]);
-  const totalPoints = startProgress + junkPoints;
-
-  // acc — текущее анимированное значение очков (от startProgress до totalPoints)
-  const [acc, setAcc] = useState(startProgress);
-  const [phase, setPhase] = useState(junkPoints > 0 ? 'selling' : 'done'); // selling | done
-
-  useEffect(() => {
-    if (phase !== 'selling') return;
-    const DURATION = 2200;
-    const start = performance.now();
-    let raf;
-    const tick = (now) => {
-      const t = Math.min(1, (now - start) / DURATION);
-      setAcc(startProgress + t * junkPoints);
-      if (t < 1) raf = requestAnimationFrame(tick);
-      else { setAcc(totalPoints); setPhase('done'); }
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [phase, startProgress, junkPoints, totalPoints]);
-
-  const embersBefore = Math.floor(startProgress / threshold);
-  const shownEmbers = Math.floor(acc / threshold) - embersBefore;
-  const barValue = Math.floor(acc % threshold);
-  const barFill = (acc % threshold) / threshold;
-  const sellFraction = junkPoints > 0 ? (acc - startProgress) / junkPoints : 1;
-  const soldCount = Math.round(sellFraction * items.length);
-
-  return (
-    <div className="absolute inset-0 z-[2000] bg-red-950/85 flex flex-col items-center justify-center backdrop-blur-xl animate-in fade-in duration-700 p-6">
-      <h1 className="text-7xl font-black text-white drop-shadow-[0_0_40px_rgba(239,68,68,1)] mb-2 tracking-tighter uppercase italic text-center">ОТРЯД ПАЛ</h1>
-      <p className="text-lg text-red-300 font-bold uppercase tracking-[0.4em] mb-10 text-center">Уровень обнулён · снаряжение обращается в пепел</p>
-
-      {/* Хлам на продажу */}
-      <div className="flex flex-col items-center gap-4 mb-8">
-        <p className="text-xs text-slate-400 uppercase tracking-[0.3em] font-black">Накопленный хлам: {String(items.length)}</p>
-        <div className="flex gap-2 flex-wrap justify-center max-w-xl min-h-[3.5rem]">
-          {items.map((item, i) => (
-            <div key={i} className={`w-12 h-12 rounded-lg border overflow-hidden transition-all duration-300 ${i < soldCount ? 'opacity-15 grayscale scale-75' : 'border-slate-600'}`}>
-              <ItemIcon item={item} className="w-full h-full" />
-            </div>
-          ))}
-          {items.length === 0 && <p className="text-slate-600 text-sm italic">Пусто — нечего продавать</p>}
-        </div>
-
-        {/* Глобальная шкала прогресса огонька души: [текущее] / [порог] */}
-        <div className="w-96 flex flex-col gap-1">
-          <div className="flex justify-between text-[10px] uppercase tracking-[0.25em] font-black text-amber-300/80">
-            <span>Шкала огонька души</span>
-            <span>{String(barValue)} / {String(threshold)}</span>
-          </div>
-          <div className="w-full h-4 bg-slate-900/80 rounded-full border border-slate-700 overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-amber-600 to-amber-300 rounded-full transition-none" style={{ width: `${barFill * 100}%` }}></div>
-          </div>
-        </div>
-
-        {/* Огоньки души */}
-        <div className={`flex items-center gap-3 transition-all duration-500 ${shownEmbers > 0 || phase === 'done' ? 'opacity-100 scale-100' : 'opacity-30 scale-90'}`}>
-          <span className="text-4xl drop-shadow-[0_0_15px_rgba(96,165,250,0.9)]">🔥</span>
-          <span className="text-4xl font-black text-sky-300 drop-shadow-[0_0_15px_rgba(96,165,250,0.7)]">+{String(shownEmbers)}</span>
-          <span className="text-xs text-sky-400/80 uppercase tracking-[0.25em] font-black self-end pb-1.5">Огоньки души</span>
-        </div>
-      </div>
-
-      {phase === 'done' && (
-        <button onClick={onDone} className="px-16 py-6 bg-white text-red-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter animate-in fade-in zoom-in-95 duration-500">Принять судьбу</button>
       )}
     </div>
   );
@@ -2548,7 +2445,7 @@ const CardRevealOverlay = ({ card, owner, bgHue = 260, bgSat = 60, onDismiss }) 
     setTilt({ x: ((r.height / 2 - py) / (r.height / 2)) * 9, y: ((px - r.width / 2) / (r.width / 2)) * 9 });
   };
 
-  const glow = RARITY_GLOW[card.rarity] || '#64748b';
+  const glow = CARD_RARITY_GLOW[card.rarity] || '#64748b';
   // Slam-in: 0.6 → 1.08 (overshoot) → 1.0; CSS transition с cubic-bezier даёт «упругий» удар.
   const scale = slammed ? 1 : 0.6;
 
@@ -2700,7 +2597,7 @@ const DeckWindow = ({ players, pools, drawPile, maxMana, onClose }) => {
                          </div>
                        );
                      }
-                     const glow = RARITY_GLOW[card.rarity] || '#64748b';
+                     const glow = CARD_RARITY_GLOW[card.rarity] || '#64748b';
                      return (
                        <div
                          key={`h-${card.id}-${i}`}
@@ -2753,7 +2650,7 @@ const DeckWindow = ({ players, pools, drawPile, maxMana, onClose }) => {
                      </div>
                    );
                  }
-                 const glow = RARITY_GLOW[card.rarity] || '#64748b';
+                 const glow = CARD_RARITY_GLOW[card.rarity] || '#64748b';
                  return (
                    <div
                      key={`q-${card.id}-${i}`}
@@ -3324,6 +3221,12 @@ export default function App() {
   // Состояние говорящего врага
   const [speakingEnemy, setSpeakingEnemy] = useState(null);
   const speakingTimeoutRef = useRef(null);
+  const finishEnemySpeech = useCallback((enemyId) => {
+    if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
+    speakingTimeoutRef.current = setTimeout(() => {
+      setSpeakingEnemy(previous => previous?.id === enemyId ? null : previous);
+    }, 1400);
+  }, []);
 
   const initialMapRef = useRef(null);
   if (!initialMapRef.current) {
@@ -3380,7 +3283,7 @@ export default function App() {
   // живут в собственном компоненте FxLayer и обновляются через imperative API.
   // Их частые setState'ы НЕ перерисовывают App.
   const fxRef = useRef(null);
-  const [inventory, setInventory] = useState(Array(INVENTORY_SIZE).fill(null));
+  const [inventory, setInventory] = useState([]);
   const [equipped, setEquipped] = useState({ p1: null, p2: null, p3: null });
   const [dragSrcIdx, setDragSrcIdx] = useState(null);
   const [dragOverPlayerId, setDragOverPlayerId] = useState(null);
@@ -3396,11 +3299,35 @@ export default function App() {
   // Стартовый экран Таверны-Хаба: показывается один раз после прелоадера,
   // закрывается по клику на дверь → отряд попадает на карту сектора.
   const [showTavern, setShowTavern] = useState(true);
-  // Событие «первая смерть»: после ПЕРВОГО падения отряда возвращение в таверну
-  // встречает историей незнакомца (триггер FIRST_DEATH), по её завершении отряд
-  // бесплатно получает по новой карте в свободные слоты. Одноразово за сессию.
+  const [showShop, setShowShop] = useState(false);
+  const [showTaskMaster, setShowTaskMaster] = useState(false);
+  const [shopStock, setShopStock] = useState(() => createShopStock());
+  // В магазине появился новый ассортимент — бармен светится нотификатором,
+  // пока игрок не заглянул в лавку.
+  const [shopUnseen, setShopUnseen] = useState(true);
+  // Герои, получившие карту/бонус и ещё не открытые в инвентаре: { heroId: true }.
+  // Питает нотификаторы над персонажами в таверне.
+  const [heroRewardBadges, setHeroRewardBadges] = useState({});
+  // Отдых отряда живёт здесь, а не в таверне: экран размонтируется на оверлеях
+  // (реванш карты, инвентарь героя), и локальный флаг терял бы ночёвку.
+  const [tavernRested, setTavernRested] = useState(false);
+  // Скелет-поручитель: после обязательной ночи первой смерти остаётся у камина.
+  // Поручения живут в мета-состоянии сессии и переживают обычный wipe.
+  const [taskMasterState, setTaskMasterState] = useState(() => createTaskMasterState());
+  const recordTaskProgress = useCallback((metric, amount = 1) => {
+    setTaskMasterState(previous => progressTaskQuests(previous, metric, amount));
+  }, []);
+  // Один бой может завершиться из нескольких асинхронных веток (удар, bleed,
+  // enemy phase), поэтому победу для заданий считаем только один раз на узел.
+  const questVictoryNodesRef = useRef(new Set());
+  // Событие «первая смерть»: обязательный ночной визит скелета. После согласия
+  // он открывает книгу поручений и остаётся возле камина.
   const [firstDeathStoryPending, setFirstDeathStoryPending] = useState(false);
+  // Отдельное старое событие первой смерти: случайный дневной посетитель
+  // рассказывает историю и отдаёт бесплатную перманентную карту.
+  const [firstDeathVisitorPending, setFirstDeathVisitorPending] = useState(false);
   const deathCountRef = useRef(0); // счётчик смертей за сессию: 1-я и 2-я — сюжетные
+  const retreatInProgressRef = useRef(false);
   // Событие «вторая смерть»: НОЧЬЮ после возвращения в таверну наёмник Незнакомец
   // стучится в дверь — открыв её, игрок попадает в ветвящийся скрипт
   // STRANGER_SECOND_DEATH_SCRIPT (вместо случайного ночного гостя). Впустили →
@@ -3566,6 +3493,10 @@ export default function App() {
   // Реальный вектор прыжка атакующего (в px, вычисляется из рефов)
   const [attackTranslate, setAttackTranslate] = useState({ dx: 0, dy: 0 });
   const [enemyAttackTranslate, setEnemyAttackTranslate] = useState({ dx: 0, dy: 0 });
+  const [enemyAttackDurationMs, setEnemyAttackDurationMs] = useState(300);
+  const [enemyAttackEasing, setEnemyAttackEasing] = useState('ease-out');
+  const [enemyHitStopIds, setEnemyHitStopIds] = useState([]);
+  const [heroHitStopIds, setHeroHitStopIds] = useState([]);
   const [animatingTargetIds, setAnimatingTargetIds] = useState([]);
   const [hoveredPlayerId, setHoveredPlayerId] = useState(null);
   const [hoveredTargetIds, setHoveredTargetIds] = useState([]);
@@ -3583,11 +3514,32 @@ export default function App() {
   //    при release, не дожидаясь onCycle, которого уже не будет.
   const [attackAnims, setAttackAnims] = useState({});
   const attackSeqActiveRef = useRef({});
-  const startAttackAnim = useCallback((heroId, { holdBeforeImpact = false } = {}) => {
+  const startAttackAnim = useCallback((heroId, {
+    holdBeforeImpact = false,
+    holdAtMiddle = false,
+    realTime = false,
+    speed = 1,
+  } = {}) => {
     attackSeqActiveRef.current[heroId] = true;
     const atlas = CHAR_ATTACK_ATLASES[heroId];
-    const holdAtFrame = holdBeforeImpact && atlas ? Math.max(0, (atlas.impactFrame || 1) - 1) : null;
-    setAttackAnims(prev => ({ ...prev, [heroId]: { play: (prev[heroId]?.play || 0) + 1, phase: 'windup', holdAtFrame, cycled: false } }));
+    const holdAtFrame = !atlas
+      ? null
+      : holdAtMiddle
+        ? Math.floor((atlas.frameCount - 1) / 2)
+        : holdBeforeImpact
+          ? Math.max(0, (atlas.impactFrame || 1) - 1)
+          : null;
+    setAttackAnims(prev => ({
+      ...prev,
+      [heroId]: {
+        play: (prev[heroId]?.play || 0) + 1,
+        phase: 'windup',
+        holdAtFrame,
+        cycled: false,
+        realTime,
+        speed,
+      },
+    }));
   }, []);
   // Вердикт QTE по замаху героя: снять холд и доиграть до конца.
   const finishAttackAnim = useCallback((heroId, { fast = false } = {}) => {
@@ -3618,10 +3570,129 @@ export default function App() {
       return next;
     });
   }, []);
+
+  // Enemy-QTE сам запускает замах и держит героя на среднем кадре. Первый клик
+  // снимает холд и завершает удар; авто-Miss возвращает idle без удара.
+  const enemyCounterTimersRef = useRef({});
+  const startEnemyDefenseWindup = useCallback((heroId) => {
+    if (!heroId) return;
+    if (enemyCounterTimersRef.current[heroId]) {
+      clearTimeout(enemyCounterTimersRef.current[heroId]);
+      delete enemyCounterTimersRef.current[heroId];
+    }
+    startAttackAnim(heroId, {
+      holdAtMiddle: true,
+      realTime: true,
+      speed: 2,
+    });
+  }, [startAttackAnim]);
+
+  const strikeEnemyDefense = useCallback((heroId) => {
+    if (!heroId) return;
+    finishAttackAnim(heroId, { fast: true });
+
+    const atlas = CHAR_ATTACK_ATLASES[heroId];
+    const counterDuration = atlas
+      ? Math.ceil(((atlas.frameCount / atlas.fps) * 1000) / 3) + 80
+      : 320;
+    enemyCounterTimersRef.current[heroId] = setTimeout(() => {
+      releaseAttackAnim(heroId);
+      delete enemyCounterTimersRef.current[heroId];
+    }, counterDuration);
+  }, [finishAttackAnim, releaseAttackAnim]);
+
+  const cancelEnemyDefenseWindup = useCallback((heroId) => {
+    if (!heroId) return;
+    if (enemyCounterTimersRef.current[heroId]) {
+      clearTimeout(enemyCounterTimersRef.current[heroId]);
+      delete enemyCounterTimersRef.current[heroId];
+    }
+    attackSeqActiveRef.current[heroId] = false;
+    setAttackAnims(prev => {
+      if (!prev[heroId]) return prev;
+      const next = { ...prev };
+      delete next[heroId];
+      return next;
+    });
+  }, []);
+
+  const enemyHitStopTimersRef = useRef({});
+  const enemyHitStopUntilRef = useRef({});
+  const startEnemyHitStop = useCallback((enemyId, heroId) => {
+    const enemyNode = enemyRefs.current[enemyId];
+    const heroNode = avatarRefs.current[heroId];
+    if (!enemyNode) return;
+    enemyHitStopUntilRef.current[enemyId] = performance.now() + ENEMY_HIT_STOP_MS;
+    setEnemyHitStopIds(prev => prev.includes(enemyId) ? prev : [...prev, enemyId]);
+    if (heroId) setHeroHitStopIds(prev => prev.includes(heroId) ? prev : [...prev, heroId]);
+
+    const threatNodes = Array.from(document.querySelectorAll('[data-enemy-attack-id]'))
+      .filter(node => node.getAttribute('data-enemy-attack-id') === String(enemyId));
+    const nodes = [enemyNode, heroNode, ...threatNodes].filter(Boolean);
+    const animations = [...new Set(nodes.flatMap(node => node.getAnimations?.({ subtree: true }) || []))];
+    const snapshots = animations.map(animation => ({
+      animation,
+      playbackRate: animation.playbackRate || 1,
+    }));
+    snapshots.forEach(({ animation }) => {
+      try { animation.playbackRate = 0; } catch { /* Animation may already be cancelled. */ }
+    });
+
+    if (enemyHitStopTimersRef.current[enemyId]) {
+      clearTimeout(enemyHitStopTimersRef.current[enemyId]);
+    }
+    enemyHitStopTimersRef.current[enemyId] = setTimeout(() => {
+      snapshots.forEach(({ animation, playbackRate }) => {
+        try { animation.playbackRate = playbackRate; } catch { /* Animation may already be cancelled. */ }
+      });
+      setEnemyHitStopIds(prev => prev.filter(id => id !== enemyId));
+      if (heroId) setHeroHitStopIds(prev => prev.filter(id => id !== heroId));
+      delete enemyHitStopUntilRef.current[enemyId];
+      delete enemyHitStopTimersRef.current[enemyId];
+    }, ENEMY_HIT_STOP_MS);
+  }, []);
+
+  useEffect(() => () => {
+    Object.values(enemyCounterTimersRef.current).forEach(clearTimeout);
+    Object.values(enemyHitStopTimersRef.current).forEach(clearTimeout);
+  }, []);
+
   // Герой, отыгрывающий QTE прямо сейчас: подсветка модельки его цветом + рост ×1.1
   const [qteHeroId, setQteHeroId] = useState(null);
+  const [defenseWindowFlashIds, setDefenseWindowFlashIds] = useState([]);
+  const [defenseRipple, setDefenseRipple] = useState(null);
+  const defenseRippleDurationRef = useRef(60);
+  const showEnemyDefenseRipple = useCallback((heroId, variant, durationMs) => {
+    if (!heroId) return;
+    const rect = avatarRefs.current[heroId]?.getBoundingClientRect();
+    if (!rect) return;
+    const id = `defense_ripple_${Date.now()}_${Math.random()}`;
+    const duration = Math.max(40, durationMs || defenseRippleDurationRef.current);
+    setDefenseRipple({
+      id,
+      heroId,
+      variant,
+      durationMs: duration,
+      targetNode: {
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      },
+    });
+    setTimeout(() => {
+      setDefenseRipple(prev => prev?.id === id ? null : prev);
+    }, duration + 100);
+  }, []);
+  const flashEnemyDefenseWindow = useCallback((heroId, totalWindowMs = 60) => {
+    if (!heroId) return;
+    defenseRippleDurationRef.current = totalWindowMs;
+    setDefenseWindowFlashIds(prev => prev.includes(heroId) ? prev : [...prev, heroId]);
+    setTimeout(() => {
+      setDefenseWindowFlashIds(prev => prev.filter(id => id !== heroId));
+    }, Math.max(120, totalWindowMs));
+    showEnemyDefenseRipple(heroId, 'pending', totalWindowMs);
+  }, [showEnemyDefenseRipple]);
 
-  // QTE «Perfect Hit»: активный оверлей { targetType, targetNode, duration, resolve } | null.
+  // Общий QTE-оверлей: player-QTE возвращает множитель атаки, enemy-QTE — verdict.
   // setQte — событие (1 раз на розыгрыш), покадровая анимация живёт внутри QteOverlay.
   // qteActiveRef — синхронный гвард: при параллельном розыгрыше второй QTE не запускается.
   // СЛОУ-МО: пока QTE активен, мир плавно замедляется через qteSlowMo (см. qteTimeScale.js):
@@ -3632,10 +3703,52 @@ export default function App() {
   const qteActiveRef = useRef(false);
   const enemyZoneRef = useRef(null);
 
-  // Watchdog: страховка от «замираний» боя. Любая боевая анимация укладывается в ~600мс.
+  // Защитное кольцо над героем. В одиночном режиме само захватывает общий гард;
+  // серия Глаза захватывает его один раз снаружи и держит общий bullet-time.
+  const runEnemyDefenseQte = useCallback((target, enemy, {
+    holdSlowMo = false,
+    duration = ENEMY_QTE_DURATION_MS,
+    label,
+  } = {}) => {
+    const rect = avatarRefs.current[target.id]?.getBoundingClientRect();
+    if (!rect) return Promise.resolve('miss');
+
+    const ownsGuard = !holdSlowMo;
+    if (ownsGuard && qteActiveRef.current) return Promise.resolve('miss');
+    if (ownsGuard) {
+      qteActiveRef.current = true;
+      qteSlowMo.start();
+    }
+
+    startEnemyDefenseWindup(target.id);
+    setQteHeroId(target.id);
+    return new Promise(resolve => setQte({
+      id: `enemy_qte_${Date.now()}_${enemy.id}_${target.id}`,
+      mode: 'enemy',
+      heroId: target.id,
+      enemyId: enemy.id,
+      focusVignette: Boolean(enemy.isBoss),
+      targetType: 'single',
+      targetNode: { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 },
+      duration,
+      card: {
+        icon: enemy.icon || '!',
+        name: label || (enemy.isBoss ? 'Взгляд Паники' : 'Базовый замах'),
+      },
+      resultLabels: { perfect: 'BLOCK!', good: 'GUARD', miss: 'MISS' },
+      holdSlowMo,
+      resolve,
+    })).finally(() => {
+      setQteHeroId(prev => prev === target.id ? null : prev);
+      if (ownsGuard) qteActiveRef.current = false;
+    });
+  }, [startEnemyDefenseWindup]);
+
+  // Watchdog: страховка от «замираний» боя. Многофазная «Ложная смерть»
+  // включает четыре QTE, обманную паузу и hit-stop за каждый Perfect.
   // Если флаг isAnimating висит true дольше COMBAT_ANIM_TIMEOUT_MS — значит сетTimeout-колбэк
   // упал с исключением и не вызвал setIsAnimating(false). Принудительно разморозим бой.
-  const COMBAT_ANIM_TIMEOUT_MS = 3000;
+  const COMBAT_ANIM_TIMEOUT_MS = 12000;
   useEffect(() => {
     if (!isAnimating) return;
     const t = setTimeout(() => {
@@ -3650,6 +3763,12 @@ export default function App() {
       attackSeqActiveRef.current = {};
       setAttackAnims({});
       setQteHeroId(null);
+      setQte(activeQte => {
+        activeQte?.resolve?.(activeQte.mode === 'enemy' ? 'miss' : 1.0);
+        return null;
+      });
+      qteActiveRef.current = false;
+      qteSlowMo.end();
     }, COMBAT_ANIM_TIMEOUT_MS);
     return () => clearTimeout(t);
   }, [isAnimating]);
@@ -3785,16 +3904,15 @@ export default function App() {
        setChainAttackBonus(0);
        setTurnState('dealing');
        
-       // Логика выкрикивания случайного оскорбления
+       // Один случайный участник приветствует отряд репликой своего архетипа.
        if (spawnedEnemies.length > 0) {
          const randEnemy = spawnedEnemies[Math.floor(Math.random() * spawnedEnemies.length)];
-         const randInsult = ENEMY_INSULTS[Math.floor(Math.random() * ENEMY_INSULTS.length)];
-         setSpeakingEnemy({ id: randEnemy.id, text: randInsult });
-         
          if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
-         speakingTimeoutRef.current = setTimeout(() => {
-            setSpeakingEnemy(null);
-         }, 3500); // Баббл висит 3.5 секунды
+         setSpeakingEnemy({
+           id: randEnemy.id,
+           name: randEnemy.name,
+           text: pickEnemyBattleLine(randEnemy.name),
+         });
        }
     }
   };
@@ -3859,9 +3977,15 @@ export default function App() {
     if (fullReset || fromDeath) {
       // Новая игра или смерть: уровень обнуляется. При смерти перманентные
       // разблокировки/лоадауты сохраняются, полный сброс очищает их.
-      // Надетый шмот после смерти сохраняется (ненадетый продан за огоньки).
+      // Надетый шмот сохраняется. Доля общего инвентаря после выхода/wipe
+      // рассчитывается отдельно до сброса забега.
+      // hp из INITIAL_PLAYERS_DATA — только база, поэтому лечим по maxHp с учётом
+      // надетого предмета: иначе бонусные HP экипировки остаются «недолеченными».
       setPlayers(applyStrangerIdentity(
-        INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p }, fromDeath ? equipped[p.id] : null)),
+        INITIAL_PLAYERS_DATA.map(p => {
+          const item = fromDeath ? equipped[p.id] : null;
+          return syncPlayerMaxHp({ ...p, hp: getMaxHpFromStats(p, item) }, item);
+        }),
         strangerHiredAs,
       ));
       // Уровень/опыт обнуляются. xpToNextRef синхронизируем тут же: он обновляется
@@ -3880,8 +4004,12 @@ export default function App() {
         nextLoadouts,
         heroCardProgressionRef.current,
       )); setDiscardPile([]);
-      setInventory(Array(INVENTORY_SIZE).fill(null));
-      if (fullReset) setEquipped({ p1: null, p2: null, p3: null });
+      if (fullReset) {
+        setInventory([]);
+        setEquipped({ p1: null, p2: null, p3: null });
+        setTaskMasterState(createTaskMasterState());
+        setShowTaskMaster(false);
+      }
     } else {
       // Новый сектор: статы, уровень, мана, колода и предметы сохраняются,
       // бойцы воскресают с полным HP
@@ -3897,9 +4025,13 @@ export default function App() {
       setDiscardPile([]);
     }
 
-    // Висящий QTE резолвим нейтрально (×1.0), чтобы Promise розыгрыша не завис навечно.
+    // Висящий QTE резолвим нейтрально, чтобы Promise розыгрыша не завис навечно:
+    // player-QTE получает ×1.0, enemy-QTE — Miss (обычный входящий урон).
     // Слоу-мо выключаем принудительно: onResolve оверлея при сбросе не вызовется.
-    setQte(prev => { prev?.resolve?.(1.0); return null; });
+    setQte(prev => {
+      prev?.resolve?.(prev.mode === 'enemy' ? 'miss' : 1.0);
+      return null;
+    });
     qteActiveRef.current = false;
     setQteHeroId(null);
     attackSeqActiveRef.current = {};
@@ -3910,6 +4042,10 @@ export default function App() {
     setShowCraft(false); setCraftSlots([null, null, null]); setCraftWarning('');
     setCurrentEvent(null);
     setFlashingTargets([]);
+    setDefenseWindowFlashIds([]);
+    setDefenseRipple(null);
+    setEnemyHitStopIds([]);
+    setHeroHitStopIds([]);
     setSectorSplash(null);
     pendingTransitionRef.current = null;
     if (victoryPauseRef.current) { clearTimeout(victoryPauseRef.current); victoryPauseRef.current = null; }
@@ -3919,38 +4055,119 @@ export default function App() {
     setSpeakingEnemy(null);
 
     const newMap = generateMap();
+    questVictoryNodesRef.current.clear();
     setGameMap(newMap); setCurrentMapNodeId(newMap[0].id); setCompletedNodes([newMap[0].id]); setCurrentStage(0);
     setBgLocation(pickBgLocation(nextSector, 0));
     setTurnState('map');
   };
 
-  // Экран смерти завершён: зачисляем огоньки за проданный хлам, обнуляем забег,
-  // открываем экран подготовки (покупка стартовых карт)
-  const handleDeathDone = () => {
-    const items = inventory.filter(Boolean);
-    // Очки хлама добавляются к глобальной шкале; огоньки выдаются за каждый порог,
-    // остаток сверх порога переносится на следующий цикл.
-    const total = soulProgress + sumJunkPoints(items);
-    setSoulEmbers(e => e + Math.floor(total / EMBER_JUNK_THRESHOLD));
-    setSoulProgress(total % EMBER_JUNK_THRESHOLD);
+  // Ночёвка засчитана: отряд полностью восстанавливается — до maxHp С бонусами
+  // экипировки, а не до базового HP класса.
+  const handleTavernRest = () => {
+    setTavernRested(true);
+    // Если предыдущая книга поручений полностью закрыта, следующий комплект
+    // появляется только после новой ночёвки.
+    setTaskMasterState(previous => replenishTaskMasterQuests(previous));
+    setPlayers(prev => prev.map(p => syncPlayerMaxHp({
+      ...p,
+      hp: getMaxHpFromStats(p, equipped[p.id]),
+      armor: 0,
+    }, equipped[p.id])));
+  };
+
+  const retainInventoryShare = (keepRatio) => {
+    const stagedItems = craftSlots.filter(Boolean);
+    setInventory(previous => {
+      const allItems = sortUniqueItemsByRarity([...previous, ...stagedItems]);
+      if (allItems.length === 0) return allItems;
+      const keepCount = Math.round(allItems.length * keepRatio);
+      // Сначала сохраняются самые редкие предметы — потеря не должна случайно
+      // уничтожать лучшую награду из-за недетерминированного броска.
+      return allItems.slice(0, keepCount);
+    });
+  };
+
+  // Полный wipe больше не открывает отдельный экран:
+  // забег сбрасывается, часть общего инвентаря и экипировка возвращаются в таверну.
+  const handlePartyWipe = () => {
+    if (retreatInProgressRef.current) return;
+    retainInventoryShare(PARTY_WIPE_ITEM_KEEP_RATIO);
     resetGame(false, false, true);
     setPrepCardsBought(0);
-    // Сюжетные смерти: 1-я — история + бесплатные карты; начиная со 2-й —
-    // визит Незнакомца (повторяется после каждой смерти, пока его не впустят).
+    // Сюжетные смерти: 1-я — обязательный ночной визит скелета-поручителя;
+    // начиная со 2-й — визит Незнакомца (повторяется, пока его не впустят).
     deathCountRef.current += 1;
     if (deathCountRef.current === 1) {
       setFirstDeathStoryPending(true);
+      setFirstDeathVisitorPending(true);
     } else if (deathCountRef.current >= 2 && !strangerInTavern) {
       setStrangerStoryPending(true);
     }
-    // Цикл замыкается на Таверне: после смерти возвращаемся в неё, а не на экран подготовки.
+    setShopStock(createShopStock());
+    setShopUnseen(true);
+    setShowShop(false);
+    setShowTaskMaster(false);
     setShowTavern(true);
+  };
+
+  const handleExitExpedition = (fromSectorBase) => {
+    if (fromSectorBase) {
+      setShowShop(false);
+      setShowTaskMaster(false);
+      setShowTavern(true);
+      return;
+    }
+    if (retreatInProgressRef.current) return;
+    retreatInProgressRef.current = true;
+    retainInventoryShare(EXPEDITION_EXIT_ITEM_KEEP_RATIO);
+    // Добровольный отход завершает забег, но не считается смертью:
+    // золото и экипировка сохраняются, сюжетные счётчики не меняются.
+    resetGame(false, false, true);
+    setPrepCardsBought(0);
+    setShowShop(false);
+    setShowTaskMaster(false);
+    setShowTavern(true);
+  };
+
+  const buyShopItem = (item) => {
+    if (!item || !shopStock.some(entry => entry.uid === item.uid)) return false;
+    const price = getItemBuyPrice(item);
+    if (gold < price) return false;
+    setGold(value => value - price);
+    setInventory(previous => sortUniqueItemsByRarity([...previous, item]));
+    setShopStock(previous => previous.filter(entry => entry.uid !== item.uid));
+    playSound('./assets/sfx/events/powerup_select.wav', 0.55);
+    return true;
+  };
+
+  const sellShopItem = (itemUid) => {
+    const item = inventory.find(entry => entry.uid === itemUid);
+    if (!item) return false;
+    setInventory(previous => previous.filter(entry => entry.uid !== itemUid));
+    setGold(value => value + getItemSellPrice(item));
+    playSound('./assets/sfx/ui/card_discard.wav', 0.45);
+    return true;
+  };
+
+  const convertShopItems = (itemUids) => {
+    const selected = inventory.filter(item => itemUids.includes(item.uid));
+    const total = soulProgress + sumJunkPoints(selected);
+    if (selected.length === 0 || total < EMBER_JUNK_THRESHOLD) return false;
+    const selectedSet = new Set(selected.map(item => item.uid));
+    setInventory(previous => previous.filter(item => !selectedSet.has(item.uid)));
+    setSoulEmbers(value => value + Math.floor(total / EMBER_JUNK_THRESHOLD));
+    setSoulProgress(total % EMBER_JUNK_THRESHOLD);
+    playSound('./assets/sfx/game/level_up.wav', 0.6);
+    return true;
   };
 
   // Показать секвенцию получения карты (крутящаяся/переворачивающаяся анимация).
   const presentCardReveal = useCallback((card, owner = null, { fromTavern = false } = {}) => {
     if (!card) return;
     setCardReveal({ card, owner, fromTavern });
+    // Единая воронка выдачи карт: владелец получает нотификатор в таверне,
+    // он гаснет, когда игрок открывает инвентарь этого героя.
+    if (owner?.id) setHeroRewardBadges(previous => ({ ...previous, [owner.id]: true }));
   }, []);
 
   // UNLOCK_HERO_CARD: ПЕРМАНЕНТНАЯ карта (награда события/диалога) — строго
@@ -4002,6 +4219,16 @@ export default function App() {
       case 'GIVE_GOLD':
         if (cmd.amount > 0) setGold(value => value + cmd.amount);
         break;
+      // Плата по ходу диалога (ночной сборщик долгов): кошелёк не уходит в минус.
+      case 'TAKE_GOLD':
+        if (cmd.amount > 0) setGold(value => Math.max(0, value - cmd.amount));
+        break;
+      // Первый визит скелета: он остаётся у камина и открывает первую волну
+      // поручений. Повторная команда идемпотентна.
+      case 'TASK_MASTER_JOIN_TAVERN':
+        setTaskMasterState(previous => unlockTaskMaster(previous));
+        setFirstDeathStoryPending(false);
+        break;
       // Незнакомца впустили (скрипт 2-й смерти): перманентно поселяется
       // в таверне вместо одного из посетителей (см. TavernHubScreen).
       case 'STRANGER_JOIN_TAVERN':
@@ -4045,13 +4272,12 @@ export default function App() {
     setSoulEmbers(e => e - price);
     setPrepCardsBought(c => c + 1);
     const owner = isMod ? null : players.find(p => p.id === heroId);
-    setCardReveal({ card: newCard, owner });
+    presentCardReveal(newCard, owner ?? null);
   };
 
-  // Событие «первая смерть», финал: одна ПЕРМАНЕНТНАЯ карта одному герою
-  // (случайному со свободным перманентным слотом).
-  const grantFirstDeathFreeCards = () => {
-    setFirstDeathStoryPending(false);
+  // Общая карточная награда (случайный посетитель / поручение скелета):
+  // одна ПЕРМАНЕНТНАЯ карта герою со свободным слотом.
+  const grantPermanentCardReward = () => {
     const all = [...drawPileRef.current, ...discardPileRef.current];
     const candidates = INITIAL_PLAYERS_DATA.filter(p => {
       if (!hasFreePermanentSlot(permanentlyUnlockedRef.current, p.id)) return false;
@@ -4060,14 +4286,17 @@ export default function App() {
       const ownedKeys = getOwnedSkillKeys(p.id, owned, extra);
       return owned.length < CARD_POOL_SIZE && getUnownedSkills(p.id, ownedKeys).length > 0;
     });
-    if (!candidates.length) return;
-    const hero = candidates[Math.floor(Math.random() * candidates.length)];
+    if (!candidates.length) return false;
+    // Детерминированный выбор нужен и для воспроизводимости награды, и чтобы
+    // React-компилятор не считал обработчик получения награды нечистым рендером.
+    const hero = candidates[0];
     const owned = all.filter(c => c.ownerId === hero.id && isRealDeckCard(c));
     const options = getUnownedSkills(hero.id, getOwnedSkillKeys(hero.id, owned, permanentlyUnlockedRef.current[hero.id] || []));
-    const pick = options[Math.floor(Math.random() * options.length)];
+    const pick = options[0];
     const card = dispatchUnlockHeroCard({ heroId: hero.id, cardId: pick.id, fromTavern: true, showPopup: true });
-    if (!card) return;
+    if (!card) return false;
     playSound('./assets/sfx/game/level_up.wav', 0.6);
+    return true;
   };
 
   // Сжечь карту на экране подготовки → −1 огонёк, карта удаляется из колоды (слот освобождается).
@@ -4126,6 +4355,76 @@ export default function App() {
     setTimeout(() => { clearInterval(shakeInterval); setShake({ x: 0, y: 0, rot: 0 }); }, 350);
   };
 
+  const playEnemyDefenseParry = (heroId, enemyId, verdict) => {
+    const heroRect = avatarRefs.current[heroId]?.getBoundingClientRect();
+    const enemyRect = enemyRefs.current[enemyId]?.getBoundingClientRect();
+    if (!heroRect || !enemyRect || verdict !== 'perfect') return;
+
+    const card = HERO_ABILITIES[heroId]?.basic;
+    const hero = players.find(player => player.id === heroId);
+    const target = enemiesRef.current.find(enemy => enemy.id === enemyId);
+    if (!hero || !target || target.isDead) return;
+    const effectiveHero = getEffectivePlayer(hero, equipped[heroId]);
+    const { damage: counterDamage } = computeCardDamage(effectiveHero, card, 1);
+    const dealtDamage = Math.min(target.hp, Math.max(1, Math.round(counterDamage)));
+    let killedTarget = null;
+    const nextEnemies = enemiesRef.current.map(enemy => {
+      if (enemy.id !== enemyId) return enemy;
+      const nextHp = Math.max(0, enemy.hp - dealtDamage);
+      const next = { ...enemy, hp: nextHp, isDead: nextHp === 0 };
+      if (next.isDead) killedTarget = next;
+      return next;
+    });
+    enemiesRef.current = nextEnemies;
+    setEnemies(nextEnemies);
+
+    const vfxId = `defense_parry_${Date.now()}_${heroId}_${enemyId}`;
+    const comboTier = 1;
+    const comboScale = 1.35;
+    setVfxList(prev => [...prev, {
+      id: vfxId,
+      type: card?.vfxType || 'slash',
+      heroId,
+      delay: 0,
+      comboTier,
+      comboScale,
+      showSparks: true,
+      startX: heroRect.left + heroRect.width / 2,
+      startY: heroRect.top + heroRect.height / 2,
+      endX: enemyRect.left + enemyRect.width / 2,
+      endY: enemyRect.top + enemyRect.height / 2,
+    }]);
+
+    setFlashingTargets(prev => prev.includes(enemyId) ? prev : [...prev, enemyId]);
+    setTimeout(() => setFlashingTargets(prev => prev.filter(id => id !== enemyId)), 250);
+    setTimeout(() => setVfxList(prev => prev.filter(vfx => vfx.id !== vfxId)), 650);
+    triggerImpact(Math.max(55, dealtDamage));
+    playSound(getCombatHitSound(card?.vfxType || 'slash'), 0.75);
+    fxRef.current?.spawnDamagePopup({
+      id: Math.random(),
+      value: dealtDamage,
+      x: enemyRect.left + enemyRect.width / 2,
+      y: enemyRect.top + enemyRect.height / 2,
+    });
+
+    const blood = Array.from({ length: 18 }, () => ({
+      id: Math.random(),
+      x: enemyRect.left + enemyRect.width / 2,
+      y: enemyRect.top + enemyRect.height / 2,
+    }));
+    fxRef.current?.spawnBlood(blood);
+
+    if (killedTarget) {
+      recordTaskProgress(TASK_METRICS.ENEMIES_KILLED, 1);
+      playSound('./assets/sfx/combat/death.wav', 0.7);
+      gainXp(killedTarget.xpReward);
+      const drops = killedTarget.isBoss
+        ? [generateItemOfRarity('LEGENDARY')]
+        : rollLootDrops(sectorRef.current, currentStageRef.current);
+      drops.forEach(addItemToInventory);
+    }
+  };
+
   const gainXp = useCallback((amount) => {
     if (!amount || amount <= 0) return;
     // Глобальный нерф темпа: XP от всех источников (убийства, сжигание предметов) ×0.25
@@ -4171,21 +4470,39 @@ export default function App() {
   }, [levelUpQueue, showLevelUp, cardReveal]);
 
   const addItemToInventory = useCallback((item) => {
-    let burnedXp = 0;
-    setInventory(prev => {
-      const idx = prev.findIndex(s => s === null);
-      if (idx === -1) {
-        // Инвентарь полон: первый предмет сгорает в опыт, остальные сдвигаются
-        burnedXp = getItemBurnXp(prev[0]);
-        return [...prev.slice(1), item];
-      }
-      const next = [...prev];
-      next[idx] = item;
-      return next;
-    });
-    if (burnedXp > 0) gainXp(burnedXp);
+    setInventory(prev => sortUniqueItemsByRarity([...prev, item]));
     return true;
-  }, [gainXp]);
+  }, []);
+
+  const claimTaskMasterQuest = (questId) => {
+    const quest = taskMasterState.quests.find(entry => (
+      entry.id === questId && entry.status === 'completed'
+    ));
+    if (!quest) return false;
+
+    switch (quest.reward.type) {
+      case 'card':
+        // Если коллекции всех героев заполнены, награда не пропадает:
+        // скелет заменяет недоступную карту компенсацией золотом.
+        if (!grantPermanentCardReward()) setGold(value => value + 120);
+        break;
+      case 'item':
+        addItemToInventory(getTaskRewardItem(quest.reward, quest.id));
+        break;
+      case 'gold':
+        setGold(value => value + (quest.reward.amount || 0));
+        break;
+      case 'embers':
+        setSoulEmbers(value => value + (quest.reward.amount || 0));
+        break;
+      default:
+        return false;
+    }
+
+    setTaskMasterState(previous => claimTaskQuest(previous, questId));
+    playSound('./assets/sfx/game/level_up.wav', 0.6);
+    return true;
+  };
 
   const showItemTip = (item, e) => {
     if (!item) return;
@@ -4195,9 +4512,23 @@ export default function App() {
   const hideItemTip = () => setItemTooltip(null);
 
   const handleInvDragStart = (idx) => (e) => {
+    const item = inventory[idx];
+    if (!item?.uid) {
+      e.preventDefault();
+      return;
+    }
     setDragSrcIdx(idx);
     e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('application/x-card-battler-item-uid', item.uid);
+    e.dataTransfer.setData('text/plain', item.uid);
   };
+
+  const getDraggedItemUid = (event) => (
+    event.dataTransfer.getData('application/x-card-battler-item-uid')
+    || event.dataTransfer.getData('text/plain')
+    || inventory[dragSrcIdx]?.uid
+    || null
+  );
 
   const handleEquipDragOver = (playerId) => (e) => {
     e.preventDefault();
@@ -4210,10 +4541,14 @@ export default function App() {
   const handleEquipDrop = (playerId) => (e) => {
     e.preventDefault();
     setDragOverPlayerId(null);
-    if (dragSrcIdx === null || !inventory[dragSrcIdx]) return;
-    const item = inventory[dragSrcIdx];
+    const itemUid = getDraggedItemUid(e);
+    const item = inventory.find((entry) => entry?.uid === itemUid);
+    if (!item) return;
     const current = equipped[playerId];
-    setInventory(prev => { const n = [...prev]; n[dragSrcIdx] = current; return n; });
+    setInventory((previous) => sortUniqueItemsByRarity([
+      ...previous.filter((entry) => entry?.uid !== itemUid),
+      current,
+    ]));
     setEquipped(prev => ({ ...prev, [playerId]: item }));
     setPlayers(prev => prev.map(p => p.id === playerId ? syncPlayerMaxHp(p, item) : p));
     playSound('./assets/sfx/events/powerup_select.wav', 0.45);
@@ -4223,9 +4558,7 @@ export default function App() {
   const handleUnequip = (playerId) => {
     const current = equipped[playerId];
     if (!current) return;
-    const freeIdx = inventory.findIndex(s => s === null);
-    if (freeIdx === -1) return;
-    setInventory(prev => { const n = [...prev]; n[freeIdx] = current; return n; });
+    setInventory(prev => sortUniqueItemsByRarity([...prev, current]));
     setEquipped(prev => ({ ...prev, [playerId]: null }));
     setPlayers(prev => prev.map(p => p.id === playerId ? syncPlayerMaxHp(p, null) : p));
     playSound('./assets/sfx/ui/card_discard.wav', 0.35);
@@ -4314,6 +4647,21 @@ export default function App() {
     syncDeckWithHeroLoadouts(next);
   };
 
+  // Инстансы карты уже разложены по колоде/сбросу/рукам — прокачка в инвентаре
+  // обязана догнать их, иначе в бою карта останется прежнего уровня.
+  const applyHeroCardLevel = (heroId, cardId, level) => {
+    const sync = (card) => (
+      card && card.ownerId === heroId && (card.skillId || card.id) === cardId
+        ? { ...card, level }
+        : card
+    );
+    setDrawPile((previous) => previous.map(sync));
+    setDiscardPile((previous) => previous.map(sync));
+    setPlayers((previous) => previous.map((player) => (
+      player.currentCard ? { ...player, currentCard: sync(player.currentCard) } : player
+    )));
+  };
+
   const upgradeHeroInventoryCard = (heroId, cardId) => {
     const isBasic = HERO_ABILITIES[heroId]?.basic?.id === cardId;
     const isUnlocked = permanentlyUnlockedRef.current[heroId]?.includes(cardId);
@@ -4327,20 +4675,19 @@ export default function App() {
       heroCardProgressionRef.current = next;
       return next;
     });
+    applyHeroCardLevel(heroId, cardId, level + 1);
     playSound('./assets/sfx/events/powerup_select.wav', 0.45);
     return true;
   };
 
   const equipFromHeroInventory = (heroId, itemUid) => {
-    const inventoryIndex = inventory.findIndex((item) => item?.uid === itemUid);
-    if (inventoryIndex < 0) return;
-    const item = inventory[inventoryIndex];
+    const item = inventory.find((entry) => entry?.uid === itemUid);
+    if (!item) return;
     const current = equipped[heroId];
-    setInventory((previous) => {
-      const next = [...previous];
-      next[inventoryIndex] = current;
-      return next;
-    });
+    setInventory((previous) => sortUniqueItemsByRarity([
+      ...previous.filter((entry) => entry?.uid !== itemUid),
+      current,
+    ]));
     setEquipped((previous) => ({ ...previous, [heroId]: item }));
     setPlayers((previous) => previous.map((player) => (
       player.id === heroId ? syncPlayerMaxHp(player, item) : player
@@ -4361,52 +4708,42 @@ export default function App() {
     // Вернуть предметы из слотов крафта обратно в инвентарь
     const placed = craftSlots.filter(Boolean);
     if (placed.length > 0) {
-      setInventory(prev => {
-        const n = [...prev];
-        placed.forEach(it => {
-          const free = n.findIndex(s => s === null);
-          if (free !== -1) n[free] = it;
-        });
-        return n;
-      });
+      setInventory(prev => sortUniqueItemsByRarity([...prev, ...placed]));
     }
     setShowCraft(false);
     setCraftSlots([null, null, null]);
+    setDragSrcIdx(null);
     setCraftWarning('');
   };
 
   // Перетаскивание предмета из инвентаря в конкретный слот крафта
   const handleCraftDrop = (slotIdx) => (e) => {
     e.preventDefault();
-    if (dragSrcIdx === null || !inventory[dragSrcIdx]) return;
-    const item = inventory[dragSrcIdx];
+    const itemUid = getDraggedItemUid(e);
+    const item = inventory.find((entry) => entry?.uid === itemUid);
+    if (!item) return;
+    const displaced = craftSlots[slotIdx];
+    const nextSlots = [...craftSlots];
+    nextSlots[slotIdx] = item;
+
     setCraftWarning('');
-    setCraftSlots(prev => {
-      const n = [...prev];
-      // Если в слоте уже был предмет — вернём его в инвентарь
-      const displaced = n[slotIdx];
-      n[slotIdx] = item;
-      setInventory(inv => {
-        const ni = [...inv];
-        ni[dragSrcIdx] = displaced || null;
-        return ni;
-      });
-      return n;
-    });
+    setInventory((previous) => sortUniqueItemsByRarity([
+      ...previous.filter((entry) => entry?.uid !== itemUid),
+      displaced,
+    ]));
+    setCraftSlots(nextSlots);
     setDragSrcIdx(null);
     playSound('./assets/sfx/ui/click.wav', 0.35);
   };
 
   const removeFromCraft = (slotIdx) => {
     setCraftWarning('');
-    setCraftSlots(prev => {
-      const item = prev[slotIdx];
-      if (!item) return prev;
-      const freeIdx = inventory.findIndex(s => s === null);
-      if (freeIdx === -1) return prev;
-      setInventory(inv => { const ni = [...inv]; ni[freeIdx] = item; return ni; });
-      const n = [...prev]; n[slotIdx] = null; return n;
-    });
+    const item = craftSlots[slotIdx];
+    if (!item) return;
+    const nextSlots = [...craftSlots];
+    nextSlots[slotIdx] = null;
+    setCraftSlots(nextSlots);
+    setInventory((previous) => sortUniqueItemsByRarity([...previous, item]));
   };
 
   const doCraft = () => {
@@ -4422,16 +4759,11 @@ export default function App() {
     }
     const next = getNextRarity(rarity);
     if (!next) {
-      setCraftWarning('Легендарные предметы нельзя улучшить');
+      setCraftWarning('Вечные предметы нельзя улучшить');
       return;
     }
     const result = generateItemOfRarity(next);
-    setInventory(prev => {
-      const idx = prev.findIndex(s => s === null);
-      const n = [...prev];
-      if (idx !== -1) n[idx] = result;
-      return n;
-    });
+    setInventory(prev => sortUniqueItemsByRarity([...prev, result]));
     setCraftSlots([null, null, null]);
     playSound('./assets/sfx/events/powerup_select.wav', 0.6);
     setShowCraft(false);
@@ -4499,6 +4831,10 @@ export default function App() {
     setEnemies([]);
     setComboCount(0); setComboStreak(0); setChainAttackBonus(0); setLastPlayedCost(null);
     setFlashingTargets([]);
+    setDefenseWindowFlashIds([]);
+    setDefenseRipple(null);
+    setEnemyHitStopIds([]);
+    setHeroHitStopIds([]);
     fxRef.current?.clearAll();
     if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
     setSpeakingEnemy(null);
@@ -4509,6 +4845,10 @@ export default function App() {
   // затем очистка поля и дизолв карты поверх боя (MapOverlay). Босс — заставка
   // нового сектора. Открытый level-up откладывает переход.
   const triggerVictoryTransition = () => {
+    if (!questVictoryNodesRef.current.has(currentMapNodeId)) {
+      questVictoryNodesRef.current.add(currentMapNodeId);
+      recordTaskProgress(TASK_METRICS.BATTLES_WON, 1);
+    }
     setCompletedNodes(prev => prev.includes(currentMapNodeId) ? prev : [...prev, currentMapNodeId]);
     const target = currentStage === 5 ? 'nextSector' : 'map';
     if (showLevelUpRef.current) { pendingTransitionRef.current = target; return; }
@@ -4685,6 +5025,7 @@ export default function App() {
   const playModCard = (playerIndex, card) => {
     const player = players[playerIndex];
     if (actingRef.current.has(player.id) || manaRef.current < card.cost) return;
+    recordTaskProgress(TASK_METRICS.CARDS_PLAYED, 1);
     actingRef.current.add(player.id);
     const isContinuing = lastPlayedCost !== null && card.cost === lastPlayedCost + 1;
     const nextComboStreak = isContinuing ? comboStreak + 1 : 0;
@@ -4766,6 +5107,7 @@ export default function App() {
 
     const targetIndices = getTargets(card, playerIndex, enemiesRef.current);
     if (targetIndices.length === 0) { actingRef.current.delete(player.id); return; }
+    recordTaskProgress(TASK_METRICS.CARDS_PLAYED, 1);
 
     // --- QTE «Perfect Hit» ---
     // Промис резолвится множителем итогового урона (1.0 / 1.15 / 1.35).
@@ -4786,9 +5128,47 @@ export default function App() {
       : resolveCardQte(card, { chainPos, targets: qteTargets, expectedLethal });
     const qteEligible = qteMechanic === 'PRECISION';
     const isSequentialStrike = qteMechanic === 'RHYTHM';
+    const isHorseHerd = qteMechanic === 'HORSE_HERD';
     let qtePromise = Promise.resolve(1.0);
     let qteRingMounted = false; // кольцо реально смонтировано → замах героя ждёт вердикта на холде
-    if (qteEligible && !isSequentialStrike) {
+    let applyHorseImpact = () => null;
+    if (isHorseHerd) {
+      const arenaRect = enemyZoneRef.current?.parentElement?.getBoundingClientRect();
+      if (arenaRect) {
+        const targetNodes = qteTargets.map(target => {
+          const rect = enemyRefs.current[target.id]?.getBoundingClientRect();
+          return rect ? {
+            id: target.id,
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+          } : null;
+        }).filter(Boolean);
+        qteActiveRef.current = true;
+        qteRingMounted = true;
+        qteSlowMo.start();
+        setQteHeroId(player.id);
+        qtePromise = new Promise(resolve => setQte({
+          id: `horse_qte_${Date.now()}`,
+          mode: 'horse',
+          arenaRect: {
+            left: arenaRect.left,
+            right: arenaRect.right,
+            top: arenaRect.top,
+            bottom: arenaRect.bottom,
+            width: arenaRect.width,
+            height: arenaRect.height,
+          },
+          targetNodes,
+          card: { icon: card.icon, name: card.name },
+          onHorseImpact: (targetNode) => applyHorseImpact(targetNode),
+          resolve,
+        })).then((mult) => {
+          setQteHeroId(prev => prev === player.id ? null : prev);
+          finishAttackAnim(player.id, { fast: mult > 1 });
+          return mult;
+        });
+      }
+    } else if (qteEligible && !isSequentialStrike) {
       // Массовая атака — центр зоны врагов, укрупнённо;
       // одиночная (или жив 1 враг) — локально над спрайтом цели.
       const isAoe = qteTargets.length > 1;
@@ -4889,7 +5269,7 @@ export default function App() {
     const comboTier = Math.min(comboStep, 2);
     const comboScale = COMBO_VFX_SCALE[comboTier];
     const vfxArr = [];
-    targetIndices.forEach(idx => {
+    (isHorseHerd ? [] : targetIndices).forEach(idx => {
        const tRect = enemyRefs.current[enemiesRef.current[idx]?.id]?.getBoundingClientRect();
        if (aRect && tRect) {
           const baseVfx = {
@@ -4942,10 +5322,15 @@ export default function App() {
 
     // Применяет удар карты к списку целей (индексы) с данным QTE-множителем.
     // Общий для обоих режимов: одновременного (все цели разом) и серии (по одной).
+    let chainBonusConsumed = false;
     const applyStrike = (strikeIndices, qteMult) => {
       let { damage: baseDamage, critChance } = computeCardDamage(effectivePlayer, card, comboDamageMult);
       // Бонус от «Усиления цепи» добавляется к мощности этой карты и тратится
-      if (chainBonusAtPlay > 0) { baseDamage += chainBonusAtPlay; setChainAttackBonus(0); }
+      if (chainBonusAtPlay > 0 && !chainBonusConsumed) {
+        baseDamage += chainBonusAtPlay;
+        chainBonusConsumed = true;
+        setChainAttackBonus(0);
+      }
       // QTE «Perfect Hit»: множитель тайминга применяется к итоговому урону карты
       if (qteMult > 1) baseDamage = Math.round(baseDamage * qteMult);
       // База — актуальное состояние врагов из рефа (важно при параллельных розыгрышах)
@@ -5018,6 +5403,9 @@ export default function App() {
 
       // Синхронно обновляем реф, чтобы параллельный розыгрыш видел свежий HP врагов
       enemiesRef.current = newEnemies; setEnemies(newEnemies);
+      if (xpToSpawn.length > 0) {
+        recordTaskProgress(TASK_METRICS.ENEMIES_KILLED, xpToSpawn.length);
+      }
       setTimeout(() => setAnimatingTargetIds([]), 350);
       setHoveredPlayerId(null); setHoveredTargetIds([]);
       
@@ -5046,6 +5434,38 @@ export default function App() {
           });
         }
       });
+    };
+
+    // Каждый зажжённый конь — самостоятельный полноценный импакт. Используем
+    // общий пайплайн applyStrike, поэтому у каждого попадания есть цифра урона,
+    // вспышка/увеличение врага, кровь, звук, тряска, крит и обработка смерти.
+    // Если выбранная при старте цель уже мертва, перенаправляем коня на ближайшую
+    // к его линии живую цель.
+    applyHorseImpact = (requestedTarget) => {
+      const liveEnemies = enemiesRef.current.filter(enemy => !enemy.isDead && enemy.hp > 0);
+      if (liveEnemies.length === 0) return null;
+
+      let target = liveEnemies.find(enemy => enemy.id === requestedTarget?.id);
+      if (!target) {
+        target = liveEnemies
+          .map(enemy => {
+            const rect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
+            const y = rect ? rect.top + rect.height / 2 : requestedTarget?.y || 0;
+            return { enemy, distance: Math.abs(y - (requestedTarget?.y || y)) };
+          })
+          .sort((a, b) => a.distance - b.distance)[0]?.enemy;
+      }
+      if (!target) return null;
+
+      const targetIndex = enemiesRef.current.findIndex(enemy => enemy.id === target.id);
+      const rect = enemyRefs.current[target.id]?.getBoundingClientRect();
+      if (targetIndex < 0) return null;
+      applyStrike([targetIndex], 1);
+      return rect ? {
+        id: target.id,
+        x: rect.left + rect.width / 2,
+        y: rect.top + rect.height / 2,
+      } : requestedTarget;
     };
 
     // Завершение розыгрыша: проверка победы + анимация сброса карты.
@@ -5078,12 +5498,14 @@ export default function App() {
     // ranged С КОЛЬЦОМ — цепочка «вердикт → вылет снаряда → полёт → импакт»:
     // пока замах ждёт на холде, ничего не летит и урон не приходит.
     // Игровое время: под слоу-мо тянется синхронно с визуалом, судья кольца — в реальном.
-    const impactDelay = (isRangedSingle && qteRingMounted)
-      ? qtePromise.then(() => {
+    const impactDelay = isHorseHerd
+      ? qtePromise
+      : (isRangedSingle && qteRingMounted)
+        ? qtePromise.then(() => {
           if (enemiesRef.current.length > 0) setVfxList(vfxArr);
           return qteSlowMo.delay(flightMs);
         })
-      : qteSlowMo.delay(isRangedSingle ? attackAnimMs : strikeFrameMs);
+        : qteSlowMo.delay(isRangedSingle ? attackAnimMs : strikeFrameMs);
 
     if (isSequentialStrike) {
       // === ПОСЛЕДОВАТЕЛЬНАЯ СЕРИЯ QTE (ритм-стрим мульти-удара) ===
@@ -5140,7 +5562,14 @@ export default function App() {
       // === ОДНОВРЕМЕННЫЙ УДАР (одиночная цель или AoE 'all') — как раньше ===
       Promise.all([impactDelay, qtePromise]).then(([, qteMult]) => safeAnim(() => {
         setVfxList([]);
-        applyStrike(targetIndices, qteMult);
+        if (!isHorseHerd) {
+          applyStrike(targetIndices, qteMult);
+        } else if (chainBonusAtPlay > 0 && !chainBonusConsumed) {
+          // Карта уже разыграна: усиление цепи тратится даже если ни одного коня
+          // не удалось активировать.
+          chainBonusConsumed = true;
+          setChainAttackBonus(0);
+        }
         // Сбрасываем прыжок только если с тех пор не начал бить другой боец
         setAnimatingPlayerId(prev => prev === player.id ? null : prev);
         releaseAttackAnim(player.id); // замах доиграет текущий цикл и вернётся в idle
@@ -5177,7 +5606,22 @@ export default function App() {
   }, [players, mana, turnState, showLevelUp, qte, endPlayerPhase]);
 
   useEffect(() => {
-    if (turnState !== 'enemy' || showLevelUp) return;
+    if (turnState !== 'enemy' || showLevelUp) return undefined;
+
+    let cancelled = false;
+    const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    const waitForEnemyHitStop = async (enemyId) => {
+      const remaining = (enemyHitStopUntilRef.current[enemyId] || 0) - performance.now();
+      if (remaining > 0) await wait(remaining);
+    };
+    const clearEnemyAttack = () => {
+      setVfxList(prev => prev.filter(vfx => vfx.source !== 'enemy-threat'));
+      setAnimatingEnemyId(null);
+      setAnimatingTargetIds([]);
+      setEnemyAttackTranslate({ dx: 0, dy: 0 });
+      setEnemyAttackEasing('ease-out');
+      setIsAnimating(false);
+    };
 
     // === Тик кровотечения в начале фазы врага ===
     const startEnemies = enemiesRef.current.map(e => ({ ...e, statuses: { ...(e.statuses || {}) } }));
@@ -5198,7 +5642,6 @@ export default function App() {
         if (e.hp <= 0 && !e.isDead) {
           e.isDead = true; e.hp = 0;
           bleedXp.push({ id: e.id, amount: e.xpReward });
-          // Босс всегда даёт легендарный предмет
           const drops = e.isBoss ? [generateItemOfRarity('LEGENDARY')] : rollLootDrops(sectorRef.current, currentStageRef.current);
           drops.forEach(item => bleedLoot.push({ id: e.id, item }));
           playSound('./assets/sfx/combat/death.wav', 0.7);
@@ -5206,7 +5649,11 @@ export default function App() {
       }
     });
     if (bleedHappened) {
+      enemiesRef.current = startEnemies;
       setEnemies(startEnemies);
+      if (bleedXp.length > 0) {
+        recordTaskProgress(TASK_METRICS.ENEMIES_KILLED, bleedXp.length);
+      }
       bleedXp.forEach(xd => {
         const eRect = enemyRefs.current[xd.id]?.getBoundingClientRect(); const bRect = xpBarRef.current?.getBoundingClientRect();
         if (eRect && bRect) fxRef.current?.spawnFlyingXp({
@@ -5228,171 +5675,410 @@ export default function App() {
       });
     }
 
-    // === Победа, если кровотечение добило всех: тот же мгновенный дизолв ===
     if (startEnemies.every(e => e.isDead)) {
       triggerVictoryTransition();
-      return;
+      return undefined;
     }
 
-    let delay = bleedHappened ? 450 : 0;
-    const aliveEnemies = startEnemies.filter(e => !e.isDead);
-    aliveEnemies.forEach((enemy) => {
-      setTimeout(() => {
-         const alivePlayers = playersRef.current.filter(p => p.hp > 0);
-         if (alivePlayers.length === 0) return;
+    const applyEnemyDamage = (targets, rawDamageById, impactScale = 1) => {
+      const damagedIds = targets
+        .filter(target => (rawDamageById[target.id] || 0) > 0)
+        .map(target => target.id);
+      const maxRawDamage = Math.max(0, ...Object.values(rawDamageById));
 
-         const st = enemy.statuses || {};
+      if (maxRawDamage > 0) triggerImpact(maxRawDamage * (targets.length > 1 ? 1.4 : 1) * impactScale);
+      if (damagedIds.length > 0) {
+        setFlashingTargets(prev => [...prev, ...damagedIds]);
+        setTimeout(() => setFlashingTargets(prev => prev.filter(id => !damagedIds.includes(id))), 250);
+      }
 
-         // Оглушение — пропуск хода
-         if (st.stun && st.stun.remaining > 0) {
-            const eR = enemyRefs.current[enemy.id]?.getBoundingClientRect();
-            if (eR) fxRef.current?.spawnDamagePopup({ id: Math.random(), text: '💫 ОГЛУШЁН', color: 'text-amber-300', x: eR.left + eR.width/2, y: eR.top - 10 });
-            return;
-         }
+      targets.forEach(target => {
+        const rawDamage = rawDamageById[target.id] || 0;
+        const pRect = avatarRefs.current[target.id]?.getBoundingClientRect();
+        if (!pRect || rawDamage <= 0) return;
+        const { hpLoss } = applyIncomingDamage(target, rawDamage);
+        if (hpLoss <= 0) return;
+        fxRef.current?.spawnDamagePopup({
+          id: Math.random(), value: hpLoss,
+          x: pRect.left + pRect.width / 2, y: pRect.top + pRect.height / 2,
+        });
+        const bloodCount = targets.length > 1 ? 20 : 30;
+        const blood = Array.from({ length: bloodCount }, () => ({
+          id: Math.random(), x: pRect.left + pRect.width / 2, y: pRect.top + pRect.height / 2,
+        }));
+        fxRef.current?.spawnBlood(blood);
+      });
 
-         const base = Math.floor((Math.random() * 8 + 8 + (currentStage * 3)) * ENEMY_POWER_MULT);
-         const weakenAtk = st.weaken?.atk || 0;
-         const dmg = Math.max(1, Math.round(base * (enemy.dmgMult || 1.0) * (1 - weakenAtk)));
-         const style = enemy.attackStyle || 'melee';
-         const vfxType = enemy.vfxType || 'enemy';
-         const blindChance = st.blind?.chance || 0;
+      // Реф обновляем синхронно: следующая атака в async-очереди должна видеть
+      // уже нанесённый урон, не дожидаясь React effect после setPlayers.
+      const nextPlayers = playersRef.current.map(player => {
+        if (!Object.prototype.hasOwnProperty.call(rawDamageById, player.id)) return player;
+        const { newHp, newArmor } = applyIncomingDamage(player, rawDamageById[player.id] || 0);
+        if (newHp === 0) purgeHeroFromDeck(player.id, player.currentCard);
+        return { ...player, hp: newHp, armor: newArmor, currentCard: null };
+      });
+      playersRef.current = nextPlayers;
+      setPlayers(nextPlayers);
+    };
 
-         // AoE (Глаз): бьёт всех живых игроков одновременно
-         if (style === 'aoe') {
-            const targets = alivePlayers;
-            setAnimatingEnemyId(enemy.id);
-            setAnimatingTargetIds(targets.map(t => t.id));
-            setIsAnimating(true);
-            setEnemyAttackTranslate({ dx: 0, dy: 0 }); // не прыгает
+    const showBlindMiss = (targets) => {
+      targets.forEach(target => {
+        const rect = avatarRefs.current[target.id]?.getBoundingClientRect();
+        if (rect) fxRef.current?.spawnDamagePopup({
+          id: Math.random(), text: 'ПРОМАХ', color: 'text-slate-200',
+          x: rect.left + rect.width / 2, y: rect.top - 10,
+        });
+      });
+    };
 
-            const eRect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
-            const newVfx = targets.flatMap(t => {
-               const pRect = avatarRefs.current[t.id]?.getBoundingClientRect();
-               if (!eRect || !pRect) return [];
-               return [{ id: Math.random(), type: vfxType, delay: 0,
-                  startX: eRect.left + eRect.width/2, startY: eRect.top + eRect.height/2,
-                  endX: pRect.left + pRect.width/2,   endY: pRect.top + pRect.height/2 }];
-            });
-            setVfxList(newVfx);
+    const runEnemyAttack = async (enemy) => {
+      const alivePlayers = playersRef.current.filter(player => player.hp > 0);
+      if (alivePlayers.length === 0 || cancelled) return;
 
-            setTimeout(safeAnim(() => {
-               setVfxList([]);
-               playSound('./assets/sfx/combat/enemy_attack.wav');
-               const missed = Math.random() < blindChance;
-               if (missed) {
-                  targets.forEach(t => { const pr = avatarRefs.current[t.id]?.getBoundingClientRect(); if (pr) fxRef.current?.spawnDamagePopup({ id: Math.random(), text: 'ПРОМАХ', color: 'text-slate-200', x: pr.left + pr.width/2, y: pr.top - 10 }); });
-                  setAnimatingEnemyId(null); setTimeout(() => setAnimatingTargetIds([]), 350); setIsAnimating(false);
-                  return;
-               }
-               triggerImpact(dmg * 1.4);
-               setFlashingTargets(prev => [...prev, ...targets.map(t => t.id)]);
-               setTimeout(() => setFlashingTargets(prev => prev.filter(id => !targets.some(t => t.id === id))), 250);
+      const statuses = enemy.statuses || {};
+      if (statuses.stun && statuses.stun.remaining > 0) {
+        const rect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
+        if (rect) fxRef.current?.spawnDamagePopup({
+          id: Math.random(), text: '💫 ОГЛУШЁН', color: 'text-amber-300',
+          x: rect.left + rect.width / 2, y: rect.top - 10,
+        });
+        return;
+      }
 
-               targets.forEach(t => {
-                  const pRect = avatarRefs.current[t.id]?.getBoundingClientRect();
-                  if (pRect) {
-                     const { hpLoss } = applyIncomingDamage(t, dmg);
-                     if (hpLoss > 0) {
-                       fxRef.current?.spawnDamagePopup({ id: Math.random(), value: hpLoss, x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 });
-                       const nb = []; for (let i=0; i<20; i++) nb.push({ id: Math.random(), x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 });
-                       fxRef.current?.spawnBlood(nb);
-                     }
-                  }
-               });
+      const base = Math.floor((Math.random() * 8 + 8 + (currentStage * 3)) * ENEMY_POWER_MULT);
+      const weakenAtk = statuses.weaken?.atk || 0;
+      const damage = Math.max(1, Math.round(base * (enemy.dmgMult || 1) * (1 - weakenAtk)));
+      const style = enemy.attackStyle || 'melee';
+      const vfxType = enemy.vfxType || 'enemy';
+      const isEyePanic = enemy.isBoss && enemy.name === 'Глаз';
+      const isSkeletonFalseDeath = enemy.isBoss && enemy.name === SKELETON_BOSS_NAME;
+      const profile = getEnemyAttackProfile(enemy);
+      // Боссы телеграфируют весь отряд: Глаз действительно бьёт всех, а
+      // Костяной Король затем выбирает цель заново на каждом звене паттерна.
+      const targets = isEyePanic || isSkeletonFalseDeath
+        ? alivePlayers
+        : [alivePlayers[Math.floor(Math.random() * alivePlayers.length)]];
 
-               setPlayers(currentPs => currentPs.map(p => {
-                  if (!targets.some(t => t.id === p.id)) return p;
-                  const { newHp, newArmor } = applyIncomingDamage(p, dmg);
-                  if (newHp === 0) purgeHeroFromDeck(p.id, p.currentCard);
-                  return { ...p, hp: newHp, armor: newArmor, currentCard: null };
-               }));
+      // Телеграф цели идёт до blind-roll. При промахе игрок увидит намерение
+      // врага, но ни угроза, ни defensive-QTE не запустятся.
+      setAnimatingEnemyId(enemy.id);
+      setAnimatingTargetIds(targets.map(target => target.id));
+      setIsAnimating(true);
+      setEnemyAttackTranslate({ dx: 0, dy: 0 });
+      setEnemyAttackDurationMs(profile.launchMs);
+      setEnemyAttackEasing('ease-out');
 
-               setAnimatingEnemyId(null);
-               setTimeout(() => setAnimatingTargetIds([]), 350);
-               setIsAnimating(false);
-            }), 300);
-            return;
-         }
+      await wait(profile.telegraphMs);
+      if (cancelled) return;
 
-         // Одиночная атака (melee / ranged)
-         const target = alivePlayers[Math.floor(Math.random() * alivePlayers.length)];
+      // Blind выше defensive-QTE: промахнувшийся враг не показывает кольцо.
+      if (Math.random() < (statuses.blind?.chance || 0)) {
+        showBlindMiss(targets);
+        clearEnemyAttack();
+        return;
+      }
 
-         setAnimatingEnemyId(enemy.id);
-         setAnimatingTargetIds([target.id]);
-         setIsAnimating(true);
+      const createThreatVfx = (target, threatProfile = profile, threatVfxType = vfxType) => {
+        const enemyRect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
+        const targetRect = avatarRefs.current[target.id]?.getBoundingClientRect();
+        if (!enemyRect || !targetRect) return [];
+        return [{
+          id: Math.random(),
+          source: 'enemy-threat',
+          enemyId: enemy.id,
+          type: threatVfxType,
+          delay: 0,
+          // CombatVfx начинает CSS-переход через 20 мс после mount, поэтому
+          // компенсируем этот кадр: контакт совпадает с duration QTE.
+          durationMs: Math.max(1, threatProfile.travelMs - 20),
+          launchMs: Math.max(1, threatProfile.launchMs - 20),
+          closeInMs: threatProfile.closeInMs,
+          approachRatio: threatProfile.approachRatio,
+          realTime: true,
+          comboScale: threatProfile.vfxScale,
+          startX: enemyRect.left + enemyRect.width / 2,
+          startY: enemyRect.top + enemyRect.height / 2,
+          endX: targetRect.left + targetRect.width / 2,
+          endY: targetRect.top + targetRect.height / 2,
+        }];
+      };
 
-         const eRect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
-         const pRect = avatarRefs.current[target.id]?.getBoundingClientRect();
-
-         setEnemyAttackTranslate({ dx: 0, dy: 0 });
-
-         if (style === 'ranged') {
-            if (eRect && pRect) {
-               setVfxList([{ id: Math.random(), type: vfxType, delay: 0,
-                  startX: eRect.left + eRect.width/2, startY: eRect.top + eRect.height/2,
-                  endX: pRect.left + pRect.width/2,   endY: pRect.top + pRect.height/2 }]);
-            }
-         } else {
-            const leapDx = eRect && pRect ? (pRect.left + pRect.width/2) - (eRect.left + eRect.width/2) : -200;
-            const leapDy = eRect && pRect ? (pRect.top  + pRect.height/2) - (eRect.top  + eRect.height/2) : 0;
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-               setEnemyAttackTranslate({ dx: leapDx * 0.75, dy: leapDy * 0.75 });
-            }));
-         }
-
-         const hitDelay = style === 'ranged' ? 480 : 300;
-
-         setTimeout(safeAnim(() => {
-            setVfxList([]);
-            playSound('./assets/sfx/combat/enemy_attack.wav');
-            const missed = Math.random() < blindChance;
-            if (missed) {
-               if (pRect) fxRef.current?.spawnDamagePopup({ id: Math.random(), text: 'ПРОМАХ', color: 'text-slate-200', x: pRect.left + pRect.width/2, y: pRect.top - 10 });
-               setAnimatingEnemyId(null); setTimeout(() => setAnimatingTargetIds([]), 350); setIsAnimating(false);
-               return;
-            }
-            triggerImpact(dmg);
-
-            setFlashingTargets(prev => [...prev, target.id]);
-            setTimeout(() => setFlashingTargets(prev => prev.filter(id => id !== target.id)), 250);
-
-            if (pRect) {
-               const { hpLoss } = applyIncomingDamage(target, dmg);
-               if (hpLoss > 0) {
-                 fxRef.current?.spawnDamagePopup({ id: Math.random(), value: hpLoss, x: pRect.left + pRect.width / 2, y: pRect.top + pRect.height / 2 });
-                 const newBlood = [];
-                 for(let i=0; i<30; i++) newBlood.push({ id: Math.random(), x: pRect.left + pRect.width/2, y: pRect.top + pRect.height/2 });
-                 fxRef.current?.spawnBlood(newBlood);
-               }
-            }
-
-            setPlayers(currentPs => currentPs.map(p => {
-               if (p.id === target.id) {
-                  const { newHp, newArmor } = applyIncomingDamage(p, dmg);
-                  if (newHp === 0) purgeHeroFromDeck(p.id, p.currentCard);
-                  return { ...p, hp: newHp, armor: newArmor, currentCard: null };
-               }
-               return p;
-            }));
-
-            setAnimatingEnemyId(null);
-            setTimeout(() => setAnimatingTargetIds([]), 350);
-            setIsAnimating(false);
-         }), hitDelay);
-      }, delay); 
-      delay += 800; 
-    });
-    
-    setTimeout(() => { 
-        // Конец фазы: уменьшаем длительность всех статусов
-        setEnemies(prev => prev.map(e => e.isDead ? e : decrementStatuses(e)));
-        if (playersRef.current.every(p => p.hp <= 0)) {
-            playSound('./assets/sfx/game/gameover.wav');
-            setTurnState('gameover');
-        } else {
-            setTurnState(ts => ts === 'enemy' ? 'dealing' : ts);
+      playSound('./assets/sfx/combat/enemy_attack.wav');
+      const results = {};
+      if (isEyePanic) {
+        // Импульс сначала проходит launch, затем кольцо монтируется одновременно
+        // с close-in. Один общий гард и bullet-time удерживаются на всю серию.
+        const canDefend = !qteActiveRef.current;
+        if (canDefend) {
+          qteActiveRef.current = true;
+          qteSlowMo.start();
         }
-    }, delay + 1000);
+        try {
+          for (let index = 0; index < targets.length; index++) {
+            if (cancelled) break;
+            const target = targets[index];
+            setAnimatingTargetIds([target.id]);
+            setVfxList(prev => [
+              ...prev.filter(vfx => vfx.source !== 'enemy-threat'),
+              ...createThreatVfx(target),
+            ]);
+            const verdict = canDefend
+              ? (async () => {
+                  await wait(profile.launchMs);
+                  if (cancelled) return 'miss';
+                  return runEnemyDefenseQte(target, enemy, {
+                    holdSlowMo: true,
+                    duration: profile.closeInMs,
+                    label: 'Взгляд Паники',
+                  });
+                })()
+              : Promise.resolve('miss');
+            const [result] = await Promise.all([verdict, wait(profile.travelMs)]);
+            results[target.id] = result;
+            if (result === 'perfect') {
+              await waitForEnemyHitStop(enemy.id);
+              if (cancelled) break;
+            }
+            setVfxList(prev => prev.filter(vfx => vfx.source !== 'enemy-threat'));
+            if (index < targets.length - 1) await wait(80);
+          }
+        } finally {
+          if (canDefend) {
+            qteSlowMo.end();
+            qteActiveRef.current = false;
+            setQteHeroId(null);
+          }
+        }
+      } else if (isSkeletonFalseDeath) {
+        // «Ложная смерть»: босс выпускает несколько костяных угроз,
+        // затем выдерживает обманную паузу перед тяжёлым финалом.
+        // Каждый фрагмент наносит свою долю урона при любом verdict; Perfect
+        // отвечает стандартным контрударом. Полная серия Perfect оглушает босса.
+        const canDefend = !qteActiveRef.current;
+        const phaseResults = [];
+        if (canDefend) {
+          qteActiveRef.current = true;
+          qteSlowMo.start();
+        }
+        try {
+          for (const phase of SKELETON_BOSS_PATTERN.phases) {
+            if (cancelled) break;
+            const currentBoss = enemiesRef.current.find(current => current.id === enemy.id);
+            if (!currentBoss || currentBoss.isDead || currentBoss.hp <= 0) break;
+
+            if (phase.preDelayMs > 0) {
+              setAnimatingTargetIds([]);
+              setVfxList(prev => prev.filter(vfx => vfx.source !== 'enemy-threat'));
+              await wait(phase.preDelayMs);
+              if (cancelled) break;
+            }
+
+            const target = resolveSkeletonBossTarget(phase.target, playersRef.current);
+            if (!target) break;
+            const phaseProfile = {
+              launchMs: phase.launchMs,
+              closeInMs: phase.closeInMs,
+              travelMs: phase.launchMs + phase.closeInMs,
+              approachRatio: 0.74,
+              vfxScale: phase.vfxScale,
+            };
+            setAnimatingTargetIds([target.id]);
+            setVfxList(prev => [
+              ...prev.filter(vfx => vfx.source !== 'enemy-threat'),
+              ...createThreatVfx(target, phaseProfile, 'bone'),
+            ]);
+
+            const verdict = canDefend
+              ? (async () => {
+                  await wait(phase.launchMs);
+                  if (cancelled) return 'miss';
+                  return runEnemyDefenseQte(target, enemy, {
+                    holdSlowMo: true,
+                    duration: phase.closeInMs,
+                    label: phase.label,
+                  });
+                })()
+              : Promise.resolve('miss');
+            const [result] = await Promise.all([verdict, wait(phaseProfile.travelMs)]);
+            phaseResults.push({ phaseId: phase.id, targetId: target.id, result });
+
+            if (result === 'perfect') {
+              await waitForEnemyHitStop(enemy.id);
+              if (cancelled) break;
+            }
+            setVfxList(prev => prev.filter(vfx => vfx.source !== 'enemy-threat'));
+
+            const currentTarget = playersRef.current.find(player => player.id === target.id);
+            if (currentTarget?.hp > 0) {
+              const phaseDamage = Math.max(1, Math.round(damage * phase.damageScale));
+              applyEnemyDamage(
+                [currentTarget],
+                { [currentTarget.id]: phaseDamage },
+                phase.isFinisher ? 1.45 : 0.8,
+              );
+            }
+            if (phase.gapMs > 0) await wait(phase.gapMs);
+          }
+        } finally {
+          if (canDefend) {
+            qteSlowMo.end();
+            qteActiveRef.current = false;
+            setQteHeroId(null);
+          }
+        }
+
+        const allPerfect = phaseResults.length === SKELETON_BOSS_PATTERN.phases.length
+          && phaseResults.every(phase => phase.result === 'perfect');
+        if (allPerfect && !cancelled) {
+          setEnemies(currentEnemies => {
+            const nextEnemies = currentEnemies.map(current => (
+              current.id === enemy.id && !current.isDead
+                ? {
+                    ...current,
+                    statuses: {
+                      ...(current.statuses || {}),
+                      stun: { remaining: SKELETON_BOSS_PATTERN.allPerfectStunRemaining },
+                    },
+                  }
+                : current
+            ));
+            enemiesRef.current = nextEnemies;
+            return nextEnemies;
+          });
+          const enemyRect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
+          if (enemyRect) fxRef.current?.spawnDamagePopup({
+            id: Math.random(),
+            text: 'ОГЛУШЁН!',
+            color: 'text-amber-300',
+            x: enemyRect.left + enemyRect.width / 2,
+            y: enemyRect.top - 20,
+          });
+        }
+        clearEnemyAttack();
+        return;
+      } else {
+        const target = targets[0];
+        let threatMovement;
+        if (style === 'ranged') {
+          setVfxList(prev => [
+            ...prev.filter(vfx => vfx.source !== 'enemy-threat'),
+            ...createThreatVfx(target),
+          ]);
+          threatMovement = wait(profile.travelMs);
+        } else {
+          const enemyRect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
+          const targetRect = avatarRefs.current[target.id]?.getBoundingClientRect();
+          const leapDx = enemyRect && targetRect
+            ? (targetRect.left + targetRect.width / 2) - (enemyRect.left + enemyRect.width / 2)
+            : -200;
+          const leapDy = enemyRect && targetRect
+            ? (targetRect.top + targetRect.height / 2) - (enemyRect.top + enemyRect.height / 2)
+            : 0;
+          // Две видимые стадии melee: выход к опасной дистанции, затем резкий
+          // выпад последних пикселей до impact-зоны.
+          setEnemyAttackDurationMs(profile.launchMs);
+          setEnemyAttackEasing('ease-out');
+          setEnemyAttackTranslate({
+            dx: leapDx * profile.approachRatio,
+            dy: leapDy * profile.approachRatio,
+          });
+          threatMovement = (async () => {
+            await wait(profile.launchMs);
+            if (cancelled) return;
+            setEnemyAttackDurationMs(profile.closeInMs);
+            // Close-in — резкий выпад от точки сближения к хитбоксу героя.
+            // Кривая совпадает с ease-in-quad кольца: контакт только в конце QTE.
+            setEnemyAttackEasing('cubic-bezier(0.55, 0.085, 0.68, 0.53)');
+            setEnemyAttackTranslate({ dx: leapDx * 0.82, dy: leapDy * 0.82 });
+            await wait(profile.closeInMs);
+          })();
+        }
+
+        // QTE стартует строго вместе с close-in. Его duration равен времени
+        // последнего участка, поэтому кольцо и угроза достигают героя синхронно.
+        const verdict = (async () => {
+          await wait(profile.launchMs);
+          if (cancelled) return 'miss';
+          return runEnemyDefenseQte(target, enemy, {
+            duration: profile.closeInMs,
+            label: style === 'ranged' ? 'Летящий снаряд' : 'Рывок',
+          });
+        })();
+        const [result] = await Promise.all([verdict, threatMovement]);
+        results[target.id] = result;
+        if (result === 'perfect') {
+          await waitForEnemyHitStop(enemy.id);
+          if (cancelled) return;
+        }
+      }
+
+      if (cancelled) {
+        clearEnemyAttack();
+        return;
+      }
+
+      const rawDamageById = Object.fromEntries(targets.map(target => {
+        const verdict = results[target.id];
+        const multiplier = ENEMY_QTE_DAMAGE_MULT[verdict] ?? 1;
+        return [target.id, Math.round(damage * multiplier)];
+      }));
+      const isHeavyOrcMiss = enemy.name === 'Орк' && results[targets[0]?.id] === 'miss';
+      applyEnemyDamage(targets, rawDamageById, isHeavyOrcMiss ? 1.35 : 1);
+
+      const isMeleeLunge = style !== 'ranged' && !isEyePanic;
+      if (isMeleeLunge) {
+        const wasParried = results[targets[0]?.id] === 'perfect' || results[targets[0]?.id] === 'good';
+        // Успешный контрудар уже выдержал 800 мс hit-stop. После него
+        // враг резко отлетает на базовую позицию; при Miss возврат спокойнее.
+        setAnimatingTargetIds([]);
+        setEnemyAttackDurationMs(wasParried ? 260 : 500);
+        setEnemyAttackEasing(wasParried
+          ? 'cubic-bezier(0.12, 0.82, 0.2, 1)'
+          : 'cubic-bezier(0.2, 0.7, 0.25, 1)');
+        setEnemyAttackTranslate({ dx: 0, dy: 0 });
+        await wait(wasParried ? 260 : 500);
+        if (cancelled) return;
+      }
+      clearEnemyAttack();
+    };
+
+    const runEnemyPhase = async () => {
+      if (bleedHappened) await wait(450);
+      for (const enemy of startEnemies.filter(entry => !entry.isDead)) {
+        if (cancelled || playersRef.current.every(player => player.hp <= 0)) break;
+        if (enemiesRef.current.find(current => current.id === enemy.id)?.isDead) continue;
+        await runEnemyAttack(enemy);
+        if (!cancelled) await wait(250);
+      }
+      if (cancelled) return;
+      if (enemiesRef.current.length > 0 && enemiesRef.current.every(enemy => enemy.isDead)) {
+        triggerVictoryTransition();
+        return;
+      }
+
+      setEnemies(currentEnemies => {
+        const nextEnemies = currentEnemies.map(enemy => enemy.isDead ? enemy : decrementStatuses(enemy));
+        enemiesRef.current = nextEnemies;
+        return nextEnemies;
+      });
+      if (playersRef.current.every(player => player.hp <= 0)) {
+        playSound('./assets/sfx/game/gameover.wav');
+        handlePartyWipe();
+      } else {
+        setTurnState(current => current === 'enemy' ? 'dealing' : current);
+      }
+    };
+
+    runEnemyPhase().catch(error => {
+      console.error('[combat] enemy phase failed:', error);
+      qteSlowMo.end();
+      qteActiveRef.current = false;
+      setQteHeroId(null);
+      clearEnemyAttack();
+      if (!cancelled) setTurnState(current => current === 'enemy' ? 'dealing' : current);
+    });
+
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turnState, showLevelUp, currentStage]);
 
@@ -5433,6 +6119,16 @@ export default function App() {
 
   const currentNode = gameMap.find(n => n.id === currentMapNodeId);
   const currentNodeInfo = getNodeInfo(currentNode?.type);
+  const isActiveCombat = !showTavern
+    && enemies.some(enemy => !enemy.isDead && enemy.hp > 0)
+    && players.some(player => player.hp > 0)
+    && turnState !== 'map'
+    && turnState !== 'event';
+  const isSelectingMapNode = !showTavern && turnState === 'map';
+  const isAtSectorBase = isSelectingMapNode
+    && currentNode?.type === 'base'
+    && currentNode?.stage === 0
+    && enemies.length === 0;
   // Скорость движения шейдера растёт с продвижением по карте сектора (stage 0..5 → 0..1), плавно.
   const bgSpeed = Math.min(1, Math.max(0, currentStage / 5));
 
@@ -5487,6 +6183,23 @@ export default function App() {
     return links;
   }, [gameMap]);
 
+  const taskMasterRewardReady = taskMasterHasRewards(taskMasterState);
+  const taskMasterHasWork = taskMasterHasTasks(taskMasterState);
+
+  // Нотификаторы таверны: над героем — полученная карта/бонус, над NPC —
+  // новое действие. У скелета знак горит, когда награда готова к выдаче.
+  const tavernNotifications = useMemo(() => {
+    const notes = {};
+    players.forEach((player, slotIndex) => {
+      if (heroRewardBadges[player.id]) notes[`hero_slot_${slotIndex}`] = { hint: 'Новая карта' };
+    });
+    if (shopUnseen) notes.npc_bartender = { hint: 'Готов к разговору' };
+    if (taskMasterRewardReady) {
+      notes.npc_task_master = { hint: 'Награда готова' };
+    }
+    return notes;
+  }, [players, heroRewardBadges, shopUnseen, taskMasterRewardReady]);
+
   return (
     <div
       className={`${isFullscreen ? 'fixed inset-0 z-[9999]' : 'h-screen relative'} w-full bg-transparent text-slate-200 flex flex-col items-center font-sans select-none transition-all duration-300 overflow-hidden`}
@@ -5506,12 +6219,28 @@ export default function App() {
             // Передаём атлас целиком — TavernSprite сам анимирует idle по cols/rows/frameCount/fps.
             // getHeroAtlas учитывает найм Незнакомца (оверрайд спрайта героя).
             sprite: getHeroAtlas(p.id),
+            ...getHeroColorize(p.id),
           }))}
           currentSector={sector}
           onAction={(payload) => {
             if (!payload) return;
+            if (payload.action === 'OPEN_SHOP') {
+              playSound('./assets/sfx/ui/click.wav', 0.55);
+              setShopUnseen(false);
+              setShowTaskMaster(false);
+              setShowShop(true);
+              return;
+            }
+            if (payload.action === 'OPEN_TASK_MASTER') {
+              playSound('./assets/sfx/ui/click.wav', 0.55);
+              setShowShop(false);
+              setShowTaskMaster(true);
+              return;
+            }
             if (payload.action === 'OPEN_MAP') {
               playSound('./assets/sfx/map/node_click.wav', 0.55);
+              retreatInProgressRef.current = false;
+              setTavernRested(false);
               setShowTavern(false);
               return;
             }
@@ -5521,17 +6250,62 @@ export default function App() {
           }}
           onOpenHeroInventory={({ hero, slotIndex }) => {
             playSound('./assets/sfx/ui/click.wav', 0.5);
-            setInventoryHeroId(hero?.id || INITIAL_PLAYERS_DATA[slotIndex]?.id || 'p1');
+            const heroId = hero?.id || INITIAL_PLAYERS_DATA[slotIndex]?.id || 'p1';
+            setInventoryHeroId(heroId);
+            setHeroRewardBadges(previous => (
+              previous[heroId] ? { ...previous, [heroId]: false } : previous
+            ));
             setShowTavern(false);
             setShowHeroInventory(true);
           }}
-          entryDialogueTrigger={firstDeathStoryPending ? 'FIRST_DEATH' : 'TAVERN_ENTER'}
+          entryDialogueTrigger={firstDeathVisitorPending ? 'FIRST_DEATH' : 'TAVERN_ENTER'}
           onEntryDialogueComplete={(triggerId) => {
-            if (triggerId === 'FIRST_DEATH') grantFirstDeathFreeCards();
+            if (triggerId !== 'FIRST_DEATH' || !firstDeathVisitorPending) return;
+            setFirstDeathVisitorPending(false);
+            grantPermanentCardReward();
           }}
-          nightScript={strangerStoryPending ? STRANGER_SECOND_DEATH_SCRIPT : null}
-          onNightScriptComplete={() => setStrangerStoryPending(false)}
+          nightScript={
+            firstDeathStoryPending
+              ? SKELETON_FIRST_DEATH_SCRIPT
+              : strangerStoryPending
+                ? STRANGER_SECOND_DEATH_SCRIPT
+                : null
+          }
+          onNightScriptComplete={(scriptId) => {
+            if (scriptId === SKELETON_FIRST_DEATH_SCRIPT.id) setFirstDeathStoryPending(false);
+            if (scriptId === STRANGER_SECOND_DEATH_SCRIPT.id) setStrangerStoryPending(false);
+          }}
           strangerInTavern={strangerInTavern}
+          taskMasterVisible={taskMasterState.unlocked}
+          taskMasterActive={taskMasterHasWork}
+          hasRested={tavernRested}
+          onRested={handleTavernRest}
+          notifications={tavernNotifications}
+        />
+      )}
+
+      {appReady && showTavern && showShop && !cardReveal && (
+        <ShopScreen
+          stock={shopStock}
+          inventory={inventory}
+          gold={gold}
+          soulEmbers={soulEmbers}
+          soulProgress={soulProgress}
+          onBuy={buyShopItem}
+          onSell={sellShopItem}
+          onConvert={convertShopItems}
+          onClose={() => setShowShop(false)}
+          renderItemTooltip={({ item, x, y }) => <ItemTooltip item={item} x={x} y={y} />}
+        />
+      )}
+
+      {appReady && showTavern && showTaskMaster && taskMasterState.unlocked && !cardReveal && (
+        <TaskMasterScreen
+          state={taskMasterState}
+          isActive={taskMasterHasWork}
+          onClaim={claimTaskMasterQuest}
+          renderItemTooltip={({ item, x, y }) => <ItemTooltip item={item} x={x} y={y} />}
+          onClose={() => setShowTaskMaster(false)}
         />
       )}
 
@@ -5579,6 +6353,20 @@ export default function App() {
              тусклый и приглушённый — интенсивность/яркость снижены ~втрое от яркого красного */
           0%, 100% { filter: none; }
           50% { filter: brightness(0.6) sepia(1) hue-rotate(-32deg) saturate(250%); }
+        }
+        @keyframes enemyHitStopImpact {
+          0%   { transform: translate(0, 0) rotate(0deg) scale(1.4); }
+          8%   { transform: translate(-4px, 2px) rotate(-0.5deg) scale(1.4); }
+          17%  { transform: translate(7px, -3px) rotate(0.8deg) scale(1.4); }
+          26%  { transform: translate(-10px, 4px) rotate(-1.1deg) scale(1.4); }
+          34%  { transform: translate(14px, -5px) rotate(1.5deg) scale(1.4); }
+          43%  { transform: translate(-20px, 7px) rotate(-2deg) scale(1.4); }
+          50%  { transform: translate(16px, -6px) rotate(1.7deg) scale(1.4); }
+          58%  { transform: translate(-12px, 4px) rotate(-1.25deg) scale(1.4); }
+          67%  { transform: translate(8px, -3px) rotate(0.85deg) scale(1.4); }
+          77%  { transform: translate(-5px, 2px) rotate(-0.5deg) scale(1.4); }
+          88%  { transform: translate(2px, -1px) rotate(0.2deg) scale(1.4); }
+          100% { transform: translate(0, 0) rotate(0deg) scale(1.4); }
         }
         @keyframes modStampSlam {
           0%   { opacity: 0; transform: scale(2.6) rotate(-14deg); }
@@ -5633,6 +6421,25 @@ export default function App() {
       {/* Глобальный кошелёк — поверх всех экранов, правый верхний угол */}
       {appReady && <WalletHUD gold={gold} soulEmbers={soulEmbers} />}
 
+      {appReady && (isActiveCombat || isSelectingMapNode) && (
+        <button
+          type="button"
+          onClick={() => handleExitExpedition(isAtSectorBase)}
+          className={`absolute left-4 top-14 z-[9300] flex min-w-[150px] items-center justify-center gap-2 rounded-xl border px-4 py-2 text-[11px] font-black uppercase tracking-wider text-white shadow-xl backdrop-blur-sm transition-all hover:scale-105 active:scale-95 ${
+            isAtSectorBase
+              ? 'border-emerald-500/70 bg-emerald-950/90 hover:bg-emerald-900'
+              : 'border-red-500/70 bg-red-950/90 hover:bg-red-900'
+          }`}
+          title={isAtSectorBase ? 'Вернуться в таверну без потерь' : 'Завершить забег и потерять 30% предметов общего инвентаря'}
+        >
+          <span>↩</span>
+          <span>
+            {isAtSectorBase ? 'В ТАВЕРНУ' : isActiveCombat ? 'ВЫЙТИ ИЗ БОЯ' : 'ВЫЙТИ ИЗ ПОХОДА'}
+          </span>
+          {!isAtSectorBase && <span className="text-amber-300">−30% ПРЕДМЕТОВ</span>}
+        </button>
+      )}
+
       {/* Музыка + SFX + полноэкран (сдвинуты под кошелёк) */}
       <div className="absolute top-14 right-[52px] z-[9000] flex items-center gap-3 bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg">
         {/* Кнопка вкл/выкл музыки */}
@@ -5686,6 +6493,8 @@ export default function App() {
                 const isHovered = hoveredPlayerId === player.id; const isAttacking = animatingPlayerId === player.id; const isBeingAttacked = animatingTargetIds.includes(player.id);
                 // Герой отыгрывает свой QTE: свечение собственным цветом + рост ×1.1 через изинг
                 const isQteHero = qteHeroId === player.id;
+                const isDefenseWindowFlash = defenseWindowFlashIds.includes(player.id)
+                  || heroHitStopIds.includes(player.id);
                 // Текущий замах героя (фазы см. attackAnims): windup — слоу-мо + холд перед
                 // ударом; fastFinish — быстрый доигрыш в реальном времени (×3); finish — miss,
                 // доигрывается сам в обычном темпе (реальное время: слоу-мо серии не тянет его).
@@ -5710,12 +6519,16 @@ export default function App() {
                 return (
                   <div key={`field-${player.id}`} ref={el => setAvatarRef(player.id, el)} className={`absolute flex items-center ${transitionClass} ${player.hp <= 0 ? 'opacity-30 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(59,130,246,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: avatarTransform, left: pos.left, top: pos.top }}>
                     <div
-                      className={`relative ${getHeroAtlas(player.id) ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`}
+                      className={`relative ${getHeroAtlas(player.id) ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''} ${isDefenseWindowFlash ? 'brightness-0 invert scale-150 z-[2000]' : ''}`}
                       style={{
-                        transition: 'all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)', // изинг с лёгким овершутом на рост/спад
+                        transition: isDefenseWindowFlash
+                          ? 'filter 80ms ease-out, transform 100ms ease-out'
+                          : 'filter 240ms ease-in, transform 240ms cubic-bezier(0.34, 1.2, 0.64, 1)',
                         ...(isQteHero ? {
-                          transform: 'scale(1.1)',
-                          filter: `drop-shadow(0 0 14px ${CHAR_QTE_GLOW[player.id]}) drop-shadow(0 0 36px ${CHAR_QTE_GLOW[player.id]})`,
+                          transform: isDefenseWindowFlash ? 'scale(1.2)' : 'scale(1.1)',
+                          filter: isDefenseWindowFlash
+                            ? 'brightness(0) invert(1)'
+                            : `drop-shadow(0 0 14px ${CHAR_QTE_GLOW[player.id]}) drop-shadow(0 0 36px ${CHAR_QTE_GLOW[player.id]})`,
                         } : {}),
                       }}
                     >
@@ -5735,14 +6548,13 @@ export default function App() {
                               gameTime
                               once
                               holdAtFrame={attackAnim.phase === 'windup' ? attackAnim.holdAtFrame : null}
-                              speed={attackAnim.phase === 'fastFinish' ? 3 : 1}
-                              ignoreSlowMo={attackAnim.phase !== 'windup'}
+                              speed={attackAnim.phase === 'fastFinish' ? 3 : (attackAnim.speed || 1)}
+                              ignoreSlowMo={attackAnim.realTime || attackAnim.phase !== 'windup'}
                               onCycle={() => handleAttackAnimCycle(player.id)}
-                              {...CHAR_COLORIZE[player.id]}
+                              {...getHeroColorize(player.id)}
                             />
                           : <CharSprite key="idle" atlas={getHeroAtlas(player.id)} size={CHAR_SPRITE_SIZE} {...getHeroColorize(player.id)} />
                       ) : String(player.icon)}
-                      {isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}
                     </div>
                   </div>
                 );
@@ -5755,15 +6567,20 @@ export default function App() {
                 const targetPreview = hoverTargetPreview[enemy.id];
                 const isBeingAttacked = animatingTargetIds.includes(enemy.id); 
                 const isAttacking = animatingEnemyId === enemy.id;
+                const isHitStopped = enemyHitStopIds.includes(enemy.id);
                 const isSpeaking = speakingEnemy && speakingEnemy.id === enemy.id && !enemy.isDead;
                 const enemyAtlas = ENEMY_ATLASES[enemy.name] || null;
                 const formation = ENEMY_FORMATIONS[enemies.length] || ENEMY_FORMATIONS[3];
                 const basePos = formation[eIdx] || formation[formation.length - 1];
-                const isBoss = enemy.attackStyle === 'aoe';
+                const isBoss = Boolean(enemy.isBoss);
                 const lowHp = !enemy.isDead && enemy.hp / enemy.maxHp < 0.3;
                 const enemySize = isBoss ? Math.round(CHAR_SPRITE_SIZE * 1.5625) : CHAR_SPRITE_SIZE;
-                // Босс крупнее; right уменьшается = сдвиг вправо, top увеличивается = ниже
-                const pos = isBoss ? { right: basePos.right - 95, top: basePos.top - 10 } : basePos;
+                // Костяной Король выше Глаза на 50px: его исходный атлас визуально
+                // сидит ниже при одинаковом контейнере.
+                const bossTop = enemy.name === SKELETON_BOSS_NAME
+                  ? basePos.top - 60
+                  : basePos.top - 10;
+                const pos = isBoss ? { right: basePos.right - 95, top: bossTop } : basePos;
                 
                 // moveTransform — движение (прыжок/hover/shake) на ВНЕШНЕМ div с transition
                 // mirrorTransform — зеркало scaleX(-1) всегда на ВНУТРЕННЕМ div (без transition)
@@ -5774,7 +6591,7 @@ export default function App() {
                   moveTransform = doesLeap
                     ? `translate(${enemyAttackTranslate.dx}px, ${enemyAttackTranslate.dy}px) scale(1.15)`
                     : 'scale(1.15)';
-                  transitionClass = 'transition-all duration-300 ease-out';
+                  transitionClass = 'transition-all ease-out';
                 }
                 else if (isHoveredTarget && !isAnimating) moveTransform = 'translate(-16px, 0)';
                 else if (isBeingAttacked && shake.x !== 0) {
@@ -5784,8 +6601,26 @@ export default function App() {
                 else if (isBeingAttacked) moveTransform = 'scale(1.1)';
 
                 return (
-                  <div key={String(enemy.id)} ref={(el) => setEnemyRef(enemy.id, el)} className={`absolute ${transitionClass} ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: moveTransform, right: pos.right, top: pos.top }}>
-                    {isSpeaking && <EnemySpeechBubble text={speakingEnemy.text} />}
+                  <div
+                    key={String(enemy.id)}
+                    ref={(el) => setEnemyRef(enemy.id, el)}
+                    data-qte-realtime={isAttacking && (enemy.attackStyle === 'melee' || !enemy.attackStyle) ? 'true' : undefined}
+                    className={`absolute ${transitionClass} ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`}
+                    style={{
+                      transform: moveTransform,
+                      right: pos.right,
+                      top: pos.top,
+                      transitionDuration: isAttacking ? `${enemyAttackDurationMs}ms` : undefined,
+                      transitionTimingFunction: isAttacking ? enemyAttackEasing : undefined,
+                    }}
+                  >
+                    {isSpeaking && (
+                      <EnemySpeechBubble
+                        text={speakingEnemy.text}
+                        name={speakingEnemy.name || enemy.name}
+                        onTypingDone={() => finishEnemySpeech(enemy.id)}
+                      />
+                    )}
                     {!enemy.isDead && enemy.statuses && Object.keys(enemy.statuses).filter(k => SECONDARY_EFFECTS[k]).length > 0 && (
                       <div className="group absolute left-1/2 -translate-x-1/2 -top-3 flex gap-1 z-[80]">
                         {Object.entries(enemy.statuses).map(([key, val]) => {
@@ -5820,10 +6655,20 @@ export default function App() {
                     {!enemy.isDead && <EnemyHpBar hp={enemy.hp} maxHp={enemy.maxHp} />}
                     <div className="relative" style={{ transform: 'scaleX(-1)' }}>
                       <div
-                        className={`relative ${enemyAtlas ? '' : 'text-6xl'} ${isHoveredTarget || isBeingAttacked ? 'drop-shadow-[0_0_25px_rgba(239,68,68,0.4)]' : ''} ${flashingTargets.includes(enemy.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''}`}
-                        style={{ animation: isSpeaking && !isBeingAttacked && !isAttacking ? 'speechWobble 0.4s ease-in-out infinite' : (lowHp && !isBeingAttacked && !isAttacking && !flashingTargets.includes(enemy.id) ? 'lowHpPulse 0.9s ease-in-out infinite' : 'none'), transition: 'all 0.15s ease-out' }}
+                        className={`relative ${enemyAtlas ? '' : 'text-6xl'} ${isHoveredTarget || isBeingAttacked ? 'drop-shadow-[0_0_25px_rgba(239,68,68,0.4)]' : ''} ${flashingTargets.includes(enemy.id) && !isHitStopped ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''} ${isHitStopped ? 'brightness-0 invert drop-shadow-[0_0_70px_white] scale-[1.4] z-[2000]' : ''}`}
+                        style={{
+                          animation: isHitStopped
+                            ? 'enemyHitStopImpact 700ms linear both'
+                            : isSpeaking && !isBeingAttacked && !isAttacking
+                              ? 'speechWobble 0.4s ease-in-out infinite'
+                              : lowHp && !isBeingAttacked && !isAttacking && !flashingTargets.includes(enemy.id)
+                                ? 'lowHpPulse 0.9s ease-in-out infinite'
+                                : 'none',
+                          transition: isHitStopped ? 'none' : 'all 0.15s ease-out',
+                          transformOrigin: 'center',
+                        }}
                       >
-                        {enemyAtlas ? <CharSprite atlas={enemyAtlas} size={enemySize} /> : String(enemy.icon)}
+                        {enemyAtlas ? <CharSprite atlas={enemyAtlas} size={enemySize} paused={isHitStopped} /> : String(enemy.icon)}
                         {isHoveredTarget && !isAnimating && targetPreview && (
                           <TargetReticle damage={targetPreview.damage} lethal={targetPreview.isLethal} />
                         )}
@@ -5923,7 +6768,7 @@ export default function App() {
           {/* Инвентарь — горизонтальная полоса под карточками + кнопка крафта справа.
               Во время карты сектора скрыт (карта занимает его место), ref остаётся смонтирован. */}
           <div ref={inventoryRef} className={`relative flex items-center justify-center gap-1.5 rounded-2xl px-[55px] py-3 w-fit mx-auto transition-opacity duration-200 ${turnState === 'map' ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} style={{ marginTop: '33px', background: 'linear-gradient(to right, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 50%, rgba(15,23,42,0) 100%)' }}>
-            {inventory.map((item, idx) => (
+            {[...inventory.slice(0, 9), ...Array(Math.max(0, 9 - inventory.length)).fill(null)].map((item, idx) => (
               <ItemSlot
                 key={idx}
                 item={item}
@@ -5983,22 +6828,55 @@ export default function App() {
         </div>
       </div>
 
-      {/* --- QTE «Perfect Hit»: сужающееся кольцо поверх цели / зоны врагов --- */}
-      {qte && (
+      {/* Общее QTE-кольцо; enemy-QTE дополнительно даёт авто-замах и белый сигнал окна. */}
+      {qte && qte.mode !== 'horse' && (
         <QteOverlay
           key={qte.id}
           targetType={qte.targetType}
           targetNode={qte.targetNode}
           duration={qte.duration}
           card={qte.card}
-          onArm={() => playSound('./assets/sfx/ui/click.wav', 0.18)}
+          resultLabels={qte.resultLabels}
+          windowScale={qte.mode === 'enemy' ? 2 : 1}
+          binaryResults={qte.mode === 'enemy'}
+          resultLingerMs={qte.mode === 'enemy' ? ENEMY_HIT_STOP_MS : undefined}
+          showTimingVisuals
+          showContext={qte.mode !== 'enemy'}
+          showVignette={qte.mode !== 'enemy' || qte.focusVignette}
+          onInput={(verdict) => {
+            if (qte.mode === 'enemy') {
+              showEnemyDefenseRipple(
+                qte.heroId,
+                verdict,
+                verdict === 'perfect' ? ENEMY_HIT_STOP_MS : defenseRippleDurationRef.current,
+              );
+              if (verdict === 'perfect') {
+                startEnemyHitStop(qte.enemyId, qte.heroId);
+                playEnemyDefenseParry(qte.heroId, qte.enemyId, verdict);
+              }
+              strikeEnemyDefense(qte.heroId);
+              playSound('./assets/sfx/combat/hit_light.wav', 0.25);
+            }
+          }}
+          onAutoMiss={() => {
+            if (qte.mode === 'enemy') {
+              showEnemyDefenseRipple(qte.heroId, 'miss', defenseRippleDurationRef.current);
+              cancelEnemyDefenseWindup(qte.heroId);
+            }
+          }}
+          onArm={(timing) => {
+            playSound('./assets/sfx/ui/click.wav', qte.mode === 'enemy' ? 0.45 : 0.18);
+            if (qte.mode === 'enemy') {
+              flashEnemyDefenseWindow(qte.heroId, timing.totalWindowMs);
+            }
+          }}
           onResolve={(res) => {
             // Вердикт получен — мир плавно разгоняется обратно (ramp ~250мс).
             // В серии (holdSlowMo) слоу-мо держится до конца стрима — end зовёт цикл.
             if (!qte.holdSlowMo) qteSlowMo.end();
             if (res === 'perfect') playSound('./assets/sfx/combat/hit_heavy.wav', 0.55);
             else if (res === 'good') playSound('./assets/sfx/ui/click.wav', 0.5);
-            qte.resolve(QTE_RESULT_MULT[res] ?? 1.0);
+            qte.resolve(qte.mode === 'enemy' ? res : (QTE_RESULT_MULT[res] ?? 1.0));
           }}
           onDone={() => {
             // Гвард от «протухшего» onDone: вердикт прошлого звена догорает 600мс,
@@ -6010,6 +6888,38 @@ export default function App() {
               return null;
             });
           }}
+        />
+      )}
+      {qte?.mode === 'horse' && (
+        <HorseHerdQte
+          key={qte.id}
+          arenaRect={qte.arenaRect}
+          targetNodes={qte.targetNodes}
+          card={qte.card}
+          onActivate={() => playSound('./assets/sfx/ui/click.wav', 0.5)}
+          onImpact={(targetNode) => qte.onHorseImpact?.(targetNode)}
+          onResolve={(multiplier) => {
+            qteSlowMo.end();
+            qte.resolve(multiplier);
+          }}
+          onDone={() => {
+            setQte(prev => {
+              if (prev && prev.id !== qte.id) return prev;
+              qteActiveRef.current = false;
+              return null;
+            });
+          }}
+        />
+      )}
+      {qte?.mode === 'enemy' && qteHeroId && (
+        <EnemyDefenseCue key={`defense-cue-${qte.id}`} targetNode={qte.targetNode} />
+      )}
+      {defenseRipple && (
+        <EnemyDefenseRipples
+          key={defenseRipple.id}
+          variant={defenseRipple.variant}
+          durationMs={defenseRipple.durationMs}
+          targetNode={defenseRipple.targetNode}
         />
       )}
 
@@ -6031,7 +6941,7 @@ export default function App() {
                     onClick={() => slot && removeFromCraft(i)}
                     onMouseEnter={(e) => showItemTip(slot, e)}
                     onMouseLeave={hideItemTip}
-                    className={`w-24 h-24 rounded-2xl border-2 flex items-center justify-center overflow-hidden transition-all ${slot ? `${(RARITIES[slot.rarity] || RARITIES.COMMON).border} bg-slate-950 cursor-pointer hover:brightness-125` : 'border-slate-500 border-dashed bg-slate-950/60 hover:border-amber-400'}`}>
+                    className={`w-24 h-24 rounded-2xl border-2 flex items-center justify-center overflow-hidden transition-all ${slot ? `${(ITEM_RARITIES[slot.rarity] || ITEM_RARITIES.COMMON).border} bg-slate-950 cursor-pointer hover:brightness-125` : 'border-slate-500 border-dashed bg-slate-950/60 hover:border-amber-400'}`}>
                     {slot ? (
                       <ItemIcon item={slot} className="w-full h-full" />
                     ) : (
@@ -6057,7 +6967,7 @@ export default function App() {
           {/* Инвентарь внутри оверлея — источник предметов для перетаскивания */}
           <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center justify-center gap-1.5 rounded-2xl px-8 py-3 bg-slate-900/80 border border-slate-700/70 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <span className="text-[8px] uppercase font-black tracking-widest text-amber-500 mr-2 whitespace-nowrap">Инвентарь</span>
-            {inventory.map((item, idx) => (
+            {[...inventory.slice(0, 9), ...Array(Math.max(0, 9 - inventory.length)).fill(null)].map((item, idx) => (
               <ItemSlot
                 key={`craft-inv-${idx}`}
                 item={item}
@@ -6103,15 +7013,6 @@ export default function App() {
       )}
 
       {/* --- МОДАЛЬНЫЕ ОКНА --- */}
-      {turnState === 'gameover' && (
-        <DeathScreen
-          items={inventory.filter(Boolean)}
-          startProgress={soulProgress}
-          threshold={EMBER_JUNK_THRESHOLD}
-          onDone={handleDeathDone}
-        />
-      )}
-
       {showHeroInventory && !cardReveal && (
         <HeroInventoryScreen
           heroes={[
@@ -6159,6 +7060,7 @@ export default function App() {
           onUnlock={unlockHeroInventoryCard}
           onUpgrade={upgradeHeroInventoryCard}
           onEquip={equipFromHeroInventory}
+          onUnequip={handleUnequip}
           renderCardPreview={(card, heroId) => (
             <AbilityCard
               card={card}

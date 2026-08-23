@@ -4,8 +4,6 @@ import { useEffect, useRef, useState } from 'react';
 // Клик с |отклонением| <= PERFECT — «PERFECT!», <= GOOD — «GOOD», дальше — промах.
 const PERFECT_WINDOW_MS = 60;
 const GOOD_WINDOW_MS = 150;
-// Игнор: если игрок не кликнул до конца good-окна — авто-мисс (урон ×1.0, бой не ждёт).
-const IGNORE_TIMEOUT_MS = GOOD_WINDOW_MS;
 const RESULT_LINGER_MS = 600;   // сколько висит вердикт после резолва
 const RING_START_SCALE = 3.0;   // стартовый масштаб кольца
 const RING_MIN_SCALE = 0.72;    // до какого масштаба кольцо «проваливается» при игноре
@@ -69,24 +67,52 @@ const Annulus = ({ outer, inner, color, glow }) => {
  *  - targetNode: { x, y } — viewport-координаты центра.
  *  - duration:   мс сужения кольца до мишени.
  *  - card:       { icon, name } | null — разыгрываемая карта (контекст над кольцом).
+ *  - resultLabels: частичная замена текстов verdict (`perfect/good/miss`).
+ *  - windowScale: множитель окон Perfect/Good для конкретного режима QTE.
+ *  - binaryResults: оставить только Perfect/Miss, без результата Good.
+ *  - resultLingerMs: сколько держать verdict после результата.
+ *  - showTimingVisuals: показать кольцо и зоны тайминга.
+ *  - showContext/showVignette: показать карточку контекста и затемнение сцены.
+ *  - onInput:    (result) => void — первый пользовательский клик, не авто-Miss.
+ *  - onAutoMiss: () => void — таймер истёк без пользовательского ввода.
  *  - onArm:      () => void — кольцо вошло в good-окно (тик-звук), 1 раз.
  *  - onResolve:  (result: 'perfect'|'good'|'miss') => void.
  *  - onDone:     () => void — сигнал на размонтирование.
  */
-export default function QteOverlay({ targetType = 'single', targetNode, duration, card, onArm, onResolve, onDone }) {
+export default function QteOverlay({
+  targetType = 'single',
+  targetNode,
+  duration,
+  card,
+  resultLabels = null,
+  windowScale = 1,
+  binaryResults = false,
+  resultLingerMs = RESULT_LINGER_MS,
+  showTimingVisuals = true,
+  showContext = true,
+  showVignette = true,
+  onInput,
+  onAutoMiss,
+  onArm,
+  onResolve,
+  onDone,
+}) {
   const ringRef = useRef(null);
   const rafRef = useRef(0);
   const startRef = useRef(0);
   const doneRef = useRef(false);
   const armedRef = useRef(false);
   const [result, setResult] = useState(null);
+  const perfectWindowMs = PERFECT_WINDOW_MS * windowScale;
+  const goodWindowMs = GOOD_WINDOW_MS * windowScale;
+  const activeWindowMs = binaryResults ? perfectWindowMs : goodWindowMs;
 
   const finish = (res) => {
     if (doneRef.current) return;
     doneRef.current = true;
     onResolve(res);
     setResult(res);
-    setTimeout(onDone, RESULT_LINGER_MS);
+    setTimeout(onDone, resultLingerMs);
   };
 
   useEffect(() => {
@@ -99,15 +125,20 @@ export default function QteOverlay({ targetType = 'single', targetNode, duration
       if (ring) {
         ring.style.transform = `translate(-50%, -50%) scale(${scale})`;
         // «Заряд»: внутри good-окна кольцо вспыхивает янтарным — сигнал «жми сейчас»
-        const inWindow = Math.abs(elapsed - duration) <= GOOD_WINDOW_MS;
+        const inWindow = Math.abs(elapsed - duration) <= activeWindowMs;
         if (inWindow && !armedRef.current) {
           armedRef.current = true;
-          ring.style.borderColor = '#fbbf24';
-          ring.style.boxShadow = '0 0 24px rgba(251,191,36,0.9), 0 0 60px rgba(251,191,36,0.4)';
-          onArm?.();
+          onArm?.({
+            halfWindowMs: activeWindowMs,
+            totalWindowMs: activeWindowMs * 2,
+          });
         }
       }
-      if (elapsed > duration + IGNORE_TIMEOUT_MS) { finish('miss'); return; }
+      if (elapsed > duration + activeWindowMs) {
+        onAutoMiss?.();
+        finish('miss');
+        return;
+      }
       rafRef.current = requestAnimationFrame(tick);
     };
     rafRef.current = requestAnimationFrame(tick);
@@ -115,22 +146,34 @@ export default function QteOverlay({ targetType = 'single', targetNode, duration
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [duration]);
 
-  const handleClick = (e) => {
-    e.stopPropagation();
-    if (doneRef.current) return;
+  const getVerdict = () => {
     const delta = Math.abs(performance.now() - startRef.current - duration);
-    finish(delta <= PERFECT_WINDOW_MS ? 'perfect' : delta <= GOOD_WINDOW_MS ? 'good' : 'miss');
+    if (delta <= perfectWindowMs) return 'perfect';
+    return !binaryResults && delta <= goodWindowMs ? 'good' : 'miss';
   };
 
-  const style = result ? RESULT_STYLE[result] : null;
+  const handlePointerDown = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (doneRef.current) return;
+
+    const verdict = getVerdict();
+    onInput?.(verdict);
+    finish(verdict);
+  };
+
+  const baseStyle = result ? RESULT_STYLE[result] : null;
+  const style = baseStyle
+    ? { ...baseStyle, text: resultLabels?.[result] ?? baseStyle.text }
+    : null;
   const wrapScale = targetType === 'aoe' ? AOE_SCALE : 1;
 
   // Видимые зоны тайминга: пояса в scale-пространстве через ту же кривую изинга.
   // Игрок видит геометрию окна — «клик, когда белое кольцо в золотом поясе».
-  const goodOuter = scaleAt(duration - GOOD_WINDOW_MS, duration);
-  const goodInner = scaleAt(duration + GOOD_WINDOW_MS, duration);
-  const perfOuter = scaleAt(duration - PERFECT_WINDOW_MS, duration);
-  const perfInner = scaleAt(duration + PERFECT_WINDOW_MS, duration);
+  const goodOuter = scaleAt(duration - goodWindowMs, duration);
+  const goodInner = scaleAt(duration + goodWindowMs, duration);
+  const perfOuter = scaleAt(duration - perfectWindowMs, duration);
+  const perfInner = scaleAt(duration + perfectWindowMs, duration);
 
   return (
     // Полноэкранный клик-катчер: тайминг жмётся В ЛЮБОМ месте экрана.
@@ -138,20 +181,23 @@ export default function QteOverlay({ targetType = 'single', targetNode, duration
     // возвращается картам, пока догорает вердикт.
     <div
       className="fixed inset-0 z-[7000] select-none cursor-pointer"
-      style={{ pointerEvents: result ? 'none' : 'auto' }}
-      onMouseDown={handleClick}
+      style={{ pointerEvents: result ? 'none' : 'auto', touchAction: 'none' }}
+      onPointerDown={handlePointerDown}
+      onContextMenu={(e) => e.preventDefault()}
       data-qte-overlay={targetType}
     >
       {/* Виньетка-фокус: бой гаснет, светится только зона QTE (Sekiro-style) */}
-      <div
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background: `radial-gradient(circle at ${targetNode.x}px ${targetNode.y}px, rgba(2,6,23,0) ${150 * wrapScale}px, rgba(2,6,23,0.72) ${470 * wrapScale}px)`,
-          animation: 'qteFadeIn 0.28s ease-out both',
-          opacity: result ? 0 : 1,
-          transition: 'opacity 0.45s ease',
-        }}
-      />
+      {showVignette && (
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: `radial-gradient(circle at ${targetNode.x}px ${targetNode.y}px, rgba(2,6,23,0) ${150 * wrapScale}px, rgba(2,6,23,0.72) ${470 * wrapScale}px)`,
+            animation: 'qteFadeIn 0.28s ease-out both',
+            opacity: result ? 0 : 1,
+            transition: 'opacity 0.45s ease',
+          }}
+        />
+      )}
 
       {/* Сцена QTE: всё позиционируется от центра цели, AoE укрупняется целиком */}
       <div
@@ -163,7 +209,7 @@ export default function QteOverlay({ targetType = 'single', targetNode, duration
         }}
       >
         {/* Карта-контекст: ЧТО усиливаем (иконка + имя, крупно, над кольцом) */}
-        {card && !result && (
+        {showContext && card && !result && (
           <div
             className="absolute left-1/2 flex flex-col items-center"
             style={{ top: -44, transform: 'translateX(-50%)', animation: 'qteCardIn 0.32s cubic-bezier(0.2, 1.4, 0.4, 1) both' }}
@@ -180,10 +226,11 @@ export default function QteOverlay({ targetType = 'single', targetNode, duration
           </div>
         )}
 
-        {!result && (
+        {!result && showTimingVisuals && (
           <>
-            {/* Зона GOOD: широкий тусклый пояс */}
-            <Annulus outer={goodOuter} inner={goodInner} color="rgba(251,191,36,0.13)" />
+            {!binaryResults && (
+              <Annulus outer={goodOuter} inner={goodInner} color="rgba(251,191,36,0.13)" />
+            )}
             {/* Зона PERFECT: узкий яркий пояс */}
             <Annulus
               outer={perfOuter} inner={perfInner}
@@ -194,20 +241,22 @@ export default function QteOverlay({ targetType = 'single', targetNode, duration
         )}
 
         {/* Мишень: статичное кольцо с пульсом-приглашением */}
-        <div
-          className="absolute rounded-full"
-          style={{
-            width: BASE, height: BASE,
-            left: '50%', top: '50%',
-            transform: 'translate(-50%, -50%)',
-            border: '2.5px solid rgba(251,191,36,0.9)',
-            boxShadow: '0 0 20px rgba(251,191,36,0.5), inset 0 0 14px rgba(251,191,36,0.25)',
-            animation: result ? 'none' : 'qteTargetPulse 0.9s ease-in-out infinite',
-          }}
-        />
+        {showTimingVisuals && (
+          <div
+            className="absolute rounded-full"
+            style={{
+              width: BASE, height: BASE,
+              left: '50%', top: '50%',
+              transform: 'translate(-50%, -50%)',
+              border: '2.5px solid rgba(251,191,36,0.9)',
+              boxShadow: '0 0 20px rgba(251,191,36,0.5), inset 0 0 14px rgba(251,191,36,0.25)',
+              animation: result ? 'none' : 'qteTargetPulse 0.9s ease-in-out infinite',
+            }}
+          />
+        )}
 
         {/* Сужающееся кольцо: transform пишется напрямую из rAF-цикла */}
-        {!result && (
+        {!result && showTimingVisuals && (
           <div
             ref={ringRef}
             className="absolute rounded-full"

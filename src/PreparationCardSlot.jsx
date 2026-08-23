@@ -1,4 +1,4 @@
-const RARITY_GLOW = { COMMON: '#64748b', RARE: '#0ea5e9', EPIC: '#9333ea', LEGENDARY: '#f59e0b' };
+import { CARD_RARITY_GLOW } from './cardRarity';
 
 const PreparationCardSlot = ({
   card,
@@ -21,7 +21,7 @@ const PreparationCardSlot = ({
     );
   }
 
-  const glow = RARITY_GLOW[card.rarity] || '#64748b';
+  const glow = CARD_RARITY_GLOW[card.rarity] || '#64748b';
   return (
     <div
       className={`relative group w-16 h-20 rounded-xl border-2 bg-slate-800 flex flex-col items-center justify-center gap-0.5 transition-transform duration-150 ${isNew ? 'animate-bounce' : ''} ${isHover ? 'scale-110 z-10' : ''} ${locked ? 'opacity-40 grayscale' : ''} ${className}`}

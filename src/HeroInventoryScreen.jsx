@@ -13,6 +13,7 @@ import {
 } from './heroCardInventory';
 
 const RARITY_ORDER = { LEGENDARY: 0, EPIC: 1, RARE: 2, COMMON: 3 };
+const EMPTY_IDS = Object.freeze([]);
 
 const CardInspection = ({ tooltip, heroId, renderCardPreview }) => {
   if (!tooltip || !renderCardPreview) return null;
@@ -80,6 +81,7 @@ const HeroInventoryScreen = ({
   onUnlockSlot,
   onUpgrade,
   onEquip,
+  onUnequip,
   onHire,
   renderBackground,
   renderCardPreview,
@@ -94,7 +96,7 @@ const HeroInventoryScreen = ({
   const selectedHero = heroes.find((hero) => hero.id === selectedHeroId) || heroes[0];
   const heroAbilities = abilities[selectedHero?.id] || { basic: null, skills: [] };
   const unlockedIds = permanentlyUnlockedCards[selectedHero?.id] || [];
-  const activeIds = cardLoadouts[selectedHero?.id] || [];
+  const activeIds = cardLoadouts[selectedHero?.id] || EMPTY_IDS;
   const unlockedSlotCount = Math.max(
     DEFAULT_UNLOCKED_SLOTS,
     slotsUnlocked[selectedHero?.id] ?? DEFAULT_UNLOCKED_SLOTS,
@@ -309,6 +311,7 @@ const HeroInventoryScreen = ({
                   item={equipped[selectedHero.id]}
                   inventory={inventory}
                   onSwap={(itemUid) => onEquip?.(selectedHero.id, itemUid)}
+                  onUnequip={() => onUnequip?.(selectedHero.id)}
                   onItemHover={showItem}
                   onItemLeave={hideItem}
                 />

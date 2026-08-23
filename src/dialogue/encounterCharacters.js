@@ -1,3 +1,5 @@
+import { STRANGER_COLORIZE } from '../spriteColorize';
+
 // Реестр персонажей для экрана ночной встречи (NightEncounterScreen).
 //
 // История в своём конфиге указывает персонажа ПО ID из этого реестра +
@@ -30,7 +32,12 @@ export const ENCOUNTER_CHARACTERS = {
   common_visitor:  { atlas: { url: './assets/tavern/visitor0.webp', cols: 4, rows: 4, frameCount: 16, fps: 4 } },
   barman:          { atlas: { url: './assets/tavern/barman.webp',   cols: 4, rows: 4, frameCount: 16, fps: 4 } },
   // Наёмник Незнакомец (сюжет 2-й смерти): атлас 1280×1280, 4×4.
-  stranger:        { atlas: { url: './assets/tavern/stranger.png',  cols: 4, rows: 4, frameCount: 16, fps: 4 } },
+  stranger:        {
+    atlas: { url: './assets/tavern/stranger.png', cols: 4, rows: 4, frameCount: 16, fps: 4 },
+    colorize: STRANGER_COLORIZE,
+  },
+  // Скелет-поручитель (сюжет 1-й смерти): активный атлас с книгой заданий.
+  task_master:      { atlas: { url: './assets/tavern/task_master.webp', cols: 4, rows: 4, frameCount: 16, fps: 4 } },
 };
 
 // Дефолтная постановка гостя в проёме окошка — Figma фрейм dialogue 3721:13570:
@@ -72,5 +79,6 @@ export const resolveEncounterGuest = (encounter) => {
     top: `${((CANVAS_H / 2 + (offset.y ?? 0)) / CANVAS_H) * 100}%`,
     height: `${(size / CANVAS_H) * 100}%`,
     flipX,
+    colorize: char?.colorize,
   };
 };

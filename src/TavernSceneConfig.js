@@ -87,7 +87,7 @@ export const TAVERN_ENTITIES = [
     interactive: true,
     // Бармен виден из-за стойки — широкая верхняя половина «грудь+голова».
     hitbox: { left: '15%', top: '10%', width: '70%', height: '70%' },
-    payload: { action: 'OPEN_BARTENDER_DIALOG' },
+    payload: { action: 'OPEN_SHOP' },
   },
 
   // ─── СТОЙКА БАРА (перекрывает бармена снизу) ────────────────────────
@@ -99,6 +99,25 @@ export const TAVERN_ENTITIES = [
     scale: 0.7559, // 1050/1389
     zIndex: 20,
     interactive: false,
+  },
+
+  // ─── СКЕЛЕТ-ПОРУЧИТЕЛЬ У КАМИНА ────────────────────────────────────
+  // Появляется после обязательного визита первой смерти. TavernHubScreen
+  // скрывает сущность до команды TASK_MASTER_JOIN_TAVERN и подменяет атлас:
+  // task_master — есть новые поручения/награда, inactive — всё разобрано.
+  {
+    id: 'npc_task_master',
+    type: 'NPC',
+    sprite: TAVERN_ATLAS('./assets/tavern/task_master_inactive.webp'),
+    pos: { left: '18%', top: '55%' },
+    scale: 0.42,
+    aspect: 1,
+    flipX: false,
+    zIndex: 55,
+    visibleWhen: 'DAY',
+    interactive: true,
+    hitbox: { left: '24%', top: '8%', width: '52%', height: '88%' },
+    payload: { action: 'OPEN_TASK_MASTER' },
   },
 
   // ─── АКТИВНАЯ ТРОЙКА ГЕРОЕВ У СТОЙКИ ────────────────────────────────

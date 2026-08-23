@@ -1,0 +1,396 @@
+{
+  "cellSize": 256,
+  "cols": 5,
+  "rows": 5,
+  "atlases": {
+    "items-5x5.webp": [
+      {
+        "name": "item_10",
+        "source": "public/icons/item_10.webp",
+        "index": 0,
+        "row": 0,
+        "col": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_11",
+        "source": "public/icons/item_11.webp",
+        "index": 1,
+        "row": 0,
+        "col": 1,
+        "x": 256,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_12",
+        "source": "public/icons/item_12.webp",
+        "index": 2,
+        "row": 0,
+        "col": 2,
+        "x": 512,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_13",
+        "source": "public/icons/item_13.webp",
+        "index": 3,
+        "row": 0,
+        "col": 3,
+        "x": 768,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_14",
+        "source": "public/icons/item_14.webp",
+        "index": 4,
+        "row": 0,
+        "col": 4,
+        "x": 1024,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_15",
+        "source": "public/icons/item_15.webp",
+        "index": 5,
+        "row": 1,
+        "col": 0,
+        "x": 0,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_20",
+        "source": "public/icons/item_20.webp",
+        "index": 6,
+        "row": 1,
+        "col": 1,
+        "x": 256,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_25",
+        "source": "public/icons/item_25.webp",
+        "index": 7,
+        "row": 1,
+        "col": 2,
+        "x": 512,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_30",
+        "source": "public/icons/item_30.webp",
+        "index": 8,
+        "row": 1,
+        "col": 3,
+        "x": 768,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_31",
+        "source": "public/icons/item_31.webp",
+        "index": 9,
+        "row": 1,
+        "col": 4,
+        "x": 1024,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_32",
+        "source": "public/icons/item_32.webp",
+        "index": 10,
+        "row": 2,
+        "col": 0,
+        "x": 0,
+        "y": 512,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_33",
+        "source": "public/icons/item_33.webp",
+        "index": 11,
+        "row": 2,
+        "col": 1,
+        "x": 256,
+        "y": 512,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_34",
+        "source": "public/icons/item_34.webp",
+        "index": 12,
+        "row": 2,
+        "col": 2,
+        "x": 512,
+        "y": 512,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_35",
+        "source": "public/icons/item_35.webp",
+        "index": 13,
+        "row": 2,
+        "col": 3,
+        "x": 768,
+        "y": 512,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_36",
+        "source": "public/icons/item_36.webp",
+        "index": 14,
+        "row": 2,
+        "col": 4,
+        "x": 1024,
+        "y": 512,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_37",
+        "source": "public/icons/item_37.webp",
+        "index": 15,
+        "row": 3,
+        "col": 0,
+        "x": 0,
+        "y": 768,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_38",
+        "source": "public/icons/item_38.webp",
+        "index": 16,
+        "row": 3,
+        "col": 1,
+        "x": 256,
+        "y": 768,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_39",
+        "source": "public/icons/item_39.webp",
+        "index": 17,
+        "row": 3,
+        "col": 2,
+        "x": 512,
+        "y": 768,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_40",
+        "source": "public/icons/item_40.webp",
+        "index": 18,
+        "row": 3,
+        "col": 3,
+        "x": 768,
+        "y": 768,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_41",
+        "source": "public/icons/item_41.webp",
+        "index": 19,
+        "row": 3,
+        "col": 4,
+        "x": 1024,
+        "y": 768,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_42",
+        "source": "public/icons/item_42.webp",
+        "index": 20,
+        "row": 4,
+        "col": 0,
+        "x": 0,
+        "y": 1024,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_43",
+        "source": "public/icons/item_43.webp",
+        "index": 21,
+        "row": 4,
+        "col": 1,
+        "x": 256,
+        "y": 1024,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_44",
+        "source": "public/icons/item_44.webp",
+        "index": 22,
+        "row": 4,
+        "col": 2,
+        "x": 512,
+        "y": 1024,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_45",
+        "source": "public/icons/item_45.webp",
+        "index": 23,
+        "row": 4,
+        "col": 3,
+        "x": 768,
+        "y": 1024,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "item_46",
+        "source": "public/icons/item_46.webp",
+        "index": 24,
+        "row": 4,
+        "col": 4,
+        "x": 1024,
+        "y": 1024,
+        "width": 256,
+        "height": 256
+      }
+    ],
+    "ui-5x5.webp": [
+      {
+        "name": "task-master/skull",
+        "source": "public/assets/ui/task-master/icon-1.svg",
+        "index": 0,
+        "row": 0,
+        "col": 0,
+        "x": 0,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "task-master/play",
+        "source": "public/assets/ui/task-master/icon-2.svg",
+        "index": 1,
+        "row": 0,
+        "col": 1,
+        "x": 256,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "task-master/icon-3",
+        "source": "public/assets/ui/task-master/icon-3.svg",
+        "index": 2,
+        "row": 0,
+        "col": 2,
+        "x": 512,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "task-master/shadow",
+        "source": "public/assets/ui/task-master/icon-4.svg",
+        "index": 3,
+        "row": 0,
+        "col": 3,
+        "x": 768,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "task-master/icon-5",
+        "source": "public/assets/ui/task-master/icon-5.svg",
+        "index": 4,
+        "row": 0,
+        "col": 4,
+        "x": 1024,
+        "y": 0,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "enemy-defense-cue-1",
+        "source": "public/assets/ui/enemy-defense-cue-1.png",
+        "index": 5,
+        "row": 1,
+        "col": 0,
+        "x": 0,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "enemy-defense-cue-2",
+        "source": "public/assets/ui/enemy-defense-cue-2.png",
+        "index": 6,
+        "row": 1,
+        "col": 1,
+        "x": 256,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "combo-rune-inner",
+        "source": "public/combo_rune_inner.webp",
+        "index": 7,
+        "row": 1,
+        "col": 2,
+        "x": 512,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "combo-rune-outer",
+        "source": "public/combo_rune_outer.webp",
+        "index": 8,
+        "row": 1,
+        "col": 3,
+        "x": 768,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      },
+      {
+        "name": "corner",
+        "source": "public/corner.webp",
+        "index": 9,
+        "row": 1,
+        "col": 4,
+        "x": 1024,
+        "y": 256,
+        "width": 256,
+        "height": 256
+      }
+    ]
+  }
+}
