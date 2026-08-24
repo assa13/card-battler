@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext, lazy, Suspense } from 'react';
 import TavernHubScreen from './TavernHubScreen';
 import HeroInventoryScreen from './HeroInventoryScreen';
 import ShopScreen from './ShopScreen';
@@ -75,6 +75,13 @@ import {
   SKELETON_FIRST_DEATH_SCRIPT,
   STRANGER_SECOND_DEATH_SCRIPT,
 } from './dialogue/scripts';
+
+// Новый боевой экран на холсте 3200×1800 — пока превью поверх игры по F9.
+// Только в dev: в production-сборке ветка отсекается и ни экран, ни виджеты,
+// ни ui_atlas в бандл не попадают. См. docs/battle-migration.md.
+const BattleScreenPreview = import.meta.env.DEV
+  ? lazy(() => import('./battle/BattleScreenPreview.jsx'))
+  : null;
 
 // --- 1. КОНСТАНТЫ И НАСТРОЙКИ ---
 
@@ -6132,6 +6139,54 @@ export default function App() {
   // Скорость движения шейдера растёт с продвижением по карте сектора (stage 0..5 → 0..1), плавно.
   const bgSpeed = Math.min(1, Math.max(0, currentStage / 5));
 
+  // Снимок боя для нового экрана на холсте 3200×1800 (F9). Отдаём готовые к
+  // отрисовке значения, а не сырое состояние: считать урон и описания карт
+  // умеет только этот модуль, и тащить его математику в новый экран незачем.
+  // Пересобирается только в dev — в проде превью не существует.
+  const battleView = useMemo(() => {
+    if (!import.meta.env.DEV) return null;
+    return {
+      turnState,
+      mana,
+      maxMana,
+      drawCount: liveDrawCount,
+      discardCount: totalDeckSize - liveDrawCount,
+      heroes: players.map((player) => {
+        const eff = getEffectivePlayer(player, equipped[player.id]);
+        const card = player.currentCard;
+        const effect = card ? getCardDescription(eff, card).effectLine : null;
+        return {
+          id: player.id,
+          name: player.name,
+          hp: player.hp,
+          maxHp: eff.maxHp,
+          isDead: player.hp <= 0,
+          hasActed: player.hasActed,
+          card: card && {
+            name: card.name,
+            icon: card.icon,
+            cost: card.cost,
+            rarity: card.rarity,
+            description: effect ? `${effect.label} ${effect.value}` : getTargetingLabel(getCardTargeting(card)),
+          },
+        };
+      }),
+      enemies: enemies.map((enemy) => ({
+        id: enemy.id,
+        name: enemy.name,
+        hp: enemy.hp,
+        maxHp: enemy.maxHp,
+        isDead: enemy.isDead,
+      })),
+      items: inventory.slice(0, 9).map((item) => ({
+        uid: item.uid,
+        name: item.name,
+        rarity: item.rarity,
+        iconUrl: getItemIconUrl(item.icon),
+      })),
+    };
+  }, [turnState, mana, maxMana, liveDrawCount, totalDeckSize, players, equipped, enemies, inventory]);
+
   const mapLinks = useMemo(() => {
     const links = [];
     gameMap.forEach(n => n.colors = []);
@@ -6409,6 +6464,12 @@ export default function App() {
       >
       
       {flash && <div className="absolute inset-0 z-[1000] bg-white opacity-20 pointer-events-none transition-opacity duration-100"></div>}
+
+      {BattleScreenPreview && (
+        <Suspense fallback={null}>
+          <BattleScreenPreview view={battleView} />
+        </Suspense>
+      )}
       
       {fullscreenError && (
         <div className="absolute top-20 right-4 z-[9999] bg-[#E33371]/90 text-white px-4 py-2 rounded-xl border border-[#F2C94C] shadow-xl backdrop-blur-md animate-in fade-in duration-300 text-lg">
