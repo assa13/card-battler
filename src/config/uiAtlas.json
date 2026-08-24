@@ -1,0 +1,129 @@
+{
+  "image": "./assets/ui/atlas/ui_atlas.webp",
+  "width": 2048,
+  "height": 2048,
+  "filtering": "pixelated",
+  "source": {
+    "figmaUrl": "https://www.figma.com/design/zG9zihyiBTJFjR5dVta74Z/card-crawler?node-id=150-1577",
+    "fileKey": "zG9zihyiBTJFjR5dVta74Z",
+    "nodeId": "150:1577"
+  },
+  "updatedAt": "2026-08-25",
+  "slices": {
+    "card_slot_bg": {
+      "label": "Фон слота карты",
+      "region": { "x": 395, "y": 38, "width": 412, "height": 572 },
+      "borders": { "left": 198, "right": 198, "top": 275, "bottom": 275 },
+      "edgeMode": "stretch",
+      "centerMode": "stretch",
+      "notes": "Растягиваемый центр 16×22."
+    },
+    "icon_bg": {
+      "label": "Подложка иконки",
+      "region": { "x": 29, "y": 38, "width": 323, "height": 212 },
+      "borders": { "left": 155, "right": 155, "top": 102, "bottom": 102 },
+      "edgeMode": "stretch",
+      "centerMode": "stretch",
+      "notes": "Растягиваемый центр 13×8."
+    },
+    "Hero_slot_header_bg": {
+      "label": "Шапка слота героя",
+      "region": { "x": 1025, "y": 38, "width": 72, "height": 72 },
+      "borders": { "left": 35, "right": 35, "top": 27, "bottom": 42 },
+      "edgeMode": "stretch",
+      "centerMode": "stretch",
+      "notes": "Растягиваемый центр 2×3. Асимметрия top/bottom — не ошибка, у шапки толстый низ."
+    },
+    "card_bg": {
+      "label": "Фон карты",
+      "region": { "x": 26, "y": 304, "width": 330, "height": 330 },
+      "borders": { "left": 159, "right": 159, "top": 159, "bottom": 159 },
+      "edgeMode": "stretch",
+      "centerMode": "stretch",
+      "notes": "Прозрачный паддинг 2px со всех сторон. Растягиваемый центр 12×12."
+    },
+    "PB": {
+      "label": "Заполнение прогресс-бара",
+      "region": { "x": 838, "y": 183, "width": 12, "height": 16 },
+      "borders": { "left": 5.5, "right": 5.5, "top": 7.4, "bottom": 7.4 },
+      "edgeMode": "stretch",
+      "centerMode": "stretch",
+      "notes": "Дробные границы — из Figma (узел 117:1039), не округлять."
+    },
+    "PB_empty": {
+      "label": "Фон прогресс-бара",
+      "region": { "x": 879, "y": 172, "width": 134, "height": 38 },
+      "borders": { "left": 38, "right": 38, "top": 17, "bottom": 17 },
+      "edgeMode": "stretch",
+      "centerMode": "stretch",
+      "innerFill": { "x": 18, "y": 10, "width": 99, "height": 18, "color": "#1d1d1d" },
+      "notes": "innerFill — тёмная дорожка под заполнением. Отступы абсолютные, не тянутся вместе с рамкой."
+    },
+    "location_frame": {
+      "label": "Рамка локации",
+      "region": { "x": 26, "y": 677, "width": 1103, "height": 788 },
+      "borders": { "left": 529, "right": 529, "top": 378, "bottom": 378 },
+      "edgeMode": "stretch",
+      "centerMode": "stretch",
+      "notes": "Растягиваемый центр 45×32, в макете рамка рисуется 2156×876 — центр тянется в 24 раза по ширине."
+    },
+    "items_inventory_bg": {
+      "label": "Подложка панели предметов",
+      "region": { "x": 26, "y": 1508, "width": 208, "height": 180 },
+      "borders": { "left": 142, "right": 60, "top": 88, "bottom": 88 },
+      "edgeMode": "stretch",
+      "centerMode": "stretch",
+      "notes": "Асимметрия left/right — по арту. Центр 6×4 тянется до 1965 px по ширине, поэтому он должен быть однородным."
+    },
+    "button_red": {
+      "label": "Красная кнопка",
+      "region": { "x": 570, "y": 1508, "width": 312, "height": 130 },
+      "borders": { "left": 150, "right": 150, "top": 48, "bottom": 59 },
+      "edgeMode": "stretch",
+      "centerMode": "stretch",
+      "notes": "Растягиваемый центр 12×23 — под кнопки разной длины. В макете рисуется 312×130, один в один с регионом."
+    }
+  },
+  "sprites": {
+    "card_name_label": {
+      "label": "Плашка редкости карты",
+      "region": { "x": 838, "y": 38, "width": 163, "height": 50 },
+      "notes": "Цельная картинка, в макете рисуется 163×50 — один в один с регионом."
+    },
+    "artefact_slot": {
+      "label": "Слот артефакта",
+      "region": { "x": 838, "y": 273, "width": 310, "height": 148 },
+      "notes": "Цельная картинка. В макете рисуется 311×163 — регион ниже по пропорции, требует перемера."
+    },
+    "PB_mana": {
+      "label": "Орб маны",
+      "region": { "x": 1044, "y": 156, "width": 74, "height": 74 },
+      "notes": "Цельная картинка, в макете рисуется 74×74 — один в один с регионом."
+    },
+    "mana_counter": {
+      "label": "Счётчик маны",
+      "region": { "x": 1190, "y": 12, "width": 256, "height": 256 },
+      "notes": "Составной элемент (рамка, орб, цифра). В макете рисуется 256×256 — один в один с регионом."
+    },
+    "merge_button": {
+      "label": "Кнопка слияния",
+      "region": { "x": 244, "y": 1508, "width": 210, "height": 212 },
+      "notes": "Цельная картинка, в макете рисуется 210×212 — один в один с регионом."
+    },
+    "item_slot": {
+      "label": "Слот предмета",
+      "region": { "x": 464, "y": 1508, "width": 96, "height": 96 },
+      "notes": "В макете рисуется 96×96 — один в один с регионом, растягивать некуда. В спецификации помечен как 9-slice, но границы top/bottom по 48 не оставляют центра; при родном размере разрез и цельная картинка рисуются одинаково."
+    },
+    "decor": {
+      "label": "Декор (горгулья)",
+      "region": { "x": 27, "y": 1730, "width": 320, "height": 320 },
+      "notes": "В макете рисуется 360×360 — растягивается на 12.5% по решению дизайна. ВНИМАНИЕ: регион свисает за нижний край атласа на 2 px, нижняя кромка арта в экспорт не попадает."
+    },
+    "cards_deck": {
+      "label": "Стопка карт",
+      "region": { "x": 363, "y": 1804, "width": 124, "height": 172 },
+      "notes": "Рисуется в родном размере с поворотом ±2°. Габарит 130×176 в макете — это bbox повёрнутой картинки, а не растяжение."
+    }
+  }
+}
