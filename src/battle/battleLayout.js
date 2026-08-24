@@ -54,3 +54,25 @@ export const FIELD_UNITS = [
   { id: 'hero3', x: 613, y: 467, size: 442 },
   { id: 'hero1', x: 936, y: 291, size: 441 },
 ];
+
+/** Позиция героя по индексу в отряде: p1 — первый. */
+export const HERO_UNITS = ['hero1', 'hero2', 'hero3'].map(
+  (id) => FIELD_UNITS.find((unit) => unit.id === id),
+);
+
+// Врагов в макете нет — их места это зеркало героев относительно вертикальной
+// оси поля, ровно как на старом экране. Ось: середина fieldBackground.
+const FIELD_AXIS = BATTLE_LAYOUT.fieldBackground.x * 2 + BATTLE_LAYOUT.fieldBackground.width;
+const mirror = (unit) => ({ ...unit, x: FIELD_AXIS - unit.x - unit.size });
+
+// Строй врагов по их числу повторяет старый экран: одиночка встаёт напротив
+// воина, пара — напротив разбойника и мага, тройка занимает все три места.
+export const ENEMY_FORMATIONS = {
+  1: [mirror(HERO_UNITS[0])],
+  2: [mirror(HERO_UNITS[1]), mirror(HERO_UNITS[2])],
+  3: [mirror(HERO_UNITS[1]), mirror(HERO_UNITS[0]), mirror(HERO_UNITS[2])],
+};
+
+// Босс крупнее рядового и от этого визуально проваливается вниз — тот же
+// сдвиг, что на старом экране, пересчитанный в масштаб холста.
+export const BOSS_SCALE = 1.5625;

@@ -1,10 +1,13 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from 'react';
 import TavernHubScreen from './TavernHubScreen';
 import HeroInventoryScreen from './HeroInventoryScreen';
 import ShopScreen from './ShopScreen';
 import TaskMasterScreen from './TaskMasterScreen';
 import PreparationCardSlot from './PreparationCardSlot';
 import SpeechBubble from './SpeechBubble';
+import CharSprite from './CharSprite';
+import BattleScreen from './battle/BattleScreen';
+import { BattleViewContext } from './battle/battleView';
 import QteOverlay from './QteOverlay';
 import HorseHerdQte from './HorseHerdQte';
 import EnemyDefenseCue from './EnemyDefenseCue';
@@ -76,14 +79,12 @@ import {
   STRANGER_SECOND_DEATH_SCRIPT,
 } from './dialogue/scripts';
 
-// Новый боевой экран на холсте 3200×1800 — пока превью поверх игры по F9.
-// Только в dev: в production-сборке ветка отсекается и ни экран, ни виджеты,
-// ни ui_atlas в бандл не попадают. См. docs/battle-migration.md.
-const BattleScreenPreview = import.meta.env.DEV
-  ? lazy(() => import('./battle/BattleScreenPreview.jsx'))
-  : null;
-
 // --- 1. КОНСТАНТЫ И НАСТРОЙКИ ---
+
+// Боевой экран на холсте 3200×1800 — основной. Старая вёрстка от вьюпорта
+// осталась в этом файле как откат и включается F9 в dev-сборке.
+// См. docs/battle-migration.md.
+const CANVAS_BATTLE_DEFAULT = true;
 
 const MAX_MANA = 3;
 const ENEMY_POWER_MULT = 0.5; // глобальный нерф врагов: HP и урон ×0.5
@@ -267,95 +268,6 @@ const ENEMY_FORMATIONS = {
   2: [{ right: 5,   top: -46 }, { right: 5, top: 121 }],  // зеркала p2 и p3
   3: [{ right: 5,   top: -46 }, { right: 171, top: 42 }, { right: 5, top: 121 }], // зеркала p1, p2, p3
 };
-
-// Анимированный спрайт из атласа. Покраска — CSS filter на видимый кадр, без оверлея поверх.
-// gameTime: кадры листаются rAF-циклом в ИГРОВОМ времени (dt × qteSlowMo.scale) —
-// анимация атаки замедляется под bullet-time QTE синхронно с миром. Idle остаётся
-// на setInterval (реальное время, дешевле).
-// ФАЗЫ QTE-ЗАМАХА (управляются пропсами, эффект перезапускается БЕЗ сброса кадра):
-//  - holdAtFrame: замах доходит до кадра перед ударом и ЖДЁТ на нём — анимация
-//    не завершается сама, только по вердикту кольца (клик или miss);
-//  - speed + ignoreSlowMo: быстрый доигрыш до конца в реальном времени (клик);
-//  - once: цикл играется один раз, затем заморозка на последнем кадре (без лупа).
-// onCycle — завершение полного прохода кадров; родитель решает, вернуть ли idle.
-// При смене key компонент ремоунтится — кадр стартует с 0.
-const CharSprite = React.memo(({ atlas, size = 110, className = '', style = {}, hue, sat, gameTime = false, ignoreSlowMo = false, speed = 1, holdAtFrame = null, once = false, paused = false, onCycle }) => {
-  const [frame, setFrame] = useState(0);
-  const onCycleRef = useRef(onCycle);
-  useEffect(() => { onCycleRef.current = onCycle; }, [onCycle]);
-  // Кадр/аккумулятор в рефах: смена фазы (holdAtFrame/speed) перезапускает эффект,
-  // но анимация продолжается с текущего кадра, а не начинается заново.
-  const frameRef = useRef(0);
-  const accRef = useRef(0);
-  const doneRef = useRef(false);
-  useEffect(() => {
-    if (!atlas || paused) return;
-    const frameMs = 1000 / (atlas.fps || 12);
-    if (!gameTime) {
-      const id = setInterval(() => {
-        setFrame((f) => (f + 1) % atlas.frameCount);
-      }, frameMs);
-      return () => clearInterval(id);
-    }
-    if (doneRef.current) return; // once: цикл доигран, стоим на последнем кадре
-    let rafId = 0;
-    let last = performance.now();
-    const tick = (ts) => {
-      const dt = Math.min(100, ts - last);
-      last = ts;
-      accRef.current += dt * (ignoreSlowMo ? 1 : qteSlowMo.scale) * speed;
-      if (accRef.current >= frameMs) {
-        const adv = Math.floor(accRef.current / frameMs);
-        accRef.current -= adv * frameMs;
-        let next = frameRef.current + adv;
-        if (holdAtFrame != null && next >= holdAtFrame) {
-          next = holdAtFrame; // холд: ждём вердикта QTE на кадре перед ударом
-        } else if (next >= atlas.frameCount) {
-          if (once) { next = atlas.frameCount - 1; doneRef.current = true; }
-          else next %= atlas.frameCount;
-          onCycleRef.current?.();
-        }
-        if (next !== frameRef.current) { frameRef.current = next; setFrame(next); }
-        if (doneRef.current) return; // стоп rAF: заморожены на последнем кадре
-      }
-      rafId = requestAnimationFrame(tick);
-    };
-    rafId = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafId);
-  }, [atlas, gameTime, ignoreSlowMo, speed, holdAtFrame, once, paused]);
-  if (!atlas) return null;
-  const col = frame % atlas.cols;
-  const row = Math.floor(frame / atlas.cols);
-  const sheetW = atlas.cols * size;
-  const sheetH = atlas.rows * size;
-
-  return (
-    <div
-      className={className}
-      style={{
-        width: size,
-        height: size,
-        overflow: 'hidden',
-        ...(hue != null ? { filter: spriteColorizeFilter(hue, sat) } : {}),
-        ...style,
-      }}
-    >
-      <img
-        src={atlas.url}
-        alt=""
-        draggable={false}
-        className="block max-w-none select-none"
-        style={{
-          width: sheetW,
-          height: sheetH,
-          marginLeft: -col * size,
-          marginTop: -row * size,
-          imageRendering: 'pixelated',
-        }}
-      />
-    </div>
-  );
-});
 
 // Мини HP-бар врага: прямоугольный, скрыт по умолчанию, всплывает при получении урона
 // и плавно исчезает. Двухслойная анимация: белый «откушенный» кусок сужается до текущего HP.
@@ -3172,6 +3084,19 @@ export default function App() {
   const [maxMana, setMaxMana] = useState(MAX_MANA);
   const [mana, setMana] = useState(0); 
   const [turnState, setTurnState] = useState('map'); 
+
+  // Откат на старую вёрстку боя по F9 — только в dev.
+  const [canvasBattle, setCanvasBattle] = useState(CANVAS_BATTLE_DEFAULT);
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const onKeyDown = (event) => {
+      if (event.key !== 'F9') return;
+      event.preventDefault();
+      setCanvasBattle((prev) => !prev);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   // Коллекция и разблокировки — только в рамках текущей сессии (без localStorage).
   const [permanentlyUnlockedCards, setPermanentlyUnlockedCards] = useState(() => createEmptyUnlockedCards());
@@ -6139,53 +6064,152 @@ export default function App() {
   // Скорость движения шейдера растёт с продвижением по карте сектора (stage 0..5 → 0..1), плавно.
   const bgSpeed = Math.min(1, Math.max(0, currentStage / 5));
 
-  // Снимок боя для нового экрана на холсте 3200×1800 (F9). Отдаём готовые к
-  // отрисовке значения, а не сырое состояние: считать урон и описания карт
-  // умеет только этот модуль, и тащить его математику в новый экран незачем.
-  // Пересобирается только в dev — в проде превью не существует.
-  const battleView = useMemo(() => {
-    if (!import.meta.env.DEV) return null;
-    return {
-      turnState,
-      mana,
-      maxMana,
-      drawCount: liveDrawCount,
-      discardCount: totalDeckSize - liveDrawCount,
-      heroes: players.map((player) => {
-        const eff = getEffectivePlayer(player, equipped[player.id]);
-        const card = player.currentCard;
-        const effect = card ? getCardDescription(eff, card).effectLine : null;
-        return {
-          id: player.id,
-          name: player.name,
-          hp: player.hp,
-          maxHp: eff.maxHp,
-          isDead: player.hp <= 0,
-          hasActed: player.hasActed,
-          card: card && {
-            name: card.name,
-            icon: card.icon,
-            cost: card.cost,
-            rarity: card.rarity,
-            description: effect ? `${effect.label} ${effect.value}` : getTargetingLabel(getCardTargeting(card)),
-          },
-        };
-      }),
-      enemies: enemies.map((enemy) => ({
-        id: enemy.id,
-        name: enemy.name,
-        hp: enemy.hp,
-        maxHp: enemy.maxHp,
-        isDead: enemy.isDead,
-      })),
-      items: inventory.slice(0, 9).map((item) => ({
-        uid: item.uid,
-        name: item.name,
-        rarity: item.rarity,
-        iconUrl: getItemIconUrl(item.icon),
-      })),
-    };
-  }, [turnState, mana, maxMana, liveDrawCount, totalDeckSize, players, equipped, enemies, inventory]);
+  // Снимок боя для экрана на холсте 3200×1800.
+  //
+  // Состояние остаётся здесь: экран получает готовые к отрисовке значения,
+  // ссылки на узлы (от них VFX и QTE считают координаты) и обработчики. Считать
+  // урон и описания карт умеет только этот модуль, поэтому текст карточки
+  // приходит уже посчитанным.
+  //
+  // Мелочи, которых нет в макете, — значки брони, полоска HP врага, прицел,
+  // реплики, статусы — рисуются функциями отсюда же: у нового экрана нет причин
+  // заводить их копии. Объект пересобирается каждый рендер намеренно: половина
+  // его полей меняется покадрово во время анимаций, и мемоизация только
+  // добавила бы список зависимостей на сорок строк.
+  const hoveredSlotIdx = hoveredPlayerId ? players.findIndex(pl => pl.id === hoveredPlayerId) : -1;
+  const battleStage = {
+    turnState,
+    mana,
+    maxMana,
+    isAnimating,
+    drawCount: liveDrawCount,
+    discardCount: discardPile.length,
+    background: bgLocation,
+    shake,
+    flashingTargets,
+    animatingTargetIds,
+    animatingPlayerId,
+    animatingEnemyId,
+    hoveredPlayerId,
+    hoveredTargetIds,
+    enemyHitStopIds,
+    heroHitStopIds,
+    defenseWindowFlashIds,
+    qteHeroId,
+    attackAnims,
+    attackTranslate,
+    enemyAttackTranslate,
+    enemyAttackDurationMs,
+    enemyAttackEasing,
+    speakingEnemy,
+    endTurnLabel: turnState === 'dealing' ? 'ЖДИТЕ' : turnState === 'player' ? 'ЗАВЕРШИТЬ' : 'ВРАГ...',
+    canEndTurn: turnState === 'player' && !showLevelUp && !qte,
+
+    heroes: players.map((player, index) => {
+      const eff = getEffectivePlayer(player, equipped[player.id]);
+      const card = player.currentCard;
+      const isDead = player.hp <= 0;
+      const isDisabled = turnState !== 'player' || mana < (card?.cost || 0) || isDead
+        || player.hasActed || showLevelUp || turnState === 'map';
+      const effect = card ? getCardDescription(eff, card).effectLine : null;
+      const anim = attackAnims[player.id];
+      return {
+        id: player.id,
+        name: player.name,
+        icon: player.icon,
+        hp: player.hp,
+        maxHp: eff.maxHp,
+        armor: player.armor || 0,
+        isDead,
+        hasActed: player.hasActed,
+        isHovered: hoveredSlotIdx === index,
+        canPlay: !isDisabled && Boolean(card),
+        atlas: getHeroAtlas(player.id),
+        // У нанятого Незнакомца нет атласа атаки — замах играет idle.
+        attackAtlas: anim && CHAR_ATTACK_ATLASES[player.id] && !HERO_SPRITE_OVERRIDES[player.id]
+          ? CHAR_ATTACK_ATLASES[player.id]
+          : null,
+        colorize: getHeroColorize(player.id),
+        qteGlow: CHAR_QTE_GLOW[player.id],
+        card: card && {
+          source: card,
+          name: card.name,
+          icon: card.icon,
+          cost: card.cost,
+          rarity: card.rarity,
+          description: effect ? `${effect.label} ${effect.value}` : getTargetingLabel(getCardTargeting(card)),
+        },
+      };
+    }),
+
+    enemies: enemies.map((enemy) => ({ ...enemy, atlas: ENEMY_ATLASES[enemy.name] || null })),
+
+    items: [...inventory.slice(0, 9), ...Array(Math.max(0, 9 - inventory.length)).fill(null)]
+      .map((item) => item && { ...item, iconUrl: getItemIconUrl(item.icon) }),
+
+    // Узлы отдаём функциями, а не самими рефами: от этих боксов VFX и QTE
+    // считают экранные координаты через getBoundingClientRect, и он уже
+    // учитывает масштаб сцены — пересчитывать ничего не нужно.
+    setAvatarRef,
+    setEnemyRef,
+    setSlotRef,
+    setDeckNode: (el) => { deckRef.current = el; },
+    setDiscardNode: (el) => { discardRef.current = el; },
+    setInventoryNode: (el) => { inventoryRef.current = el; },
+    setEnemyZoneNode: (el) => { enemyZoneRef.current = el; },
+
+    onPlayCard: (index, card) => card && playCard(index, card),
+    onCardHover: handleCardHover,
+    onCardHoverEnd: () => { setHoveredPlayerId(null); setHoveredTargetIds([]); },
+    onEndTurn: endPlayerPhase,
+    onOpenDeck: () => turnState !== 'map' && setShowReserve(true),
+    onOpenCraft: openCraft,
+    onItemDragStart: handleInvDragStart,
+    onItemTipShow: showItemTip,
+    onItemTipHide: hideItemTip,
+    onAttackAnimCycle: handleAttackAnimCycle,
+
+    render: {
+      combo: () => <ComboIndicator count={comboCount} />,
+      heroBadges: (hero) => (
+        <HeroFieldBadges armor={hero.armor} chainBonus={turnState === 'player' ? chainAttackBonus : 0} />
+      ),
+      enemyOverlay: (enemy, { isHoveredTarget, isBeingAttacked }) => {
+        const preview = hoverTargetPreview[enemy.id];
+        const statuses = enemy.statuses
+          ? Object.entries(enemy.statuses).filter(([key]) => SECONDARY_EFFECTS[key])
+          : [];
+        return (
+          <>
+            {speakingEnemy?.id === enemy.id && !enemy.isDead && (
+              <EnemySpeechBubble
+                text={speakingEnemy.text}
+                name={speakingEnemy.name || enemy.name}
+                onTypingDone={() => finishEnemySpeech(enemy.id)}
+              />
+            )}
+            {!enemy.isDead && statuses.length > 0 && (
+              <div className="absolute left-1/2 -top-3 flex -translate-x-1/2 gap-1 z-[80]">
+                {statuses.map(([key, val]) => (
+                  <div key={key} className="flex items-center rounded-md border border-slate-600 bg-slate-900/85 px-1 py-0.5 text-[11px] leading-none shadow-lg">
+                    <span>{SECONDARY_EFFECTS[key].icon}</span>
+                    {val.remaining ? <span className="ml-0.5 text-[9px] font-black text-white">{val.remaining}</span> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+            {!enemy.isDead && <EnemyHpBar hp={enemy.hp} maxHp={enemy.maxHp} />}
+            {isHoveredTarget && !isAnimating && preview && (
+              <TargetReticle damage={preview.damage} lethal={preview.isLethal} />
+            )}
+            {isBeingAttacked && (
+              <div className="pointer-events-none absolute inset-0 z-50 flex animate-bounce items-center justify-center text-6xl text-red-500">💥</div>
+            )}
+          </>
+        );
+      },
+    },
+  };
 
   const mapLinks = useMemo(() => {
     const links = [];
@@ -6465,11 +6489,6 @@ export default function App() {
       
       {flash && <div className="absolute inset-0 z-[1000] bg-white opacity-20 pointer-events-none transition-opacity duration-100"></div>}
 
-      {BattleScreenPreview && (
-        <Suspense fallback={null}>
-          <BattleScreenPreview view={battleView} />
-        </Suspense>
-      )}
       
       {fullscreenError && (
         <div className="absolute top-20 right-4 z-[9999] bg-[#E33371]/90 text-white px-4 py-2 rounded-xl border border-[#F2C94C] shadow-xl backdrop-blur-md animate-in fade-in duration-300 text-lg">
@@ -6541,8 +6560,17 @@ export default function App() {
       {itemTooltip && <ItemTooltip item={itemTooltip.item} x={itemTooltip.x} y={itemTooltip.y} />}
 
       {/* --- ИНТЕРФЕЙС БОЯ (ВСЕГДА РЕНДЕРИТСЯ НА ФОНЕ) --- */}
+      {canvasBattle && (
+        <BattleViewContext.Provider value={battleStage}>
+          <BattleScreen zIndex={0} />
+        </BattleViewContext.Provider>
+      )}
+
+      {/* Контейнер остаётся смонтированным и на холсте: карта сектора пока живёт
+          в старых координатах и меряет высоту от него. Её перенос — отдельный шаг. */}
       <div className="flex w-full max-w-5xl justify-center relative z-0 p-1 py-4 my-auto">
-        <div className="flex-1 flex flex-col justify-start w-full relative">
+        <div className={`flex-1 flex flex-col justify-start w-full relative ${canvasBattle ? 'min-h-[780px]' : ''}`}>
+          {!canvasBattle && (<>
           <div className="bg-slate-950/60 py-10 px-16 rounded-[40px] border border-slate-800/60 shadow-[0_0_30px_rgba(0,0,0,0.5)] flex justify-between items-center relative h-[355px] overflow-visible backdrop-blur-md">
             <ComboIndicator count={comboCount} />
             <div className="absolute top-2 left-1/2 -translate-x-1/2 flex flex-col items-center">
@@ -6845,6 +6873,7 @@ export default function App() {
               Крафт
             </button>
           </div>
+          </>)}
 
           {/* Карта сектора: absolute-оверлей на всю зону арена+панель+лут.
               Подлежащий layout не трогается — ноль вертикального сдвига.
