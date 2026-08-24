@@ -98,11 +98,16 @@ const BattleScreen = ({ zIndex }) => {
         <Placeholder label="фон локации" />
       </StageBox>
 
-      {FIELD_UNITS.map((unit, index) => (
-        <StageBox key={unit.id} x={unit.x} y={unit.y} width={unit.size} height={unit.size} zIndex={15}>
-          <Placeholder label={heroes[index]?.name ?? unit.id} round />
-        </StageBox>
-      ))}
+      {/* Позиции на поле идут не по порядку отряда, поэтому боец ищется по id
+          макета: hero1 — первый в отряде. Врагов в макете пока нет. */}
+      {FIELD_UNITS.map((unit) => {
+        const hero = heroes[Number(unit.id.replace('hero', '')) - 1];
+        return (
+          <StageBox key={unit.id} x={unit.x} y={unit.y} width={unit.size} height={unit.size} zIndex={15}>
+            <Placeholder label={hero?.name ?? unit.id} round />
+          </StageBox>
+        );
+      })}
 
       <StageBox {...locationFrame} zIndex={20}>
         <NineSlice name="location_frame" width={locationFrame.width} height={locationFrame.height} />
