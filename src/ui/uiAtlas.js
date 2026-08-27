@@ -8,7 +8,13 @@ export const UI_ATLAS = atlas;
 export const SUPPORTED_FILL_MODES = ['stretch'];
 
 export const getSlice = (name) => UI_ATLAS.slices[name] ?? null;
-export const getSprite = (name) => UI_ATLAS.sprites[name] ?? null;
+
+/**
+ * Регион под цельную отрисовку. Кроме спрайтов сюда попадают и 9-slice: рамку
+ * иногда нужно не растянуть, а уменьшить целиком — тогда разрез только мешает,
+ * потому что углы у него не сжимаются и налезают друг на друга.
+ */
+export const getSprite = (name) => UI_ATLAS.sprites[name] ?? UI_ATLAS.slices[name] ?? null;
 
 /** Размер нерастягиваемой части: ниже него 9-slice рисовать нельзя. */
 export const getMinSize = ({ borders }) => ({

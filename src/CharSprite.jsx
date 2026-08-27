@@ -13,22 +13,25 @@ import { spriteColorizeFilter } from './spriteColorize';
 //  - once: цикл играется один раз, затем заморозка на последнем кадре (без лупа).
 // onCycle — завершение полного прохода кадров; родитель решает, вернуть ли idle.
 // При смене key компонент ремоунтится — кадр стартует с 0.
-const CharSprite = React.memo(({ atlas, size = 110, className = '', style = {}, hue, sat, gameTime = false, ignoreSlowMo = false, speed = 1, holdAtFrame = null, once = false, paused = false, onCycle }) => {
-  const [frame, setFrame] = useState(0);
+// startFrame — с какого кадра начинается цикл. Нужен строю одинаковых врагов:
+// с общего нуля они шагают кадр в кадр и выглядят одним механизмом.
+const CharSprite = React.memo(({ atlas, size = 110, className = '', style = {}, hue, sat, gameTime = false, ignoreSlowMo = false, speed = 1, startFrame = 0, holdAtFrame = null, once = false, paused = false, onCycle }) => {
+  const [frame, setFrame] = useState(() => (atlas?.frameCount ? startFrame % atlas.frameCount : 0));
   const onCycleRef = useRef(onCycle);
   useEffect(() => { onCycleRef.current = onCycle; }, [onCycle]);
   // Кадр/аккумулятор в рефах: смена фазы (holdAtFrame/speed) перезапускает эффект,
   // но анимация продолжается с текущего кадра, а не начинается заново.
-  const frameRef = useRef(0);
+  const frameRef = useRef(atlas?.frameCount ? startFrame % atlas.frameCount : 0);
   const accRef = useRef(0);
   const doneRef = useRef(false);
   useEffect(() => {
     if (!atlas || paused) return;
     const frameMs = 1000 / (atlas.fps || 12);
     if (!gameTime) {
+      // speed работает и здесь: врагам на боевом экране idle крутят вдвое медленнее.
       const id = setInterval(() => {
         setFrame((f) => (f + 1) % atlas.frameCount);
-      }, frameMs);
+      }, frameMs / speed);
       return () => clearInterval(id);
     }
     if (doneRef.current) return; // once: цикл доигран, стоим на последнем кадре

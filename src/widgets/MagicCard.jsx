@@ -1,5 +1,7 @@
+import { useContext } from 'react';
 import NineSlice from '../ui/NineSlice';
 import UiSprite from '../ui/UiSprite';
+import { CardTiltContext } from '../ui/cardTilt';
 import { CARD_RARITIES } from '../cardRarity';
 
 // Карточка умения. Геометрия — фрейм card_body (Figma 150:1667, файл
@@ -16,6 +18,11 @@ const FONT = "'Greybeard', sans-serif";
 const TEXT_COLOR = '#fffdcc';
 const TEXT_SHADOW = '0px 4px 0px black';
 
+// Иконка отъезжает против наклона слота и даёт глубину. На старом экране сдвиг
+// был полградуса в пиксель при карточке в 208 px; здесь карточка в 1.8 раза
+// шире, поэтому и ход иконки во столько же больше.
+const ICON_PARALLAX = 0.9;
+
 const MagicCard = ({
   name = 'Card_name',
   description = '',
@@ -25,6 +32,8 @@ const MagicCard = ({
   className = '',
 }) => {
   const rarityLabel = CARD_RARITIES[rarity]?.name ?? rarity;
+  const tilt = useContext(CardTiltContext);
+  const iconShift = `translate3d(${tilt.y * ICON_PARALLAX}px, ${-tilt.x * ICON_PARALLAX}px, 0)`;
 
   return (
     <div
@@ -47,9 +56,13 @@ const MagicCard = ({
           style={{ left: 78.16, top: 9.72, width: 194.56, height: 194.56 }}
           data-slot="card-icon"
         >
-          {typeof icon === 'string'
-            ? <span style={{ fontSize: 120, lineHeight: 1, filter: 'drop-shadow(0 4px 0 rgba(0,0,0,0.6))' }}>{icon}</span>
-            : icon}
+          {/* Параллакс без transition: сдвиг обязан идти кадр в кадр с наклоном,
+              иначе иконка тянется за карточкой с задержкой. */}
+          <div className="flex items-center justify-center" style={{ transform: iconShift, transition: 'none' }}>
+            {typeof icon === 'string'
+              ? <span style={{ fontSize: 120, lineHeight: 1, filter: 'drop-shadow(0 4px 0 rgba(0,0,0,0.6))' }}>{icon}</span>
+              : icon}
+          </div>
         </div>
 
         <div className="absolute" style={{ left: 93.5, top: 181, width: 162, height: 50 }}>

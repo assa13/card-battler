@@ -1,6 +1,8 @@
 import NineSlice from '../ui/NineSlice';
 import UiSprite from '../ui/UiSprite';
+import RarityWash from '../ui/RarityWash';
 import { getMinSize, getSlice } from '../ui/uiAtlas';
+import { HERO_SLOT_ARTEFACT, HERO_SLOT_CARD_BODY, HERO_SLOT_SIZE } from './heroSlotLayout';
 
 // Слот героя: рамка, шапка с именем и HP, полоса здоровья, гнездо под карточку
 // и слот артефакта снизу. Геометрия — фрейм hero_slot (Figma 150:1665, файл
@@ -8,8 +10,8 @@ import { getMinSize, getSlice } from '../ui/uiAtlas';
 //
 // Карточка приходит через children и ложится в card_body — ровно тот бокс,
 // который в макете занимает MagicCard.
-const SLOT_SIZE = { width: 421, height: 573 };
-const CARD_BODY = { left: 23, top: 108, width: 374, height: 434 };
+const SLOT_SIZE = HERO_SLOT_SIZE;
+const CARD_BODY = HERO_SLOT_CARD_BODY;
 
 const FONT = "'Greybeard', sans-serif";
 const TEXT_COLOR = '#fffdcc';
@@ -27,6 +29,10 @@ const HeroSlot = ({
   hp = 0,
   maxHp = 0,
   showArtefactSlot = true,
+  // Надетый артефакт и подсветка гнезда: item — что лежит внутри,
+  // isDragActive — по инвентарю тащат предмет (гнёзда зовут к себе),
+  // isDropTarget — тащат прямо над этим гнездом.
+  artefact = null,
   className = '',
   children,
 }) => {
@@ -80,19 +86,58 @@ const HeroSlot = ({
       </div>
 
       {showArtefactSlot && (
-        <UiSprite
-          name="artefact_slot"
-          width={311}
-          height={163.01}
-          style={{ position: 'absolute', left: 57, top: 544.99 }}
+        <div
+          className={`absolute transition-transform duration-150 ${artefact?.isDragActive && !artefact?.isDropTarget ? 'animate-pulse' : ''}`}
+          style={{
+            left: HERO_SLOT_ARTEFACT.left,
+            top: HERO_SLOT_ARTEFACT.top,
+            transform: artefact?.isDropTarget ? 'scale(1.08)' : undefined,
+            transformOrigin: 'center',
+            filter: artefact?.isDropTarget
+              ? 'drop-shadow(0 0 18px rgba(251,191,36,1)) drop-shadow(0 0 40px rgba(251,191,36,0.7))'
+              : artefact?.isDragActive
+                ? 'drop-shadow(0 0 12px rgba(251,191,36,0.65))'
+                : undefined,
+          }}
         >
-          <p
-            className="absolute -translate-x-1/2 -translate-y-1/2"
-            style={{ left: 156, top: 83.5, fontSize: 86.05, fontWeight: 500, lineHeight: 1, color: '#ffffff' }}
+          <UiSprite
+            name="artefact_slot"
+            width={HERO_SLOT_ARTEFACT.width}
+            height={HERO_SLOT_ARTEFACT.height}
           >
-            +
-          </p>
-        </UiSprite>
+            {artefact?.item ? (
+              <>
+                <RarityWash
+                  color={artefact.item.rarityColor}
+                  style={{
+                    left: 156,
+                    top: 83.5,
+                    right: 'auto',
+                    bottom: 'auto',
+                    width: 132,
+                    height: 132,
+                    transform: 'translate(-50%, -50%)',
+                    borderRadius: 16,
+                  }}
+                />
+                <img
+                  src={artefact.item.iconUrl}
+                  alt=""
+                  draggable={false}
+                  className="absolute -translate-x-1/2 -translate-y-1/2 select-none object-contain"
+                  style={{ left: 156, top: 83.5, width: 120, height: 120, imageRendering: 'pixelated' }}
+                />
+              </>
+            ) : (
+              <p
+                className="absolute -translate-x-1/2 -translate-y-1/2"
+                style={{ left: 156, top: 83.5, fontSize: 86.05, fontWeight: 500, lineHeight: 1, color: '#ffffff' }}
+              >
+                +
+              </p>
+            )}
+          </UiSprite>
+        </div>
       )}
     </div>
   );

@@ -15,6 +15,10 @@ const ScreenStage = ({
   stageClassName = '',
   stageStyle = {},
   backgroundColor = '#000',
+  // Тень по кромке холста отделяет сцену от чёрного letterbox. На прозрачной
+  // сцене она читается как непонятная градиентная рамка вокруг окна, поэтому
+  // выключается.
+  shadow = true,
   zIndex,
 }) => (
   <div
@@ -22,7 +26,7 @@ const ScreenStage = ({
     style={{ backgroundColor, zIndex, ...style }}
   >
     <div
-      className={`relative shadow-[0_0_60px_rgba(0,0,0,0.9)] ${stageClassName}`}
+      className={`relative ${shadow ? 'shadow-[0_0_60px_rgba(0,0,0,0.9)]' : ''} ${stageClassName}`}
       style={{
         aspectRatio: String(aspectRatio),
         height: stageHeightCss(fill, aspectRatio),

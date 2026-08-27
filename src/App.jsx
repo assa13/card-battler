@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } from 'react';
 import TavernHubScreen from './TavernHubScreen';
 import HeroInventoryScreen from './HeroInventoryScreen';
 import ShopScreen from './ShopScreen';
@@ -6,6 +6,9 @@ import TaskMasterScreen from './TaskMasterScreen';
 import PreparationCardSlot from './PreparationCardSlot';
 import SpeechBubble from './SpeechBubble';
 import CharSprite from './CharSprite';
+import TiltWrapper from './ui/TiltWrapper';
+import EnemyHpBar from './ui/EnemyHpBar';
+import { CardTiltContext } from './ui/cardTilt';
 import BattleScreen from './battle/BattleScreen';
 import { BattleViewContext } from './battle/battleView';
 import QteOverlay from './QteOverlay';
@@ -268,44 +271,6 @@ const ENEMY_FORMATIONS = {
   2: [{ right: 5,   top: -46 }, { right: 5, top: 121 }],  // зеркала p2 и p3
   3: [{ right: 5,   top: -46 }, { right: 171, top: 42 }, { right: 5, top: 121 }], // зеркала p1, p2, p3
 };
-
-// Мини HP-бар врага: прямоугольный, скрыт по умолчанию, всплывает при получении урона
-// и плавно исчезает. Двухслойная анимация: белый «откушенный» кусок сужается до текущего HP.
-const EnemyHpBar = React.memo(({ hp, maxHp }) => {
-  const pct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
-  const [visible, setVisible] = useState(false);
-  const [ghostPct, setGhostPct] = useState(pct);
-  const prevHpRef = useRef(hp);
-  const hideTimerRef = useRef(null);
-
-  useEffect(() => {
-    const prev = prevHpRef.current;
-    prevHpRef.current = hp;
-    if (hp < prev) {
-      // Урон: показать бар, белый «призрак» = прежняя ширина, затем сузить до текущего HP
-      setVisible(true);
-      setGhostPct(Math.max(0, Math.min(100, (prev / maxHp) * 100)));
-      const raf = requestAnimationFrame(() => requestAnimationFrame(() => setGhostPct(pct)));
-      clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = setTimeout(() => setVisible(false), 1000);
-      return () => cancelAnimationFrame(raf);
-    } else {
-      // Лечение/сброс — без всплытия, просто синхронизируем
-      setGhostPct(pct);
-    }
-  }, [hp, maxHp, pct]);
-
-  useEffect(() => () => clearTimeout(hideTimerRef.current), []);
-
-  return (
-    <div className={`absolute left-1/2 -translate-x-1/2 -bottom-1 w-[32px] h-1 bg-slate-950/80 border border-black/60 z-[70] pointer-events-none overflow-hidden transition-opacity duration-500 ${visible ? 'opacity-100' : 'opacity-0'}`}>
-      {/* Белый «откушенный» кусок (под красным): сужается от прежнего значения к текущему */}
-      <div className="absolute inset-y-0 left-0 bg-white" style={{ width: `${ghostPct}%`, transition: 'width 0.45s ease-out' }} />
-      {/* Реальное HP поверх — красный, меняется мгновенно */}
-      <div className="absolute inset-y-0 left-0 bg-gradient-to-r from-red-700 to-red-500" style={{ width: `${pct}%` }} />
-    </div>
-  );
-});
 
 // Боевой пузырь использует тот же пиксельный компонент, что и диалоги таверны.
 // Обёртка лишь удерживает его над врагом и сдвигает от краёв viewport.
@@ -1031,82 +996,6 @@ const spawnEnemies = (type, stage, sector = 1) => {
 
 // --- 2. ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ ---
 
-const CardTiltContext = createContext({ x: 0, y: 0, isHovered: false });
-
-const TiltWrapper = ({ children, className, isDisabled, globalShake = {x:0, y:0, rot:0} }) => {
-  const [rotation, setRotation] = useState({ x: 0, y: 0 });
-  const [glare, setGlare] = useState({ x: 50, y: 50, opacity: 0 });
-  const [isHovered, setIsHovered] = useState(false);
-
-  const handleMouseMove = (e) => {
-    if (isDisabled) return;
-    const card = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - card.left;
-    const y = e.clientY - card.top;
-    const centerX = card.width / 2;
-    const centerY = card.height / 2;
-
-    const rotateX = ((centerY - y) / centerY) * 16;
-    const rotateY = ((x - centerX) / centerX) * 16;
-
-    setRotation({ x: rotateX, y: rotateY });
-    setGlare({ x: (x / card.width) * 100, y: (y / card.height) * 100, opacity: 0.18 });
-  };
-
-  const handleMouseEnter = () => { if (!isDisabled) setIsHovered(true); };
-  const handleMouseLeave = () => { setIsHovered(false); setRotation({ x: 0, y: 0 }); setGlare(prev => ({ ...prev, opacity: 0 })); };
-
-  const borderMask = {
-    WebkitMaskImage: `linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)`,
-    WebkitMaskComposite: 'xor',
-    maskComposite: 'exclude',
-    padding: '3px' 
-  };
-
-  return (
-    <CardTiltContext.Provider value={{ x: rotation.x, y: rotation.y, isHovered: isHovered && !isDisabled }}>
-    <div 
-      className={`relative ${className}`}
-      onMouseMove={handleMouseMove}
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={handleMouseLeave}
-      style={{
-        transform: `scale(${isHovered && !isDisabled ? 1.14 : 1}) translate(${globalShake.x * 0.5}px, ${globalShake.y * 0.5}px)`,
-        transition: 'transform 200ms cubic-bezier(0.22, 1, 0.36, 1)',
-        transformStyle: 'preserve-3d',
-        zIndex: isHovered ? 50 : 1,
-      }}
-    >
-      <div
-        className="relative w-full h-full"
-        style={{
-          transform: `perspective(1000px) rotateX(${rotation.x + globalShake.rot}deg) rotateY(${rotation.y + globalShake.rot}deg)`,
-          transformStyle: 'preserve-3d',
-        }}
-      >
-      <div 
-        className="absolute -inset-[2px] pointer-events-none rounded-2xl z-50 transition-opacity duration-300"
-        style={{
-          ...borderMask,
-          opacity: isHovered ? 1 : 0,
-          background: `radial-gradient(220px circle at ${glare.x}% ${glare.y}%, rgba(255,255,255,${glare.opacity}) 0%, rgba(255,255,255,${glare.opacity * 0.3}) 40%, transparent 100%)`,
-        }}
-      />
-      <div 
-        className="absolute -inset-[12px] pointer-events-none rounded-3xl z-40 transition-opacity duration-500"
-        style={{
-          opacity: isHovered ? 0.15 : 0,
-          background: `radial-gradient(180px circle at ${glare.x}% ${glare.y}%, rgba(255,255,255,0.2) 0%, transparent 100%)`,
-          filter: 'blur(15px)'
-        }}
-      />
-      {children}
-      </div>
-    </div>
-    </CardTiltContext.Provider>
-  );
-};
-
 const formatItemStatsList = (stats = {}) => {
   const parts = [];
   if (stats.atk) parts.push({ label: 'Атака', display: `+${stats.atk}%` });
@@ -1128,6 +1017,14 @@ const ItemIcon = React.memo(({ item, className = '', imgClassName = 'w-full h-fu
     </div>
   );
 });
+
+// Предмет для боевого холста: адрес иконки и цвет редкости. Цвет там рисуется
+// мягкой заливкой под иконкой, а таблицу редкостей холст не знает.
+const itemForCanvas = (item) => item && {
+  ...item,
+  iconUrl: getItemIconUrl(item.icon),
+  rarityColor: (ITEM_RARITIES[item.rarity] || ITEM_RARITIES.COMMON).color,
+};
 
 const ItemTooltip = React.memo(({ item, x, y }) => {
   if (!item) return null;
@@ -1160,6 +1057,34 @@ const ItemTooltip = React.memo(({ item, x, y }) => {
           ))}
         </div>
       )}
+    </div>
+  );
+});
+
+// Расшифровка значков эффектов над бойцом. Идёт за курсором, как подсказка
+// предмета: значки на холсте нарисованы в его пикселях, а текст должен читаться
+// одинаково на любом экране.
+const EffectTooltip = React.memo(({ badges, x, y }) => {
+  if (!badges?.length) return null;
+  const height = 22 + badges.length * 40;
+  const left = Math.min(x + 14, window.innerWidth - 236);
+  const fitsBelow = y - 10 + height <= window.innerHeight - 8;
+  const top = fitsBelow ? Math.max(8, y - 10) : Math.max(8, y - height - 10);
+
+  return (
+    <div className="fixed z-[9700] pointer-events-none w-56 bg-slate-950/95 border border-slate-600 rounded-xl p-3 shadow-2xl backdrop-blur-md"
+      style={{ left, top }}>
+      <div className="flex flex-col gap-1.5">
+        {badges.map((badge) => (
+          <div key={badge.id} className="flex items-start gap-1.5 text-left">
+            <span className="text-sm leading-none mt-0.5">{badge.icon}</span>
+            <div className="flex-1 leading-tight">
+              <div className="text-[10px] font-black uppercase tracking-wide text-slate-200">{badge.label}</div>
+              {badge.desc && <div className="text-[9px] text-slate-400">{badge.desc}</div>}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 });
@@ -2986,14 +2911,20 @@ const MAP_DISSOLVE_EXIT_MS = 525;   // было 420, +25%
 // мгновенно вслед за веилом, даётся короткий вдох.
 const MAP_DEAL_GATE_DELAY_MS = 200;
 
-const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNodeClickable, onNodeClick, hue = 210, sat = 30, phase = 'idle', onEntered, onExited }) => {
+// Верхняя кромка карты сектора внутри её контейнера. Нижняя — дно контейнера,
+// так что высоту карты задаёт его min-height на месте вызова.
+// На холсте отступ нулевой: там место и размер карты задаёт бокс сцены
+// (MAP_PANEL в battleLayout).
+const MAP_TOP_PX = 360;
+
+const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNodeClickable, onNodeClick, hue = 210, sat = 30, phase = 'idle', topPx = MAP_TOP_PX, onEntered, onExited }) => {
   const interactive = phase === 'idle';
   // pointer-events-none на корне ОБЯЗАТЕЛЕН: панель остаётся смонтированной после
   // turnState==='map' (доигрывает веил) и лежит z-[500] ровно над слотами карт.
   // Без сквозного прохода кликов она молча блокирует руку, если onExited задержался
   // (rAF-троттлинг Safari/Firefox). Кликабельность возвращают ТОЛЬКО сами узлы.
   return (
-  <div className="absolute left-0 right-0 bottom-0 top-[360px] z-[500] pointer-events-none">
+  <div className="absolute left-0 right-0 bottom-0 z-[500] pointer-events-none" style={{ top: topPx }}>
     <div className="absolute top-3 left-8 z-10 text-amber-500 font-black uppercase italic tracking-widest text-lg drop-shadow-md pointer-events-none map-content-in">Карта сектора {String(sector)}</div>
     <div className="absolute top-4 right-8 z-10 text-slate-400 font-black uppercase tracking-widest text-[9px] pointer-events-none map-content-in">Выберите следующий этап пути</div>
     <div className="relative w-full h-full bg-slate-950/40 backdrop-blur-xl rounded-[28px] border border-slate-700 shadow-2xl overflow-hidden">
@@ -3097,7 +3028,6 @@ export default function App() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
-
   // Коллекция и разблокировки — только в рамках текущей сессии (без localStorage).
   const [permanentlyUnlockedCards, setPermanentlyUnlockedCards] = useState(() => createEmptyUnlockedCards());
   const permanentlyUnlockedRef = useRef(permanentlyUnlockedCards);
@@ -3220,6 +3150,8 @@ export default function App() {
   const [dragSrcIdx, setDragSrcIdx] = useState(null);
   const [dragOverPlayerId, setDragOverPlayerId] = useState(null);
   const [itemTooltip, setItemTooltip] = useState(null);
+  // Подсказка по значкам эффектов над бойцом: список строк и точка курсора.
+  const [effectTooltip, setEffectTooltip] = useState(null);
   const [showCraft, setShowCraft] = useState(false);
   const [craftSlots, setCraftSlots] = useState([null, null, null]);
   const [craftWarning, setCraftWarning] = useState('');
@@ -4443,6 +4375,13 @@ export default function App() {
 
   const hideItemTip = () => setItemTooltip(null);
 
+  const showEffectTip = (badges, e) => {
+    if (!badges?.length) return;
+    setEffectTooltip({ badges, x: e.clientX, y: e.clientY });
+  };
+
+  const hideEffectTip = () => setEffectTooltip(null);
+
   const handleInvDragStart = (idx) => (e) => {
     const item = inventory[idx];
     if (!item?.uid) {
@@ -4668,6 +4607,21 @@ export default function App() {
     playSound('./assets/sfx/ui/click.wav', 0.35);
   };
 
+  // Клик по предмету инвентаря, пока открыта панель слияния: предмет уходит в
+  // первое свободное гнездо. Мышью тащить его туда тоже можно (handleCraftDrop),
+  // но на боевом холсте панель наполняют именно кликом.
+  const handleInvClickToCraft = (idx) => () => {
+    if (!showCraft) return;
+    const item = inventory[idx];
+    const freeSlot = craftSlots.findIndex((slot) => !slot);
+    if (!item || freeSlot === -1) return;
+    setCraftWarning('');
+    setInventory((previous) => previous.filter((entry) => entry?.uid !== item.uid));
+    setCraftSlots((previous) => previous.map((slot, index) => (index === freeSlot ? item : slot)));
+    setItemTooltip(null);
+    playSound('./assets/sfx/ui/click.wav', 0.35);
+  };
+
   const removeFromCraft = (slotIdx) => {
     setCraftWarning('');
     const item = craftSlots[slotIdx];
@@ -4681,7 +4635,7 @@ export default function App() {
   const doCraft = () => {
     const items = craftSlots.filter(Boolean);
     if (items.length < 3) {
-      setCraftWarning('Нужно поместить 3 предмета');
+      setCraftWarning(`Нужно 3 предмета, положено ${items.length}`);
       return;
     }
     const rarity = items[0].rarity;
@@ -6077,6 +6031,42 @@ export default function App() {
   // его полей меняется покадрово во время анимаций, и мемоизация только
   // добавила бы список зависимостей на сорок строк.
   const hoveredSlotIdx = hoveredPlayerId ? players.findIndex(pl => pl.id === hoveredPlayerId) : -1;
+  // Значки эффектов над бойцом едут в боевой экран данными, а не готовой
+  // разметкой: на холсте они рисуются в его пикселях и масштабируются вместе со
+  // сценой, а расшифровку показывает подсказка у курсора.
+  const heroBadges = (player) => {
+    const list = [];
+    const armor = player.armor || 0;
+    if (armor > 0) {
+      list.push({
+        id: 'armor', tone: 'armor', icon: '🛡️', text: String(armor),
+        label: 'Броня', desc: `Поглотит ${armor} урона`,
+      });
+    }
+    const chain = turnState === 'player' ? chainAttackBonus : 0;
+    if (chain > 0) {
+      list.push({
+        id: 'chain', tone: 'chain', icon: '🔗', text: `+${chain}`,
+        label: 'Цепочка', desc: `+${chain} к урону следующей атаки`,
+      });
+    }
+    return list;
+  };
+
+  const enemyBadges = (enemy) => {
+    if (enemy.isDead || !enemy.statuses) return [];
+    return Object.entries(enemy.statuses)
+      .filter(([key]) => SECONDARY_EFFECTS[key])
+      .map(([key, val]) => ({
+        id: key,
+        tone: 'status',
+        icon: SECONDARY_EFFECTS[key].icon,
+        text: val.remaining ? String(val.remaining) : '',
+        label: `${SECONDARY_EFFECTS[key].label}${val.remaining ? ` · ${val.remaining} х.` : ''}`,
+        desc: describeStatus(key, val),
+      }));
+  };
+
   const battleStage = {
     turnState,
     mana,
@@ -6105,8 +6095,13 @@ export default function App() {
     endTurnLabel: turnState === 'dealing' ? 'ЖДИТЕ' : turnState === 'player' ? 'ЗАВЕРШИТЬ' : 'ВРАГ...',
     canEndTurn: turnState === 'player' && !showLevelUp && !qte,
 
+    // Пока по инвентарю тащат предмет, гнёзда артефактов подсвечиваются все —
+    // так видно, куда его вообще можно положить.
+    isDraggingItem: dragSrcIdx !== null,
+
     heroes: players.map((player, index) => {
-      const eff = getEffectivePlayer(player, equipped[player.id]);
+      const equipment = equipped[player.id];
+      const eff = getEffectivePlayer(player, equipment);
       const card = player.currentCard;
       const isDead = player.hp <= 0;
       const isDisabled = turnState !== 'player' || mana < (card?.cost || 0) || isDead
@@ -6124,6 +6119,12 @@ export default function App() {
         hasActed: player.hasActed,
         isHovered: hoveredSlotIdx === index,
         canPlay: !isDisabled && Boolean(card),
+        isDisabled,
+        equipment: itemForCanvas(equipment),
+        isDropTarget: dragOverPlayerId === player.id,
+        badges: heroBadges(player),
+        // Жёлтое свечение слота: карта попадает в комбо и её есть чем сыграть.
+        comboGlow: getCardComboStatus(player.id, card).willGiveBonus && !isDisabled,
         atlas: getHeroAtlas(player.id),
         // У нанятого Незнакомца нет атласа атаки — замах играет idle.
         attackAtlas: anim && CHAR_ATTACK_ATLASES[player.id] && !HERO_SPRITE_OVERRIDES[player.id]
@@ -6142,10 +6143,14 @@ export default function App() {
       };
     }),
 
-    enemies: enemies.map((enemy) => ({ ...enemy, atlas: ENEMY_ATLASES[enemy.name] || null })),
+    enemies: enemies.map((enemy) => ({
+      ...enemy,
+      atlas: ENEMY_ATLASES[enemy.name] || null,
+      badges: enemyBadges(enemy),
+    })),
 
     items: [...inventory.slice(0, 9), ...Array(Math.max(0, 9 - inventory.length)).fill(null)]
-      .map((item) => item && { ...item, iconUrl: getItemIconUrl(item.icon) }),
+      .map(itemForCanvas),
 
     // Узлы отдаём функциями, а не самими рефами: от этих боксов VFX и QTE
     // считают экранные координаты через getBoundingClientRect, и он уже
@@ -6163,22 +6168,43 @@ export default function App() {
     onCardHoverEnd: () => { setHoveredPlayerId(null); setHoveredTargetIds([]); },
     onEndTurn: endPlayerPhase,
     onOpenDeck: () => turnState !== 'map' && setShowReserve(true),
-    onOpenCraft: openCraft,
+    // Кнопка слияния работает переключателем: повторный клик убирает панель.
+    onOpenCraft: () => (showCraft ? closeCraft() : openCraft()),
     onItemDragStart: handleInvDragStart,
+    onItemClick: handleInvClickToCraft,
     onItemTipShow: showItemTip,
     onItemTipHide: hideItemTip,
+
+    // Панель слияния на холсте заменяет старую модалку крафта, состояние у них
+    // общее: те же три гнезда и те же правила.
+    merge: {
+      open: showCraft,
+      slots: craftSlots.map(itemForCanvas),
+      warning: craftWarning,
+    },
+    onMergeSlotClick: removeFromCraft,
+    onMergeConfirm: doCraft,
+    onMergeClose: closeCraft,
     onAttackAnimCycle: handleAttackAnimCycle,
+    onEffectTipShow: showEffectTip,
+    onEffectTipHide: hideEffectTip,
+    onEquipDragOver: handleEquipDragOver,
+    onEquipDragLeave: handleEquipDragLeave,
+    onEquipDrop: handleEquipDrop,
+    onUnequip: handleUnequip,
+
+    mapPanelMounted,
+    arenaVeilVisible: arenaUiPhase !== 'idle',
 
     render: {
       combo: () => <ComboIndicator count={comboCount} />,
-      heroBadges: (hero) => (
-        <HeroFieldBadges armor={hero.armor} chainBonus={turnState === 'player' ? chainAttackBonus : 0} />
-      ),
+      mapPanel: () => mapPanelNode(0),
+      arenaVeil: () => arenaVeilNode(0),
+      // Значки эффектов и полоска HP сюда не входят: они рисуются в пикселях
+      // холста, а этот слой, наоборот, компенсирует масштаб сцены и живёт в
+      // экранных.
       enemyOverlay: (enemy, { isHoveredTarget, isBeingAttacked }) => {
         const preview = hoverTargetPreview[enemy.id];
-        const statuses = enemy.statuses
-          ? Object.entries(enemy.statuses).filter(([key]) => SECONDARY_EFFECTS[key])
-          : [];
         return (
           <>
             {speakingEnemy?.id === enemy.id && !enemy.isDead && (
@@ -6188,17 +6214,6 @@ export default function App() {
                 onTypingDone={() => finishEnemySpeech(enemy.id)}
               />
             )}
-            {!enemy.isDead && statuses.length > 0 && (
-              <div className="absolute left-1/2 -top-3 flex -translate-x-1/2 gap-1 z-[80]">
-                {statuses.map(([key, val]) => (
-                  <div key={key} className="flex items-center rounded-md border border-slate-600 bg-slate-900/85 px-1 py-0.5 text-[11px] leading-none shadow-lg">
-                    <span>{SECONDARY_EFFECTS[key].icon}</span>
-                    {val.remaining ? <span className="ml-0.5 text-[9px] font-black text-white">{val.remaining}</span> : null}
-                  </div>
-                ))}
-              </div>
-            )}
-            {!enemy.isDead && <EnemyHpBar hp={enemy.hp} maxHp={enemy.maxHp} />}
             {isHoveredTarget && !isAnimating && preview && (
               <TargetReticle damage={preview.damage} lethal={preview.isLethal} />
             )}
@@ -6261,6 +6276,46 @@ export default function App() {
     if (baseNode) { baseNode.colors = stage1.map(n => n.colors[0]); }
     return links;
   }, [gameMap]);
+
+  // Карта сектора и её дизолв-веил нужны обоим экранам боя: старый кладёт их в
+  // свою колонку от вьюпорта, холст — в бокс сцены. Отличается только отступ
+  // сверху: на холсте бокс сам задаёт геометрию, поэтому topPx там нулевой.
+  const mapPanelNode = (topPx) => (
+    <MapOverlay
+      sector={sector}
+      nodes={gameMap}
+      links={mapLinks}
+      completedNodes={completedNodes}
+      currentNodeId={currentMapNodeId}
+      isNodeClickable={isNodeClickable}
+      onNodeClick={handleNodeClick}
+      hue={bgLocation.hue}
+      sat={bgLocation.sat}
+      phase={mapPanelPhase}
+      topPx={topPx}
+      onEntered={() => setMapPanelPhase('idle')}
+      onExited={() => {
+        setMapPanelMounted(false);
+        setArenaUiPhase('entering');
+        dealGateTimeoutRef.current = setTimeout(() => setDealGateOpen(true), MAP_DEAL_GATE_DELAY_MS);
+      }}
+    />
+  );
+
+  // Тем же дизолв-веилом материализуются слоты/колода/инвентарь после того, как
+  // карта сектора растворилась (см. arenaUiPhase). Занимает ровно ту же зону,
+  // но ниже по z — сидит над слотами, под картой.
+  const arenaVeilNode = (topPx) => (
+    <div className="absolute left-0 right-0 bottom-0 z-[400] overflow-hidden pointer-events-none" style={{ top: topPx }}>
+      <MapDissolveVeil
+        hue={bgLocation.hue}
+        sat={bgLocation.sat}
+        phase={arenaUiPhase}
+        duration={MAP_DISSOLVE_ENTER_MS}
+        onDone={() => setArenaUiPhase('idle')}
+      />
+    </div>
+  );
 
   const taskMasterRewardReady = taskMasterHasRewards(taskMasterState);
   const taskMasterHasWork = taskMasterHasTasks(taskMasterState);
@@ -6409,11 +6464,18 @@ export default function App() {
           <ShaderBackground hue={bgLocation.hue} sat={bgLocation.sat} speed={bgSpeed} />
           <ImageBackground imageUrl={bgLocation.url} hue={bgLocation.hue} sat={bgLocation.sat} />
 
-          {/* Декоративные уголки сцены боя: слой над фоном, но под HUD; не пересекают верхний прогрессбар */}
-          <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
-          <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] right-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleX(-1)' }} />
-          <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleY(-1)' }} />
-          <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scale(-1, -1)' }} />
+          {/* Декоративные уголки сцены боя: слой над фоном, но под HUD; не пересекают
+              верхний прогрессбар. На холсте рамку сцены рисует сам боевой экран
+              (location_frame и горгульи), а эти уголки читаются чужой виньеткой
+              по периметру окна — поэтому только для старой вёрстки. */}
+          {!canvasBattle && (
+            <>
+              <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" />
+              <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-[24px] right-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleX(-1)' }} />
+              <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scaleY(-1)' }} />
+              <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[325px] h-[325px] z-[0] opacity-90 drop-shadow-[0_0_8px_rgba(0,0,0,0.8)]" style={{ transform: 'scale(-1, -1)' }} />
+            </>
+          )}
         </>
       )}
 
@@ -6558,6 +6620,7 @@ export default function App() {
       {vfxList.map(v => <CombatVfx key={v.id} vfx={v} />)}
       <FxLayer ref={fxRef} />
       {itemTooltip && <ItemTooltip item={itemTooltip.item} x={itemTooltip.x} y={itemTooltip.y} />}
+      {effectTooltip && <EffectTooltip badges={effectTooltip.badges} x={effectTooltip.x} y={effectTooltip.y} />}
 
       {/* --- ИНТЕРФЕЙС БОЯ (ВСЕГДА РЕНДЕРИТСЯ НА ФОНЕ) --- */}
       {canvasBattle && (
@@ -6566,11 +6629,12 @@ export default function App() {
         </BattleViewContext.Provider>
       )}
 
-      {/* Контейнер остаётся смонтированным и на холсте: карта сектора пока живёт
-          в старых координатах и меряет высоту от него. Её перенос — отдельный шаг. */}
+      {/* Старая вёрстка боя от вьюпорта. На холсте не рендерится вовсе: карта
+          сектора и её дизолв-веил переехали в сцену, и держать поверх неё пустой
+          контейнер больше незачем — он только съедал мышь у слотов и кнопок. */}
+      {!canvasBattle && (
       <div className="flex w-full max-w-5xl justify-center relative z-0 p-1 py-4 my-auto">
-        <div className={`flex-1 flex flex-col justify-start w-full relative ${canvasBattle ? 'min-h-[780px]' : ''}`}>
-          {!canvasBattle && (<>
+        <div className="flex-1 flex flex-col justify-start w-full relative">
           <div className="bg-slate-950/60 py-10 px-16 rounded-[40px] border border-slate-800/60 shadow-[0_0_30px_rgba(0,0,0,0.5)] flex justify-between items-center relative h-[355px] overflow-visible backdrop-blur-md">
             <ComboIndicator count={comboCount} />
             <div className="absolute top-2 left-1/2 -translate-x-1/2 flex flex-col items-center">
@@ -6873,50 +6937,12 @@ export default function App() {
               Крафт
             </button>
           </div>
-          </>)}
 
-          {/* Карта сектора: absolute-оверлей на всю зону арена+панель+лут.
-              Подлежащий layout не трогается — ноль вертикального сдвига.
-              Остаётся смонтирована чуть дольше turnState==='map', чтобы
-              доиграть дизолв-веил на исчезание (см. mapPanelMounted). */}
-          {mapPanelMounted && (
-            <MapOverlay
-              sector={sector}
-              nodes={gameMap}
-              links={mapLinks}
-              completedNodes={completedNodes}
-              currentNodeId={currentMapNodeId}
-              isNodeClickable={isNodeClickable}
-              onNodeClick={handleNodeClick}
-              hue={bgLocation.hue}
-              sat={bgLocation.sat}
-              phase={mapPanelPhase}
-              onEntered={() => setMapPanelPhase('idle')}
-              onExited={() => {
-                setMapPanelMounted(false);
-                setArenaUiPhase('entering');
-                dealGateTimeoutRef.current = setTimeout(() => setDealGateOpen(true), MAP_DEAL_GATE_DELAY_MS);
-              }}
-            />
-          )}
-
-          {/* Тем же дизолв-веилом материализуются слоты/колода/инвентарь после того,
-              как карта сектора полностью растворилась (см. arenaUiPhase). Занимает
-              ровно ту же зону, что и MapOverlay, но ниже по z — сидит над слотами,
-              под картой. В простое не рендерится вовсе. */}
-          {arenaUiPhase !== 'idle' && (
-            <div className="absolute left-0 right-0 bottom-0 top-[360px] z-[400] overflow-hidden pointer-events-none">
-              <MapDissolveVeil
-                hue={bgLocation.hue}
-                sat={bgLocation.sat}
-                phase={arenaUiPhase}
-                duration={MAP_DISSOLVE_ENTER_MS}
-                onDone={() => setArenaUiPhase('idle')}
-              />
-            </div>
-          )}
+          {mapPanelMounted && mapPanelNode(MAP_TOP_PX)}
+          {arenaUiPhase !== 'idle' && arenaVeilNode(MAP_TOP_PX)}
         </div>
       </div>
+      )}
 
       {/* Общее QTE-кольцо; enemy-QTE дополнительно даёт авто-замах и белый сигнал окна. */}
       {qte && qte.mode !== 'horse' && (
@@ -7013,8 +7039,10 @@ export default function App() {
         />
       )}
 
-      {/* --- КРАФТ: затемнение + слоты по центру (инвентарь остаётся внизу) --- */}
-      {showCraft && (
+      {/* --- КРАФТ: затемнение + слоты по центру (инвентарь остаётся внизу) ---
+          Только для старой вёрстки: на холсте вместо модалки выезжает панель
+          слияния (BattleScreen), состояние у них общее. */}
+      {showCraft && !canvasBattle && (
         <div className="fixed inset-0 z-[6000] bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-300" onClick={closeCraft}>
           <div className="relative flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
             <button onClick={closeCraft} className="absolute -top-12 -right-12 w-10 h-10 rounded-full bg-slate-800 border border-slate-600 text-slate-300 hover:text-white hover:border-red-500 hover:bg-red-900/40 transition-all flex items-center justify-center font-black text-lg">✕</button>

@@ -1,19 +1,63 @@
 import { useEffect, useRef, useState } from 'react';
 import EnemyDefenseCue from './EnemyDefenseCue';
+import useStageSpace from './ui/useStageSpace';
 
 const HORSE_COUNT = 8;
-const BASE_RUN_MS = 4167;
-const CENTER_INTERVAL_MS = 1200;
+const BASE_RUN_MS = 2084;
+const CENTER_INTERVAL_MS = 600;
 const WINDOW_HALF_MS = 121;
 const RESULT_HOLD_MS = 300;
-const BASE_ANIMATION_SPEED = 1.3;
+// Галоп идёт в темпе бега: пробег вдвое короче прежнего — значит и ноги
+// переставляются вдвое чаще, иначе лошадь скользит по экрану.
+const BASE_ANIMATION_SPEED = 2.6;
 const HORSE_ATLASES = {
   default: { url: './chars/necro_horse_default.webp', cols: 4, rows: 4, frameCount: 16, fps: 10 },
   active: { url: './chars/necro_horse_active.webp', cols: 4, rows: 4, frameCount: 16, fps: 10 },
 };
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-const getHorseSize = (arenaRect) => clamp(arenaRect.height * 0.42, 195, 345);
+
+// Весь эффект считается в пикселях холста 3200×1800 и переводится в экранные
+// только на отрисовке (см. ui/useStageSpace.js). Так задумано намеренно:
+// раньше табун жил в экранных координатах, снятых на старте, и при ресайзе окна
+// линия QTE уезжала от центра арены — момент нажатия переставал совпадать с
+// картинкой. Заодно это правило для будущих QTE: проектируем в холсте, размер
+// окна не должен влиять ни на геометрию, ни на тайминги.
+const HORSE_SIZE_RATIO = 0.63;
+const HORSE_SIZE_MIN = 488;
+const HORSE_SIZE_MAX = 863;
+const HORSE_ROW_JITTER = 117;
+const MARKER_SIZE = 188;
+const MARKER_BORDER = 7;
+const LINE_WIDTH = 5;
+const FLASH_SIZE = 240;
+const FLASH_BORDER = 10;
+const IMPACT_SIZE = 240;
+const IMPACT_BORDER = 13;
+const CUE_SIZE = 107;
+const CUE_OFFSET_X = 47;
+const CUE_OFFSET_Y = 43;
+
+const getHorseSize = (arena) => clamp(
+  arena.height * HORSE_SIZE_RATIO,
+  HORSE_SIZE_MIN,
+  HORSE_SIZE_MAX,
+);
+
+/** Прямоугольник и точки из DOM приходят в экранных пикселях — переводим в холст. */
+const toCanvasRect = (rect, space) => ({
+  left: space.canvasX(rect.left),
+  top: space.canvasY(rect.top),
+  width: space.canvasSize(rect.width),
+  height: space.canvasSize(rect.height),
+  bottom: space.canvasY(rect.bottom ?? rect.top + rect.height),
+});
+
+const toCanvasNode = (node, space) => ({
+  ...node,
+  x: space.canvasX(node.x),
+  y: space.canvasY(node.y),
+});
 
 const HorseAtlasSprite = ({ active, size, speedFactor }) => {
   const [frame, setFrame] = useState(0);
@@ -50,9 +94,9 @@ const HorseAtlasSprite = ({ active, size, speedFactor }) => {
   );
 };
 
-const createHorses = (arenaRect, targetNodes) => {
-  const safeTop = arenaRect.top + arenaRect.height * 0.2;
-  const safeBottom = arenaRect.bottom - arenaRect.height * 0.2;
+const createHorses = (arena, targetNodes) => {
+  const safeTop = arena.top + arena.height * 0.2;
+  const safeBottom = arena.bottom - arena.height * 0.2;
   const step = HORSE_COUNT > 1 ? (safeBottom - safeTop) / (HORSE_COUNT - 1) : 0;
   const firstCenterAt = (BASE_RUN_MS / 0.8) / 2;
 
@@ -60,10 +104,10 @@ const createHorses = (arenaRect, targetNodes) => {
     const speedFactor = 0.8 + Math.random() * 0.4;
     const runMs = BASE_RUN_MS / speedFactor;
     const orderedY = safeTop + step * index;
-    const jitter = (Math.random() - 0.5) * Math.min(70, arenaRect.height * 0.11);
+    const jitter = (Math.random() - 0.5) * Math.min(HORSE_ROW_JITTER, arena.height * 0.11);
     const y = clamp(orderedY + jitter, safeTop, safeBottom);
     const target = [...targetNodes]
-      .filter(node => node.x > arenaRect.left + arenaRect.width * 0.45)
+      .filter(node => node.x > arena.left + arena.width * 0.45)
       .sort((a, b) => Math.abs(a.y - y) - Math.abs(b.y - y))[0] || null;
 
     return {
@@ -95,7 +139,12 @@ const HorseHerdQte = ({
   onResolve,
   onDone,
 }) => {
-  const [horses, setHorses] = useState(() => createHorses(arenaRect, targetNodes));
+  const space = useStageSpace();
+  // Арена и цели снимаются с DOM один раз на старте и дальше живут в холсте:
+  // пересчитывать их при ресайзе не нужно, сцена сама встанет на новое место.
+  const [arena] = useState(() => toCanvasRect(arenaRect, space));
+  const [targets] = useState(() => targetNodes.map(node => toCanvasNode(node, space)));
+  const [horses, setHorses] = useState(() => createHorses(arena, targets));
   const horsesRef = useRef(horses);
   const [resolved, setResolved] = useState(false);
   const [resultCount, setResultCount] = useState(0);
@@ -105,6 +154,10 @@ const HorseHerdQte = ({
   const finishTimerRef = useRef(0);
   const resolvedRef = useRef(false);
   const callbacksRef = useRef({ onActivate, onImpact, onResolve, onDone });
+  // Экран в текущем кадре: обратный вызов об ударе уходит в бой экранной точкой,
+  // там ждут именно её.
+  const spaceRef = useRef(space);
+  useEffect(() => { spaceRef.current = space; }, [space]);
 
   useEffect(() => {
     callbacksRef.current = { onActivate, onImpact, onResolve, onDone };
@@ -112,8 +165,19 @@ const HorseHerdQte = ({
 
   useEffect(() => {
     const totalMs = Math.max(...horsesRef.current.map(horse => horse.spawnAt + horse.runMs));
-    const horseSize = getHorseSize(arenaRect);
+    const horseSize = getHorseSize(arena);
     startedAtRef.current = performance.now();
+
+    // Бой отвечает свежей точкой удара в экранных пикселях — возвращаем её в холст.
+    const impactAt = (target) => {
+      const current = spaceRef.current;
+      const hit = callbacksRef.current.onImpact?.({
+        ...target,
+        x: current.x(target.x),
+        y: current.y(target.y),
+      });
+      return hit ? toCanvasNode(hit, current) : target;
+    };
 
     const tick = (now) => {
       const elapsed = now - startedAtRef.current;
@@ -121,7 +185,7 @@ const HorseHerdQte = ({
       const nextHorses = horsesRef.current.map(horse => {
         const localMs = elapsed - horse.spawnAt;
         const progress = clamp(localMs / horse.runMs, 0, 1);
-        const x = arenaRect.left - horseSize + progress * (arenaRect.width + horseSize * 2);
+        const x = arena.left - horseSize + progress * (arena.width + horseSize * 2);
         const reachedTarget = horse.active && horse.target && x >= horse.target.x;
         const impacted = horse.impacted || reachedTarget;
         const windowOpened = !horse.windowSignaled
@@ -129,7 +193,7 @@ const HorseHerdQte = ({
 
         if (windowOpened) openedWindows += 1;
         const impactTarget = reachedTarget && !horse.impacted
-          ? (callbacksRef.current.onImpact?.(horse.target, horse.index) || horse.target)
+          ? impactAt(horse.target)
           : horse.impactTarget;
         return localMs < 0 ? horse : {
           ...horse,
@@ -165,7 +229,7 @@ const HorseHerdQte = ({
       cancelAnimationFrame(rafRef.current);
       clearTimeout(finishTimerRef.current);
     };
-  }, [arenaRect]);
+  }, [arena]);
 
   const activateCurrentHorse = (event) => {
     event.preventDefault();
@@ -191,9 +255,9 @@ const HorseHerdQte = ({
     setHorses(nextHorses);
   };
 
-  const horseSize = getHorseSize(arenaRect);
-  const markerX = arenaRect.left + arenaRect.width / 2;
-  const markerY = arenaRect.top + arenaRect.height / 2;
+  const horseSize = getHorseSize(arena);
+  const markerX = arena.left + arena.width / 2;
+  const markerY = arena.top + arena.height / 2;
 
   return (
     <div
@@ -214,28 +278,35 @@ const HorseHerdQte = ({
       </div>
 
       <div
-        className="fixed w-[3px] bg-gradient-to-b from-transparent via-purple-200/50 to-transparent pointer-events-none"
+        className="fixed bg-gradient-to-b from-transparent via-purple-200/50 to-transparent pointer-events-none"
         style={{
-          left: markerX,
-          top: arenaRect.top,
-          height: arenaRect.height,
+          left: space.x(markerX),
+          top: space.y(arena.top),
+          width: space.size(LINE_WIDTH),
+          height: space.size(arena.height),
           transform: 'translateX(-50%)',
           boxShadow: '0 0 18px rgba(216, 180, 254, 0.4)',
         }}
       />
       <div
-        className="fixed w-28 h-28 rounded-full border-4 border-purple-100/90 bg-purple-400/10 pointer-events-none"
+        className="fixed rounded-full bg-purple-400/10 pointer-events-none"
         style={{
-          left: markerX,
-          top: markerY,
+          left: space.x(markerX),
+          top: space.y(markerY),
+          width: space.size(MARKER_SIZE),
+          height: space.size(MARKER_SIZE),
+          border: `${space.size(MARKER_BORDER)}px solid rgba(243,232,255,0.9)`,
           transform: 'translate(-50%, -50%)',
           boxShadow: '0 0 24px rgba(216,180,254,0.95), inset 0 0 20px rgba(168,85,247,0.55)',
           animation: 'horseHerdMarkerPulse 720ms ease-in-out infinite',
         }}
       />
       <EnemyDefenseCue
-        targetNode={{ x: markerX - 28, y: markerY - 26 }}
-        size={64}
+        targetNode={{
+          x: space.x(markerX - CUE_OFFSET_X),
+          y: space.y(markerY - CUE_OFFSET_Y),
+        }}
+        size={space.size(CUE_SIZE)}
         zIndex={8200}
       />
       {windowFlashSeq > 0 && (
@@ -245,10 +316,13 @@ const HorseHerdQte = ({
             style={{ animation: 'horseHerdWindowScreenFlash 240ms ease-out both' }}
           />
           <div
-            className="fixed w-36 h-36 rounded-full border-[6px] border-white"
+            className="fixed rounded-full border-white"
             style={{
-              left: markerX,
-              top: markerY,
+              left: space.x(markerX),
+              top: space.y(markerY),
+              width: space.size(FLASH_SIZE),
+              height: space.size(FLASH_SIZE),
+              borderWidth: space.size(FLASH_BORDER),
               boxShadow: '0 0 45px 16px rgba(255,255,255,0.95)',
               animation: 'horseHerdWindowMarkerFlash 300ms cubic-bezier(0.16, 1, 0.3, 1) both',
             }}
@@ -258,7 +332,7 @@ const HorseHerdQte = ({
 
       {horses.map(horse => {
         if (horse.progress < 0 || horse.impacted) return null;
-        const x = arenaRect.left - horseSize + horse.progress * (arenaRect.width + horseSize * 2);
+        const x = arena.left - horseSize + horse.progress * (arena.width + horseSize * 2);
         const fadeIn = clamp(horse.progress / 0.14, 0, 1);
         const fadeOut = clamp((1 - horse.progress) / 0.14, 0, 1);
         const opacity = Math.min(fadeIn, fadeOut);
@@ -267,10 +341,10 @@ const HorseHerdQte = ({
             key={horse.id}
             className={`fixed pointer-events-none ${horse.active ? 'drop-shadow-[0_0_34px_rgba(168,85,247,1)]' : 'drop-shadow-[0_0_18px_rgba(148,163,184,0.65)]'}`}
             style={{
-              left: x,
-              top: horse.y,
-              width: horseSize,
-              height: horseSize,
+              left: space.x(x),
+              top: space.y(horse.y),
+              width: space.size(horseSize),
+              height: space.size(horseSize),
               opacity,
               transform: `translate(-50%, -50%) scale(${horse.active ? 1.12 : 1})`,
               transition: 'filter 80ms ease-out, transform 80ms ease-out',
@@ -278,7 +352,7 @@ const HorseHerdQte = ({
           >
             <HorseAtlasSprite
               active={horse.active}
-              size={horseSize}
+              size={space.size(horseSize)}
               speedFactor={horse.speedFactor}
             />
             {horse.active && (
@@ -302,14 +376,20 @@ const HorseHerdQte = ({
           key={`impact_${horse.id}`}
           className="fixed pointer-events-none"
           style={{
-            left: horse.impactTarget.x,
-            top: horse.impactTarget.y,
+            left: space.x(horse.impactTarget.x),
+            top: space.y(horse.impactTarget.y),
             transform: 'translate(-50%, -50%)',
           }}
         >
           <div
-            className="w-36 h-36 rounded-full border-8 border-purple-100 bg-fuchsia-400/50 shadow-[0_0_55px_25px_rgba(168,85,247,0.9)]"
-            style={{ animation: 'horseHerdImpact 420ms cubic-bezier(0.16, 1, 0.3, 1) both' }}
+            className="rounded-full border-purple-100 bg-fuchsia-400/50 shadow-[0_0_55px_25px_rgba(168,85,247,0.9)]"
+            style={{
+              width: space.size(IMPACT_SIZE),
+              height: space.size(IMPACT_SIZE),
+              borderWidth: space.size(IMPACT_BORDER),
+              borderStyle: 'solid',
+              animation: 'horseHerdImpact 420ms cubic-bezier(0.16, 1, 0.3, 1) both',
+            }}
           />
         </div>
       ))}
