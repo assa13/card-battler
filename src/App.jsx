@@ -3251,14 +3251,13 @@ export default function App() {
     if (musicStartedRef.current) return;
     const audio = audioRef.current;
     if (!audio || !musicOnRef.current || !musicBlobUrlRef.current) return;
+    if (audio.duration && isFinite(audio.duration)) audio.currentTime = Math.random() * audio.duration;
+    audio.volume = musicVolumeRef.current;
     musicStartedRef.current = true;
-    const play = () => {
-      if (audio.duration && isFinite(audio.duration)) audio.currentTime = Math.random() * audio.duration;
-      audio.volume = musicVolumeRef.current;
-      audio.play().catch(() => {});
-    };
-    if (audio.readyState >= 2) play();
-    else audio.addEventListener('canplay', play, { once: true });
+    audio.play().catch(() => {
+      // Autoplay may still be denied; keep the next user action retryable.
+      musicStartedRef.current = false;
+    });
   }, []);
 
   const applyMusicSource = useCallback(() => {
@@ -3272,10 +3271,11 @@ export default function App() {
 
   const handleEnterGame = useCallback(() => {
     enteredRef.current = true;
-    if (musicBlobUrlRef.current) {
-      applyMusicSource();
-      startBackgroundMusic();
-    }
+    // Start playback directly inside the user gesture. Waiting for `canplay`
+    // moves play() outside the gesture and causes fresh domains to be muted.
+    if (!musicBlobUrlRef.current) musicBlobUrlRef.current = MUSIC_URL;
+    applyMusicSource();
+    startBackgroundMusic();
     setAppReady(true);
   }, [applyMusicSource, startBackgroundMusic]);
 
@@ -3326,7 +3326,7 @@ export default function App() {
         musicBlobUrlRef.current = MUSIC_URL;
         setMediaBytes({ loaded: 1, total: 1, done: true });
       }
-      if (!cancelled && enteredRef.current) {
+      if (!cancelled && enteredRef.current && !musicStartedRef.current) {
         applyMusicSource();
         startBackgroundMusic();
       }
