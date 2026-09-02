@@ -9,10 +9,13 @@ import EnemyHpBar from '../ui/EnemyHpBar';
 import RarityWash from '../ui/RarityWash';
 import { useCardTilt } from '../ui/cardTilt';
 import useStageScale from '../ui/useStageScale';
+import { BASE_HEIGHT, BASE_WIDTH } from '../screenScale';
 import HeroSlot from '../widgets/HeroSlot';
 import { HERO_SLOT_ARTEFACT } from '../widgets/heroSlotLayout';
 import MagicCard from '../widgets/MagicCard';
 import { spriteColorizeFilter } from '../spriteColorize';
+import SpineUnit from '../units/SpineUnit';
+import { getSpineUnit } from '../units/spineUnits';
 import { useBattleView } from './battleView';
 import {
   BATTLE_LAYOUT,
@@ -333,8 +336,9 @@ const MergePanel = ({ open, slots = [], warning, onSlotClick, onConfirm, onTipSh
 // масштаба ужимаются ещё раз: оверлей выходит меньше бойца и уезжает влево.
 // Трансформ движения такой якорь создаёт сам, поэтому в покое и в прыжке
 // раскладка была разной.
-const FieldUnit = ({ unit, moveTransform, transitionClass, transitionStyle, outerClass, innerClass, innerStyle, mirrored, nodeRef, dataAttrs, badges, overlay, overlayScale = 1, children }) => (
-  <StageBox x={unit.x} y={unit.y} width={unit.size} height={unit.size} zIndex={26} style={{ overflow: 'visible' }}>
+const FieldUnit = ({ unit, moveTransform, transitionClass, transitionStyle, outerClass, innerClass, innerStyle, mirrored, nodeRef, dataAttrs, badges, overlay, overlayScale = 1, screenClip, children }) => {
+  const node = (
+    <StageBox x={unit.x} y={unit.y} width={unit.size} height={unit.size} zIndex={26} style={{ overflow: 'visible' }}>
     <div
       ref={nodeRef}
       className={`${transitionClass} ${outerClass}`}
@@ -362,8 +366,15 @@ const FieldUnit = ({ unit, moveTransform, transitionClass, transitionStyle, oute
       )}
       {badges}
     </div>
-  </StageBox>
-);
+    </StageBox>
+  );
+  if (!screenClip) return node;
+  return (
+    <div className="pointer-events-none absolute inset-0" style={{ clipPath: screenClip, zIndex: 27 }}>
+      {node}
+    </div>
+  );
+};
 
 // Слот героя на холсте.
 //
@@ -548,6 +559,8 @@ const BattleScreen = ({ zIndex }) => {
     onUnequip,
     onEffectTipShow,
     onEffectTipHide,
+    onEnemySpineMetaChange,
+    onEnemySpinePositionChange,
     mapPanelMounted,
     arenaVeilVisible,
   } = useBattleView() ?? DEMO;
@@ -739,15 +752,32 @@ const BattleScreen = ({ zIndex }) => {
         const isHitStopped = enemyHitStopIds.includes(enemy.id);
         const isSpeaking = speakingEnemy?.id === enemy.id && !enemy.isDead;
         const lowHp = !enemy.isDead && enemy.hp / enemy.maxHp < 0.3;
+        const spineUnit = getSpineUnit(enemy.spineUnitId);
+        const spineAction = enemy.spineAction;
+        const spineTopOverflow = spineUnit?.clipToArena ? (spineUnit.arenaTopOverflow || 0) : 0;
+        const spineCanvasWidth = spineUnit?.clipToArena
+          ? fieldBackground.width
+          : size * (spineUnit?.battleWidthScale || 1);
+        const spineCanvasHeight = spineUnit?.clipToArena
+          ? fieldBackground.height + spineTopOverflow
+          : size * (spineUnit?.battleHeightScale || 1);
+        const spineLeft = spineUnit?.clipToArena
+          ? fieldBackground.x
+          : unit.x + (size - spineCanvasWidth) / 2;
+        const spineTop = spineUnit?.clipToArena
+          ? fieldBackground.y - spineTopOverflow
+          : unit.y + (size - spineCanvasHeight) / 2;
 
         let moveTransform = '';
         let transitionClass = 'transition-all duration-600 ease-out';
         let transitionStyle;
         if (isAttacking) {
           const leaps = enemy.attackStyle === 'melee' || !enemy.attackStyle;
-          moveTransform = leaps
-            ? `translate(${enemyLeap.dx}px, ${enemyLeap.dy}px) scale(1.15)`
-            : 'scale(1.15)';
+          moveTransform = spineUnit
+            ? ''
+            : leaps
+              ? `translate(${enemyLeap.dx}px, ${enemyLeap.dy}px) scale(1.15)`
+              : 'scale(1.15)';
           transitionClass = 'transition-all ease-out';
           transitionStyle = {
             transitionDuration: `${enemyAttackDurationMs}ms`,
@@ -766,7 +796,10 @@ const BattleScreen = ({ zIndex }) => {
           <FieldUnit
             key={`enemy-${enemy.id}`}
             unit={unit}
-            mirrored
+            mirrored={!spineUnit}
+            screenClip={spineUnit?.clipToArena
+              ? `polygon(${(fieldBackground.x / BASE_WIDTH) * 100}% 0%, ${((fieldBackground.x + fieldBackground.width) / BASE_WIDTH) * 100}% 0%, ${((fieldBackground.x + fieldBackground.width) / BASE_WIDTH) * 100}% ${((fieldBackground.y + fieldBackground.height) / BASE_HEIGHT) * 100}%, ${(fieldBackground.x / BASE_WIDTH) * 100}% ${((fieldBackground.y + fieldBackground.height) / BASE_HEIGHT) * 100}%)`
+              : undefined}
             badges={(
               <>
                 <FieldBadges badges={enemy.badges} onTipShow={onEffectTipShow} onTipHide={onEffectTipHide} />
@@ -804,7 +837,34 @@ const BattleScreen = ({ zIndex }) => {
               transformOrigin: 'center',
             }}
           >
-            {enemy.atlas
+            {spineUnit
+              ? (
+                <SpineUnit
+                  unitId={spineUnit.id}
+                  animation={spineAction?.animation || spineUnit.defaultAnimation}
+                  animationKey={spineAction?.key}
+                  animationSpeed={spineAction?.speed || 1}
+                  animationMixMs={spineUnit.animationMixMs}
+                  loop={spineAction?.loop ?? true}
+                  retroFps={spineUnit.retroFps}
+                  paused={isHitStopped}
+                  movement={spineAction?.movement}
+                  contentScale={spineUnit.battleContentScale || 1}
+                  contentOffsetXRatio={spineUnit.battleContentOffsetXRatio || 0}
+                  contentOffsetYRatio={spineUnit.battleContentOffsetYRatio || 0}
+                  onAnimationMetaChange={(animations) => onEnemySpineMetaChange?.(enemy.id, animations)}
+                  onMovementPositionChange={(position) => onEnemySpinePositionChange?.(enemy.id, position)}
+                  style={{
+                    position: 'absolute',
+                    left: spineLeft - unit.x,
+                    top: spineTop - unit.y,
+                    width: spineCanvasWidth,
+                    height: spineCanvasHeight,
+                    transform: spineUnit.counterEnemyMirror ? 'scaleX(-1)' : undefined,
+                  }}
+                />
+              )
+              : enemy.atlas
               ? (
                 <CharSprite
                   atlas={enemy.atlas}

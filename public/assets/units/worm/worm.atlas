@@ -1,0 +1,34 @@
+
+worm.png
+size: 1736,432
+format: RGBA8888
+filter: Linear,Linear
+repeat: none
+DBody
+  rotate: true
+  xy: 1173, 62
+  size: 367, 300
+  orig: 367, 300
+  offset: 0, 0
+  index: -1
+DHead
+  rotate: false
+  xy: 2, 2
+  size: 848, 427
+  orig: 848, 427
+  offset: 0, 0
+  index: -1
+DJaw
+  rotate: true
+  xy: 852, 13
+  size: 416, 319
+  orig: 416, 319
+  offset: 0, 0
+  index: -1
+DTail
+  rotate: true
+  xy: 1475, 47
+  size: 382, 256
+  orig: 382, 256
+  offset: 0, 0
+  index: -1

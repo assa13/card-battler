@@ -1,4 +1,5 @@
 import { SKELETON_BOSS_NAME } from './enemyDefensePatterns';
+import { WORM_BOSS_NAME } from './units/spineUnits';
 
 export const ENEMY_BATTLE_LINES = {
   'Зомби': [
@@ -70,6 +71,13 @@ export const ENEMY_BATTLE_LINES = {
     'Ваше будущее заканчивается здесь.',
     'Три сердца. Три последних удара.',
     'Я смотрю из-за ваших век.',
+  ],
+  [WORM_BOSS_NAME]: [
+    'Земля помнит мой голод.',
+    'Ваши шаги разбудили глубину.',
+    'Я проглочу и свет, и кости.',
+    'Под вами уже нет безопасной земли.',
+    'Третий сектор станет вашей могилой.',
   ],
 };
 

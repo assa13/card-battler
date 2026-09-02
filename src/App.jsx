@@ -15,6 +15,13 @@ import QteOverlay from './QteOverlay';
 import HorseHerdQte from './HorseHerdQte';
 import EnemyDefenseCue from './EnemyDefenseCue';
 import EnemyDefenseRipples from './EnemyDefenseRipples';
+import SpineUnit from './units/SpineUnit';
+import {
+  WORM_ATTACK1_PLAYBACK,
+  WORM_BOSS_NAME,
+  getEnemySpineUnitId,
+  getSpineUnit,
+} from './units/spineUnits';
 import { pickEnemyBattleLine } from './enemyBattleLines';
 import {
   SKELETON_BOSS_NAME,
@@ -77,10 +84,15 @@ import {
   taskMasterHasTasks,
   unlockTaskMaster,
 } from './taskMasterSystem';
+
 import {
   SKELETON_FIRST_DEATH_SCRIPT,
   STRANGER_SECOND_DEATH_SCRIPT,
 } from './dialogue/scripts';
+
+const CombatArenaControls = import.meta.env.DEV
+  ? React.lazy(() => import('./dev/CombatArenaControls'))
+  : () => null;
 
 // --- 1. КОНСТАНТЫ И НАСТРОЙКИ ---
 
@@ -231,6 +243,7 @@ const ENEMY_TYPES = {
   'Тёмный маг': { dmgMult: 1.45, attackStyle: 'ranged', vfxType: 'dark_void'   },
   [SKELETON_BOSS_NAME]: { dmgMult: 1.45, attackStyle: 'boss_pattern', vfxType: 'bone' },
   'Глаз':       { dmgMult: 1.70, attackStyle: 'aoe',    vfxType: 'dark_void'   },
+  [WORM_BOSS_NAME]: { dmgMult: 1.85, attackStyle: 'worm_pattern', vfxType: 'dark_void' },
 };
 
 // Telegraph + двухстадийный путь угрозы. QTE duration равен launch + close-in:
@@ -248,7 +261,27 @@ const ENEMY_ATTACK_PROFILES = {
   [SKELETON_BOSS_NAME]: { telegraphMs: 450, launchMs: 260, closeInMs: 300, approachRatio: 0.74, vfxScale: 1 },
   // Серия Глаза сохраняет 600 мс на импульс, чтобы три цели уложились < 3 секунд.
   'Глаз':       { telegraphMs: 300, launchMs: 350, closeInMs: 250, approachRatio: 0.75, vfxScale: 1.2 },
+  [WORM_BOSS_NAME]: { telegraphMs: 500, launchMs: 500, closeInMs: 400, approachRatio: 0.7, vfxScale: 1.5 },
 };
+const WORM_BOSS_PATTERN = Object.freeze({
+  bite: Object.freeze({
+    animation: 'Attack1',
+    animationSpeed: 0.815625,
+    fallbackDurationMs: 2800,
+    stagingOffsetX: -500,
+    stagingMs: 220,
+    finalRetreatMs: 360,
+    damageScale: 0.72,
+  }),
+  sweep: Object.freeze({
+    animation: 'Attak2',
+    animationSpeed: 1.25,
+    fallbackDurationMs: 1800,
+    hiddenMs: 100,
+    reappearMs: 480,
+    damageScale: 0.62,
+  }),
+});
 const getEnemyAttackProfile = (enemy) => {
   const baseProfile = ENEMY_ATTACK_PROFILES[enemy.name]
     || (enemy.attackStyle === 'ranged'
@@ -397,6 +430,19 @@ const HERO_ABILITIES = {
     ]
   }
 };
+
+const COMBAT_LAB_CARD_GROUPS = INITIAL_PLAYERS_DATA.map((hero) => ({
+  heroId: hero.id,
+  heroName: hero.name,
+  cards: [HERO_ABILITIES[hero.id].basic, ...HERO_ABILITIES[hero.id].skills]
+    .filter((card) => card.cost > 0 && card.qte?.mechanic && card.qte.mechanic !== 'NONE')
+    .map((card) => ({ ...card, ownerId: card.ownerId || hero.id })),
+}));
+const COMBAT_LAB_CARDS = COMBAT_LAB_CARD_GROUPS.flatMap((group) => group.cards);
+const COMBAT_LAB_DEFAULT_CARD_ID = COMBAT_LAB_CARDS[0].id;
+const getCombatLabCard = (cardId) => (
+  COMBAT_LAB_CARDS.find((card) => card.id === cardId) || COMBAT_LAB_CARDS[0]
+);
 
 // Пулл карт бойца: всего слотов на героя. Старт — 1 заполненный (базовая карта) + 3 свободных
 // под будущие карты. «Пустышек»-балласта в колоде нет — только реально существующие карты.
@@ -911,6 +957,7 @@ const ENEMY_STAT_TEMPLATES = {
   'Стрелок':    { baseHp: 55,  perStage: 14, icon: '🏹', xp: 85 },
   [SKELETON_BOSS_NAME]: { baseHp: 220, perStage: 45, icon: '💀', xp: 300 },
   'Глаз':       { baseHp: 280, perStage: 65, icon: '👁️', xp: 400 },
+  [WORM_BOSS_NAME]: { baseHp: 420, perStage: 85, icon: '🐉', xp: 650 },
 };
 
 const SECTOR_ZONE_ENEMY_POOLS = {
@@ -971,7 +1018,11 @@ const spawnEnemies = (type, stage, sector = 1) => {
   };
 
   if (type === 'boss') {
-    const bossName = sector <= 1 ? SKELETON_BOSS_NAME : 'Глаз';
+    const bossName = sector <= 1
+      ? SKELETON_BOSS_NAME
+      : sector === 2
+        ? 'Глаз'
+        : WORM_BOSS_NAME;
     const boss = mk(bossName, 1);
     if (bossName === 'Глаз') {
       // Глаз остаётся боссом второго сектора. Понерфлен: −30% HP, −25% к атаке.
@@ -992,6 +1043,58 @@ const spawnEnemies = (type, stage, sector = 1) => {
       : 1 + Math.floor(Math.random() * 2);
 
   return shuffleArray(pickEnemyNames(pool, count).map(name => mk(name)));
+};
+
+const COMBAT_LAB_BOSSES = [
+  { name: SKELETON_BOSS_NAME, sector: 1 },
+  { name: 'Глаз', sector: 2 },
+  { name: WORM_BOSS_NAME, sector: 3 },
+];
+const COMBAT_LAB_DEFAULT_BOSS = COMBAT_LAB_BOSSES[0].name;
+
+const createCombatLabPlayers = (cardId = COMBAT_LAB_DEFAULT_CARD_ID) => {
+  const selectedCard = getCombatLabCard(cardId);
+  return INITIAL_PLAYERS_DATA.map((player) => syncPlayerMaxHp({
+    ...player,
+    currentCard: player.id === selectedCard.ownerId ? { ...selectedCard } : null,
+    hasActed: false,
+    justDealt: false,
+    armor: 0,
+  }));
+};
+
+const createCombatLabEnemies = (bossName = COMBAT_LAB_DEFAULT_BOSS, count = 1) => {
+  const bossConfig = COMBAT_LAB_BOSSES.find((boss) => boss.name === bossName) || COMBAT_LAB_BOSSES[0];
+  const bossTemplate = ENEMY_STAT_TEMPLATES[bossConfig.name];
+  const bossType = ENEMY_TYPES[bossConfig.name];
+  const boss = {
+    id: 'combat_lab_boss',
+    name: bossConfig.name,
+    hp: 5000,
+    maxHp: 5000,
+    icon: bossTemplate.icon,
+    xpReward: 0,
+    ...bossType,
+    dmgMult: bossConfig.name === 'Глаз' ? bossType.dmgMult * 0.75 : bossType.dmgMult,
+    isDead: false,
+    isBoss: true,
+    statuses: {},
+  };
+  const zombieType = ENEMY_TYPES['Зомби'];
+  const zombieTemplate = ENEMY_STAT_TEMPLATES['Зомби'];
+  const trainingTargets = Array.from({ length: Math.max(0, count - 1) }, (_, index) => ({
+    id: `combat_lab_target_${index + 1}`,
+    name: 'Зомби',
+    hp: 2500,
+    maxHp: 2500,
+    icon: zombieTemplate.icon,
+    isDead: false,
+    isTrainingTarget: true,
+    xpReward: 0,
+    ...zombieType,
+    statuses: { stun: { remaining: 9999 } },
+  }));
+  return [boss, ...trainingTargets];
 };
 
 // --- 2. ВСПОМОГАТЕЛЬНЫЕ КОМПОНЕНТЫ ---
@@ -2998,28 +3101,33 @@ const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNod
 
 // --- 3. ГЛАВНОЕ ПРИЛОЖЕНИЕ ---
 
-export default function App() {
+export default function App({ combatLab = false, onExitCombatLab }) {
   // Мета-прогресс между перезапусками пока не сохраняем — чистим хвосты localStorage.
   useEffect(() => {
+    if (combatLab) return;
     clearMetaSessionStorage();
     [STRANGER_IN_TAVERN_STORAGE_KEY, STRANGER_HIRED_STORAGE_KEY].forEach((key) => {
       try { localStorage.removeItem(key); } catch { /* quota */ }
     });
-  }, []);
+  }, [combatLab]);
 
   const [players, setPlayers] = useState(() => (
-    INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p }))
+    combatLab
+      ? createCombatLabPlayers()
+      : INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p }))
   ));
-  const [enemies, setEnemies] = useState([]);
+  const [enemies, setEnemies] = useState(() => (
+    combatLab ? createCombatLabEnemies() : []
+  ));
   
-  const [maxMana, setMaxMana] = useState(MAX_MANA);
-  const [mana, setMana] = useState(0); 
-  const [turnState, setTurnState] = useState('map'); 
+  const [maxMana, setMaxMana] = useState(combatLab ? 99 : MAX_MANA);
+  const [mana, setMana] = useState(combatLab ? 99 : 0);
+  const [turnState, setTurnState] = useState(combatLab ? 'player' : 'map');
 
   // Откат на старую вёрстку боя по F9 — только в dev.
-  const [canvasBattle, setCanvasBattle] = useState(CANVAS_BATTLE_DEFAULT);
+  const [canvasBattle, setCanvasBattle] = useState(combatLab ? true : CANVAS_BATTLE_DEFAULT);
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
+    if (!import.meta.env.DEV || combatLab) return;
     const onKeyDown = (event) => {
       if (event.key !== 'F9') return;
       event.preventDefault();
@@ -3027,7 +3135,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, []);
+  }, [combatLab]);
   // Коллекция и разблокировки — только в рамках текущей сессии (без localStorage).
   const [permanentlyUnlockedCards, setPermanentlyUnlockedCards] = useState(() => createEmptyUnlockedCards());
   const permanentlyUnlockedRef = useRef(permanentlyUnlockedCards);
@@ -3098,7 +3206,7 @@ export default function App() {
   const [gameMap, setGameMap] = useState(initialMapRef.current);
   const [currentMapNodeId, setCurrentMapNodeId] = useState(initialMapRef.current[0].id);
   const [completedNodes, setCompletedNodes] = useState([initialMapRef.current[0].id]);
-  const [currentStage, setCurrentStage] = useState(0); 
+  const [currentStage, setCurrentStage] = useState(combatLab ? 5 : 0);
   const [sector, setSector] = useState(1);
   const [sectorSplash, setSectorSplash] = useState(null);
   // Лучший достигнутый сектор (переживает смерть и перезапуск) — мета-прогресс
@@ -3107,20 +3215,21 @@ export default function App() {
     try { return Math.max(1, Number(localStorage.getItem('idler_maxSectorReached')) || 1); } catch { return 1; }
   });
   useEffect(() => {
+    if (combatLab) return;
     try { localStorage.setItem('idler_maxSectorReached', String(maxSectorReached)); } catch { /* quota */ }
-  }, [maxSectorReached]);
+  }, [combatLab, maxSectorReached]);
   const sectorRef = useRef(sector);
   const currentStageRef = useRef(currentStage);
   useEffect(() => { sectorRef.current = sector; }, [sector]);
   useEffect(() => { currentStageRef.current = currentStage; }, [currentStage]);
-  const [bgLocation, setBgLocation] = useState(() => pickBgLocation(1, 0));
+  const [bgLocation, setBgLocation] = useState(() => pickBgLocation(1, combatLab ? 5 : 0));
 
   // Жизненный цикл дизолв-веила карты сектора (MapOverlay): держим панель
   // смонтированной чуть дольше, чем сам turnState === 'map', чтобы отыграть
   // веил на исчезание. Боевая машина состояний это не трогает — смена
   // turnState происходит как обычно, веил просто донашивает визуал поверх.
-  const [mapPanelMounted, setMapPanelMounted] = useState(turnState === 'map');
-  const [mapPanelPhase, setMapPanelPhase] = useState('entering');
+  const [mapPanelMounted, setMapPanelMounted] = useState(combatLab ? false : turnState === 'map');
+  const [mapPanelPhase, setMapPanelPhase] = useState(combatLab ? 'idle' : 'entering');
   // Гейт раздачи: закрывается в момент клика по узлу (см. handleNodeClick),
   // открывается через MAP_DEAL_GATE_DELAY_MS ПОСЛЕ того, как веил карты
   // доиграет исчезание (onExited) — раздача не стартует, пока карта не ушла + пауза.
@@ -3159,10 +3268,15 @@ export default function App() {
   const [rewardTitle, setRewardTitle] = useState('УРОВЕНЬ ПОВЫШЕН!');
   // Попап «слоты отряда» устарел — заменён на CardRevealOverlay (cardReveal).
   const [showReserve, setShowReserve] = useState(false);
-  const [appReady, setAppReady] = useState(false);
+  const [appReady, setAppReady] = useState(combatLab);
   // Стартовый экран Таверны-Хаба: показывается один раз после прелоадера,
   // закрывается по клику на дверь → отряд попадает на карту сектора.
-  const [showTavern, setShowTavern] = useState(true);
+  const [showTavern, setShowTavern] = useState(!combatLab);
+  const [combatLabBossName, setCombatLabBossName] = useState(COMBAT_LAB_DEFAULT_BOSS);
+  const [combatLabCardId, setCombatLabCardId] = useState(COMBAT_LAB_DEFAULT_CARD_ID);
+  const [combatLabEnemyCount, setCombatLabEnemyCount] = useState(1);
+  const [combatLabWormAttack, setCombatLabWormAttack] = useState('bite');
+  const [combatLabPendingCard, setCombatLabPendingCard] = useState(null);
   const [showShop, setShowShop] = useState(false);
   const [showTaskMaster, setShowTaskMaster] = useState(false);
   const [shopStock, setShopStock] = useState(() => createShopStock());
@@ -3237,7 +3351,9 @@ export default function App() {
   const musicBlobUrlRef = useRef(null);
   const musicStartedRef = useRef(false);
   const enteredRef = useRef(false);
-  const [mediaBytes, setMediaBytes] = useState({ loaded: 0, total: 0, done: false });
+  const [mediaBytes, setMediaBytes] = useState(
+    combatLab ? { loaded: 1, total: 1, done: true } : { loaded: 0, total: 0, done: false },
+  );
 
   useEffect(() => { _sfxVolume = sfxVolume; }, [sfxVolume]);
   useEffect(() => {
@@ -3281,6 +3397,7 @@ export default function App() {
 
   // Фоновая загрузка музыки: качаем только первую половину файла (обрезка трека вдвое)
   useEffect(() => {
+    if (combatLab) return undefined;
     let cancelled = false;
     (async () => {
       try {
@@ -3332,7 +3449,7 @@ export default function App() {
       }
     })();
     return () => { cancelled = true; };
-  }, [applyMusicSource, startBackgroundMusic]);
+  }, [applyMusicSource, combatLab, startBackgroundMusic]);
 
   const appRef = useRef(null);
   const slotRefs = useRef({});
@@ -3359,6 +3476,11 @@ export default function App() {
   const [enemyAttackTranslate, setEnemyAttackTranslate] = useState({ dx: 0, dy: 0 });
   const [enemyAttackDurationMs, setEnemyAttackDurationMs] = useState(300);
   const [enemyAttackEasing, setEnemyAttackEasing] = useState('ease-out');
+  const [enemySpineActions, setEnemySpineActions] = useState({});
+  const enemySpineMetaRef = useRef({});
+  const enemySpinePositionsRef = useRef({});
+  const spineActionSequenceRef = useRef(0);
+  const wormAttackCycleRef = useRef(0);
   const [enemyHitStopIds, setEnemyHitStopIds] = useState([]);
   const [heroHitStopIds, setHeroHitStopIds] = useState([]);
   const [animatingTargetIds, setAnimatingTargetIds] = useState([]);
@@ -3610,9 +3732,9 @@ export default function App() {
 
   // Watchdog: страховка от «замираний» боя. Многофазная «Ложная смерть»
   // включает четыре QTE, обманную паузу и hit-stop за каждый Perfect.
-  // Если флаг isAnimating висит true дольше COMBAT_ANIM_TIMEOUT_MS — значит сетTimeout-колбэк
-  // упал с исключением и не вызвал setIsAnimating(false). Принудительно разморозим бой.
-  const COMBAT_ANIM_TIMEOUT_MS = 12000;
+  // Spine-серия Червя включает три полных замедленных Attack1, QTE и hit-stop,
+  // поэтому прежние 12 секунд ложно считали нормальный цикл зависанием.
+  const COMBAT_ANIM_TIMEOUT_MS = 30000;
   useEffect(() => {
     if (!isAnimating) return;
     const t = setTimeout(() => {
@@ -3900,6 +4022,8 @@ export default function App() {
     setQteHeroId(null);
     attackSeqActiveRef.current = {};
     setAttackAnims({});
+    setEnemySpineActions({});
+    wormAttackCycleRef.current = 0;
     qteSlowMo.end();
     setEnemies([]); setMana(0); setLastPlayedCost(null); setComboStreak(0); setComboCount(0); setChainAttackBonus(0); fxRef.current?.clearAll(); setShowLevelUp(false); setCardReveal(null); setLevelUpQueue(0); setRewardOptions([]);
     setDragSrcIdx(null); setDragOverPlayerId(null); setItemTooltip(null);
@@ -4846,6 +4970,22 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (combatLab && turnState === 'dealing') {
+      const selectedCard = getCombatLabCard(combatLabCardId);
+      const timeout = setTimeout(() => {
+        actingRef.current.clear();
+        setMana(99);
+        setPlayers(previous => previous.map((player) => ({
+          ...player,
+          currentCard: player.id === selectedCard.ownerId ? { ...selectedCard } : null,
+          hasActed: false,
+          justDealt: false,
+          armor: 0,
+        })));
+        setTurnState('player');
+      }, 0);
+      return () => clearTimeout(timeout);
+    }
     if (turnState !== 'dealing' || showLevelUp || !dealGateOpen) return;
     setLastPlayedCost(null); setComboStreak(0); setComboCount(0);
     // GDD 2.3: броня переживает фазу врага; обнуляется только в начале нового раунда (dealing).
@@ -4905,7 +5045,7 @@ export default function App() {
       delay += CARD_DEAL_STAGGER_MS; 
     });
     setTimeout(() => { playSound('./assets/sfx/game/mana_restore.wav', 0.5); setDrawPile(tempDraw); setDiscardPile(currentDiscard); setPlayers(prev => prev.map(p => ({ ...p, hasActed: false, justDealt: false }))); setMana(maxMana); setTurnState('player'); }, delay + CARD_DEAL_FINISH_PAD_MS);
-  }, [turnState, showLevelUp, maxMana, dealGateOpen]);
+  }, [turnState, showLevelUp, maxMana, dealGateOpen, combatLab, combatLabCardId]);
 
   // Розыгрыш мод-карты (бафф): без цели по врагу, лёгкая анимация, участвует в цепочке комбо.
   const playModCard = (playerIndex, card) => {
@@ -5483,19 +5623,30 @@ export default function App() {
   // (нет маны / разыграны все карты), фаза игрока автоматически переходит к врагу.
   // Небольшая задержка — чтобы дать долететь урону последней карты и сработать проверке победы.
   useEffect(() => {
-    if (turnState !== 'player' || showLevelUp) return;
+    if (combatLab || turnState !== 'player' || showLevelUp) return;
     const canAct = players.some(p => p.hp > 0 && !p.hasActed && p.currentCard && mana >= (p.currentCard.cost || 0));
     // Активный QTE удерживает фазу игрока: урон последней карты ещё не применён
     if (canAct || qte) return;
     const t = setTimeout(endPlayerPhase, 500);
     return () => clearTimeout(t);
-  }, [players, mana, turnState, showLevelUp, qte, endPlayerPhase]);
+  }, [players, mana, turnState, showLevelUp, qte, endPlayerPhase, combatLab]);
 
   useEffect(() => {
     if (turnState !== 'enemy' || showLevelUp) return undefined;
 
     let cancelled = false;
     const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+    const waitUntil = (predicate, timeoutMs) => new Promise((resolve) => {
+      const startedAt = performance.now();
+      const poll = () => {
+        if (cancelled || predicate() || performance.now() - startedAt >= timeoutMs) {
+          resolve();
+          return;
+        }
+        setTimeout(poll, 16);
+      };
+      poll();
+    });
     const waitForEnemyHitStop = async (enemyId) => {
       const remaining = (enemyHitStopUntilRef.current[enemyId] || 0) - performance.now();
       if (remaining > 0) await wait(remaining);
@@ -5507,6 +5658,31 @@ export default function App() {
       setEnemyAttackTranslate({ dx: 0, dy: 0 });
       setEnemyAttackEasing('ease-out');
       setIsAnimating(false);
+    };
+    const updateEnemySpineAction = (enemyId, patch, restartAnimation = false) => {
+      const sequence = ++spineActionSequenceRef.current;
+      setEnemySpineActions(previous => {
+        const current = previous[enemyId] || {};
+        return {
+          ...previous,
+          [enemyId]: {
+            ...current,
+            ...patch,
+            key: restartAnimation ? sequence : current.key,
+            movement: patch.movement
+              ? { ...patch.movement, key: sequence }
+              : current.movement,
+          },
+        };
+      });
+    };
+    const resetEnemySpineAction = (enemyId) => {
+      updateEnemySpineAction(enemyId, {
+        animation: 'Idle',
+        speed: 1,
+        loop: true,
+        movement: { x: 0, y: 0, durationMs: 0, easing: 'linear' },
+      }, true);
     };
 
     // === Тик кровотечения в начале фазы врага ===
@@ -5637,11 +5813,13 @@ export default function App() {
       const style = enemy.attackStyle || 'melee';
       const vfxType = enemy.vfxType || 'enemy';
       const isEyePanic = enemy.isBoss && enemy.name === 'Глаз';
+      const isBossAoe = enemy.isBoss && style === 'aoe';
       const isSkeletonFalseDeath = enemy.isBoss && enemy.name === SKELETON_BOSS_NAME;
+      const isWormPattern = enemy.isBoss && enemy.name === WORM_BOSS_NAME;
       const profile = getEnemyAttackProfile(enemy);
       // Боссы телеграфируют весь отряд: Глаз действительно бьёт всех, а
       // Костяной Король затем выбирает цель заново на каждом звене паттерна.
-      const targets = isEyePanic || isSkeletonFalseDeath
+      const targets = isBossAoe || isSkeletonFalseDeath || isWormPattern
         ? alivePlayers
         : [alivePlayers[Math.floor(Math.random() * alivePlayers.length)]];
 
@@ -5691,7 +5869,315 @@ export default function App() {
 
       playSound('./assets/sfx/combat/enemy_attack.wav');
       const results = {};
-      if (isEyePanic) {
+      if (isWormPattern) {
+        const attackName = wormAttackCycleRef.current % 2 === 0 ? 'bite' : 'sweep';
+        wormAttackCycleRef.current += 1;
+        const wormPattern = WORM_BOSS_PATTERN[attackName];
+        const canDefend = !qteActiveRef.current;
+        if (canDefend) {
+          qteActiveRef.current = true;
+          qteSlowMo.start();
+        }
+
+        try {
+          if (attackName === 'bite') {
+            const enemyRect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
+            const sourceDuration = enemySpineMetaRef.current[enemy.id]?.[wormPattern.animation];
+            const sourceFps = WORM_ATTACK1_PLAYBACK.sourceFps;
+            const qteEndAt = WORM_ATTACK1_PLAYBACK.qteEndFrame / sourceFps;
+            const slowdownStart = WORM_ATTACK1_PLAYBACK.slowdownStartFrame / sourceFps;
+            const pauseAt = WORM_ATTACK1_PLAYBACK.pauseFrame / sourceFps;
+            const pauseArrivalMs = sourceDuration
+              ? Math.round(
+                  ((slowdownStart + 2 * (pauseAt - slowdownStart)) * 1000)
+                    / wormPattern.animationSpeed,
+                )
+              : Math.round(wormPattern.fallbackDurationMs * 0.42);
+            const qteDurationMs = Math.round(
+              (qteEndAt * 1000) / wormPattern.animationSpeed,
+            );
+            const returnMs = Math.max(80, pauseArrivalMs - qteDurationMs);
+            const recoveryMs = sourceDuration
+              ? Math.round(
+                  (Math.max(0, sourceDuration - pauseAt) * 1000)
+                    / wormPattern.animationSpeed,
+                )
+              : Math.max(80, wormPattern.fallbackDurationMs - pauseArrivalMs);
+            const combatStageScale = Math.min(
+              window.innerWidth / 3200,
+              window.innerHeight / 1800,
+            );
+            const requestedStagingOffsetX = wormPattern.stagingOffsetX * combatStageScale;
+            updateEnemySpineAction(enemy.id, {
+              animation: 'Idle',
+              speed: 1,
+              loop: true,
+              movement: {
+                x: requestedStagingOffsetX,
+                y: 0,
+                durationMs: wormPattern.stagingMs,
+                easing: 'smooth',
+              },
+            }, true);
+            await waitUntil(
+              () => (enemySpinePositionsRef.current[enemy.id]?.offsetX ?? 0)
+                <= requestedStagingOffsetX * 0.995,
+              wormPattern.stagingMs + 500,
+            );
+            const stagingOffsetX = enemySpinePositionsRef.current[enemy.id]?.offsetX
+              ?? requestedStagingOffsetX;
+
+            for (let index = 0; index < targets.length; index += 1) {
+              if (cancelled) break;
+              const currentBoss = enemiesRef.current.find(current => current.id === enemy.id);
+              if (!currentBoss || currentBoss.isDead || currentBoss.hp <= 0) break;
+              const currentTarget = playersRef.current.find(player => player.id === targets[index].id);
+              const targetRect = avatarRefs.current[currentTarget?.id]?.getBoundingClientRect();
+              if (!currentTarget || currentTarget.hp <= 0 || !enemyRect || !targetRect) continue;
+
+              const bonePosition = enemySpinePositionsRef.current[enemy.id];
+              const originX = bonePosition?.attackX
+                || bonePosition?.x
+                || (enemyRect.left + enemyRect.width / 2);
+              const originY = bonePosition?.attackY
+                || bonePosition?.y
+                || (enemyRect.top + enemyRect.height / 2);
+              const targetX = targetRect.left + targetRect.width / 2;
+              const targetY = targetRect.top + targetRect.height / 2;
+              const dx = targetX - originX;
+              const dy = targetY - originY;
+              const startOffsetX = bonePosition?.offsetX ?? stagingOffsetX;
+              const startOffsetY = bonePosition?.offsetY ?? 0;
+              const biteDx = dx;
+              const biteDy = dy;
+              updateEnemySpineAction(enemy.id, {
+                animation: wormPattern.animation,
+                speed: wormPattern.animationSpeed,
+                loop: false,
+                movement: {
+                  x: startOffsetX + biteDx,
+                  y: startOffsetY + biteDy,
+                  durationMs: qteDurationMs,
+                  easing: 'smooth',
+                  screenTargetX: targetX,
+                },
+              }, true);
+              setAnimatingTargetIds([currentTarget.id]);
+              const verdict = canDefend
+                ? runEnemyDefenseQte(currentTarget, enemy, {
+                    holdSlowMo: true,
+                    duration: qteDurationMs,
+                    label: `Укус ${index + 1}/${targets.length}`,
+                  })
+                : Promise.resolve('miss');
+              const [result] = await Promise.all([verdict, wait(qteDurationMs)]);
+              if (cancelled) break;
+
+              // К исходному кадру 6 челюсть достигает героя и QTE заканчивается.
+              // До паузы кадра 11 отходим лишь на 10% пройденного пути.
+              const contactPosition = enemySpinePositionsRef.current[enemy.id];
+              const contactOffsetX = contactPosition?.offsetX
+                ?? startOffsetX + biteDx;
+              const contactOffsetY = contactPosition?.offsetY
+                ?? startOffsetY + biteDy;
+              const returnOffsetX = contactOffsetX
+                + (startOffsetX - contactOffsetX) * 0.1;
+              const returnOffsetY = contactOffsetY
+                + (startOffsetY - contactOffsetY) * 0.1;
+              updateEnemySpineAction(enemy.id, {
+                movement: {
+                  x: returnOffsetX,
+                  y: returnOffsetY,
+                  durationMs: returnMs,
+                  easing: 'smooth',
+                },
+              });
+              if (result === 'perfect') {
+                await waitForEnemyHitStop(enemy.id);
+                if (cancelled) break;
+              }
+
+              const liveTarget = playersRef.current.find(player => player.id === currentTarget.id);
+              if (liveTarget?.hp > 0) {
+                applyEnemyDamage(
+                  [liveTarget],
+                  { [liveTarget.id]: Math.max(1, Math.round(damage * wormPattern.damageScale)) },
+                  1.25,
+                );
+              }
+              await waitUntil(
+                () => Math.abs(
+                  (enemySpinePositionsRef.current[enemy.id]?.offsetX ?? returnOffsetX)
+                    - returnOffsetX,
+                ) <= 1,
+                returnMs + 500,
+              );
+              await wait(WORM_ATTACK1_PLAYBACK.pauseMs + recoveryMs);
+            }
+            // После всей серии отдельно возвращаемся в обычную Idle-позицию.
+            // Короткий отход между отдельными укусами остаётся без изменений.
+            if (!cancelled) {
+              await wait(100);
+              updateEnemySpineAction(enemy.id, {
+                movement: {
+                  x: 0,
+                  y: 0,
+                  durationMs: wormPattern.finalRetreatMs,
+                  easing: 'smooth',
+                },
+              });
+              await waitUntil(
+                () => Math.abs(
+                  enemySpinePositionsRef.current[enemy.id]?.offsetX ?? 0,
+                ) <= 1,
+                wormPattern.finalRetreatMs + 500,
+              );
+            }
+          } else {
+            const enemyRect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
+            const sourceDuration = enemySpineMetaRef.current[enemy.id]?.[wormPattern.animation];
+            const animationDurationMs = sourceDuration
+              ? Math.round((sourceDuration * 1000) / wormPattern.animationSpeed)
+              : wormPattern.fallbackDurationMs;
+            const exitDistance = -Math.max(
+              window.innerWidth * 2.75,
+              (enemyRect?.right || 0) + (enemyRect?.width || 0) * 5,
+            );
+            const rightSpawnDistance = Math.max(
+              window.innerWidth * 1.8,
+              (enemyRect?.width || 0) * 5,
+            );
+            const crossingTargets = [...targets].sort((leftTarget, rightTarget) => {
+              const leftRect = avatarRefs.current[leftTarget.id]?.getBoundingClientRect();
+              const rightRect = avatarRefs.current[rightTarget.id]?.getBoundingClientRect();
+              return (rightRect?.left || 0) - (leftRect?.left || 0);
+            });
+            const qteWindowMs = Math.max(120, Math.min(220, Math.round(animationDurationMs * 0.12)));
+            const cueLeadPx = Math.max(80, window.innerWidth * 0.08);
+            updateEnemySpineAction(enemy.id, {
+              animation: wormPattern.animation,
+              speed: wormPattern.animationSpeed,
+              loop: false,
+              movement: {
+                x: exitDistance,
+                y: 0,
+                durationMs: animationDurationMs,
+                easing: 'smooth',
+              },
+            }, true);
+            setAnimatingTargetIds([]);
+
+            for (let index = 0; index < crossingTargets.length; index += 1) {
+              const target = crossingTargets[index];
+              if (cancelled) break;
+              const currentBoss = enemiesRef.current.find(current => current.id === enemy.id);
+              if (!currentBoss || currentBoss.isDead || currentBoss.hp <= 0) break;
+              const currentTarget = playersRef.current.find(player => player.id === target.id);
+              const targetRect = avatarRefs.current[currentTarget?.id]?.getBoundingClientRect();
+              if (!currentTarget || currentTarget.hp <= 0 || !targetRect) continue;
+              const targetX = targetRect.left + targetRect.width / 2;
+              const hasTrackedBone = Boolean(enemySpinePositionsRef.current[enemy.id]);
+              if (hasTrackedBone) {
+                await waitUntil(
+                  () => (enemySpinePositionsRef.current[enemy.id]?.x ?? Infinity) <= targetX + cueLeadPx,
+                  animationDurationMs + 1200,
+                );
+              } else {
+                await wait(Math.round(animationDurationMs * (index === 0 ? 0.16 : 0.2)));
+              }
+              if (cancelled) break;
+              setAnimatingTargetIds([currentTarget.id]);
+              const verdict = canDefend
+                ? runEnemyDefenseQte(currentTarget, enemy, {
+                    holdSlowMo: true,
+                    duration: qteWindowMs,
+                    label: `Сквозной укус ${index + 1}/${crossingTargets.length}`,
+                  })
+                : Promise.resolve('miss');
+              if (hasTrackedBone) {
+                await waitUntil(
+                  () => (enemySpinePositionsRef.current[enemy.id]?.x ?? Infinity) <= targetX,
+                  qteWindowMs,
+                );
+              } else {
+                await wait(qteWindowMs);
+              }
+              const liveTarget = playersRef.current.find(player => player.id === currentTarget.id);
+              if (liveTarget?.hp > 0) {
+                applyEnemyDamage(
+                  [liveTarget],
+                  { [liveTarget.id]: Math.max(1, Math.round(damage * wormPattern.damageScale)) },
+                  1.4,
+                );
+              }
+              const result = await verdict;
+              if (result === 'perfect') {
+                await waitForEnemyHitStop(enemy.id);
+                if (cancelled) break;
+              }
+            }
+
+            if (!cancelled) {
+              if (enemySpinePositionsRef.current[enemy.id]) {
+                await waitUntil(
+                  () => (enemySpinePositionsRef.current[enemy.id]?.offsetX ?? 0) <= exitDistance * 0.995,
+                  animationDurationMs + 4000,
+                );
+              } else {
+                await wait(Math.round(animationDurationMs * 0.25));
+              }
+            }
+            if (!cancelled) {
+              // Сначала полностью скрываемся слева, затем телепортируемся за
+              // правую маску и уже оттуда видимо возвращаемся на исходную точку.
+              updateEnemySpineAction(enemy.id, {
+                animation: 'Idle',
+                speed: 1,
+                loop: true,
+                movement: { x: rightSpawnDistance, y: 0, durationMs: 0, easing: 'linear' },
+              }, true);
+              await wait(wormPattern.hiddenMs);
+              updateEnemySpineAction(enemy.id, {
+                movement: {
+                  x: 0,
+                  y: 0,
+                  durationMs: wormPattern.reappearMs,
+                  easing: 'smooth',
+                },
+              });
+              await wait(wormPattern.reappearMs);
+            }
+          }
+        } finally {
+          if (canDefend) {
+            qteSlowMo.end();
+            qteActiveRef.current = false;
+            setQteHeroId(null);
+          }
+        }
+
+        if (!cancelled) {
+          if (attackName === 'bite') {
+            const finalPosition = enemySpinePositionsRef.current[enemy.id];
+            updateEnemySpineAction(enemy.id, {
+              animation: 'Idle',
+              speed: 1,
+              loop: true,
+              // Меняем только анимацию, сохраняя достигнутую позицию BoneDragon.
+              movement: {
+                x: finalPosition?.offsetX ?? 0,
+                y: finalPosition?.offsetY ?? 0,
+                durationMs: 0,
+                easing: 'linear',
+              },
+            }, true);
+          } else {
+            resetEnemySpineAction(enemy.id);
+          }
+          clearEnemyAttack();
+        }
+        return;
+      } else if (isBossAoe) {
         // Импульс сначала проходит launch, затем кольцо монтируется одновременно
         // с close-in. Один общий гард и bullet-time удерживаются на всю серию.
         const canDefend = !qteActiveRef.current;
@@ -5715,7 +6201,7 @@ export default function App() {
                   return runEnemyDefenseQte(target, enemy, {
                     holdSlowMo: true,
                     duration: profile.closeInMs,
-                    label: 'Взгляд Паники',
+                    label: isEyePanic ? 'Взгляд Паники' : 'Сотрясение глубин',
                   });
                 })()
               : Promise.resolve('miss');
@@ -5911,7 +6397,7 @@ export default function App() {
       const isHeavyOrcMiss = enemy.name === 'Орк' && results[targets[0]?.id] === 'miss';
       applyEnemyDamage(targets, rawDamageById, isHeavyOrcMiss ? 1.35 : 1);
 
-      const isMeleeLunge = style !== 'ranged' && !isEyePanic;
+      const isMeleeLunge = style !== 'ranged' && !isBossAoe;
       if (isMeleeLunge) {
         const wasParried = results[targets[0]?.id] === 'perfect' || results[targets[0]?.id] === 'good';
         // Успешный контрудар уже выдержал 800 мс hit-stop. После него
@@ -5930,7 +6416,7 @@ export default function App() {
 
     const runEnemyPhase = async () => {
       if (bleedHappened) await wait(450);
-      for (const enemy of startEnemies.filter(entry => !entry.isDead)) {
+      for (const enemy of startEnemies.filter(entry => !entry.isDead && (!combatLab || !entry.isTrainingTarget))) {
         if (cancelled || playersRef.current.every(player => player.hp <= 0)) break;
         if (enemiesRef.current.find(current => current.id === enemy.id)?.isDead) continue;
         await runEnemyAttack(enemy);
@@ -5938,6 +6424,13 @@ export default function App() {
       }
       if (cancelled) return;
       if (enemiesRef.current.length > 0 && enemiesRef.current.every(enemy => enemy.isDead)) {
+        if (combatLab) {
+          const nextEnemies = createCombatLabEnemies(combatLabBossName, combatLabEnemyCount);
+          enemiesRef.current = nextEnemies;
+          setEnemies(nextEnemies);
+          setTurnState('player');
+          return;
+        }
         triggerVictoryTransition();
         return;
       }
@@ -5948,6 +6441,13 @@ export default function App() {
         return nextEnemies;
       });
       if (playersRef.current.every(player => player.hp <= 0)) {
+        if (combatLab) {
+          const nextPlayers = createCombatLabPlayers(combatLabCardId);
+          playersRef.current = nextPlayers;
+          setPlayers(nextPlayers);
+          setTurnState('player');
+          return;
+        }
         playSound('./assets/sfx/game/gameover.wav');
         handlePartyWipe();
       } else {
@@ -5967,6 +6467,107 @@ export default function App() {
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turnState, showLevelUp, currentStage]);
+
+  const combatLabPlayedTokenRef = useRef(null);
+  const resetCombatLabArena = useCallback((overrides = {}) => {
+    const bossName = overrides.bossName || combatLabBossName;
+    const cardId = overrides.cardId || combatLabCardId;
+    const enemyCount = overrides.enemyCount || combatLabEnemyCount;
+    const nextPlayers = createCombatLabPlayers(cardId);
+    const nextEnemies = createCombatLabEnemies(bossName, enemyCount);
+
+    setQte(previous => {
+      previous?.resolve?.(previous.mode === 'enemy' ? 'miss' : 1);
+      return null;
+    });
+    qteActiveRef.current = false;
+    qteSlowMo.end();
+    Object.values(enemyCounterTimersRef.current).forEach(clearTimeout);
+    Object.values(enemyHitStopTimersRef.current).forEach(clearTimeout);
+    enemyCounterTimersRef.current = {};
+    enemyHitStopTimersRef.current = {};
+    enemyHitStopUntilRef.current = {};
+    actingRef.current.clear();
+
+    setPlayers(nextPlayers);
+    setEnemies(nextEnemies);
+    setMana(99);
+    setMaxMana(99);
+    setTurnState('player');
+    setIsAnimating(false);
+    setAnimatingPlayerId(null);
+    setAnimatingEnemyId(null);
+    setAnimatingTargetIds([]);
+    setHoveredPlayerId(null);
+    setHoveredTargetIds([]);
+    setAttackAnims({});
+    setEnemySpineActions({});
+    wormAttackCycleRef.current = 0;
+    setAttackTranslate({ dx: 0, dy: 0 });
+    setEnemyAttackTranslate({ dx: 0, dy: 0 });
+    setVfxList([]);
+    setFlashingTargets([]);
+    setDefenseWindowFlashIds([]);
+    setDefenseRipple(null);
+    setEnemyHitStopIds([]);
+    setHeroHitStopIds([]);
+    setQteHeroId(null);
+    setChainAttackBonus(0);
+    setLastPlayedCost(null);
+    setComboStreak(0);
+    setComboCount(0);
+    setShowLevelUp(false);
+    setSectorSplash(null);
+    fxRef.current?.clearAll();
+  }, [combatLabBossName, combatLabCardId, combatLabEnemyCount]);
+
+  const configureCombatLab = useCallback((overrides) => {
+    if (overrides.bossName) setCombatLabBossName(overrides.bossName);
+    if (overrides.cardId) setCombatLabCardId(overrides.cardId);
+    if (overrides.enemyCount) setCombatLabEnemyCount(overrides.enemyCount);
+    resetCombatLabArena(overrides);
+  }, [resetCombatLabArena]);
+
+  const runCombatLabCard = useCallback(() => {
+    if (!combatLab || isAnimating || qte || turnState !== 'player') return;
+    const card = getCombatLabCard(combatLabCardId);
+    const nextPlayers = playersRef.current.map((player) => ({
+      ...player,
+      currentCard: player.id === card.ownerId ? { ...card } : null,
+      hasActed: false,
+      justDealt: false,
+    }));
+    actingRef.current.clear();
+    setPlayers(nextPlayers);
+    setMana(99);
+    setCombatLabPendingCard(previous => ({
+      token: (previous?.token || 0) + 1,
+      card,
+    }));
+  }, [combatLab, combatLabCardId, isAnimating, qte, turnState]);
+
+  useEffect(() => {
+    if (!combatLab || !combatLabPendingCard || turnState !== 'player') return;
+    if (combatLabPlayedTokenRef.current === combatLabPendingCard.token) return;
+    const playerIndex = players.findIndex((player) => (
+      player.id === combatLabPendingCard.card.ownerId
+      && player.currentCard?.id === combatLabPendingCard.card.id
+    ));
+    if (playerIndex < 0) return;
+    combatLabPlayedTokenRef.current = combatLabPendingCard.token;
+    playCard(playerIndex, players[playerIndex].currentCard);
+  // playCard intentionally follows the current render state and is not stable.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [combatLab, combatLabPendingCard, players, turnState]);
+
+  const runCombatLabBossAttack = useCallback(() => {
+    if (!combatLab || isAnimating || qte || turnState !== 'player') return;
+    actingRef.current.clear();
+    if (combatLabBossName === WORM_BOSS_NAME) {
+      wormAttackCycleRef.current = combatLabWormAttack === 'sweep' ? 1 : 0;
+    }
+    setTurnState('enemy');
+  }, [combatLab, combatLabBossName, combatLabWormAttack, isAnimating, qte, turnState]);
 
   const getCardComboStatus = (pId, card) => {
     if (!card) return { isCandidate: false, willGiveBonus: false, comboStep: 0, comboPct: 0 };
@@ -6146,6 +6747,8 @@ export default function App() {
     enemies: enemies.map((enemy) => ({
       ...enemy,
       atlas: ENEMY_ATLASES[enemy.name] || null,
+      spineUnitId: getEnemySpineUnitId(enemy.name),
+      spineAction: enemySpineActions[enemy.id] || null,
       badges: enemyBadges(enemy),
     })),
 
@@ -6186,6 +6789,14 @@ export default function App() {
     onMergeConfirm: doCraft,
     onMergeClose: closeCraft,
     onAttackAnimCycle: handleAttackAnimCycle,
+    onEnemySpineMetaChange: (enemyId, animations) => {
+      enemySpineMetaRef.current[enemyId] = Object.fromEntries(
+        animations.map((animation) => [animation.name, animation.duration]),
+      );
+    },
+    onEnemySpinePositionChange: (enemyId, position) => {
+      enemySpinePositionsRef.current[enemyId] = position;
+    },
     onEffectTipShow: showEffectTip,
     onEffectTipHide: hideEffectTip,
     onEquipDragOver: handleEquipDragOver,
@@ -6338,6 +6949,28 @@ export default function App() {
     <div
       className={`${isFullscreen ? 'fixed inset-0 z-[9999]' : 'h-screen relative'} w-full bg-transparent text-slate-200 flex flex-col items-center font-sans select-none transition-all duration-300 overflow-hidden`}
     >
+      {combatLab && (
+        <React.Suspense fallback={null}>
+          <CombatArenaControls
+            bosses={COMBAT_LAB_BOSSES}
+            cardsByHero={COMBAT_LAB_CARD_GROUPS}
+            bossName={combatLabBossName}
+            cardId={combatLabCardId}
+            enemyCount={combatLabEnemyCount}
+            wormAttack={combatLabWormAttack}
+            busy={isAnimating || Boolean(qte) || turnState === 'enemy' || turnState === 'dealing'}
+            onBossChange={(bossName) => configureCombatLab({ bossName })}
+            onCardChange={(cardId) => configureCombatLab({ cardId })}
+            onEnemyCountChange={(enemyCount) => configureCombatLab({ enemyCount })}
+            onWormAttackChange={setCombatLabWormAttack}
+            onRunCard={runCombatLabCard}
+            onRunBoss={runCombatLabBossAttack}
+            onReset={() => resetCombatLabArena()}
+            onExit={onExitCombatLab}
+          />
+        </React.Suspense>
+      )}
+
       {!appReady && (
         <Preloader
           assets={PRELOAD_ASSETS}
@@ -6561,9 +7194,9 @@ export default function App() {
       <audio ref={audioRef} loop preload="auto" />
 
       {/* Глобальный кошелёк — поверх всех экранов, правый верхний угол */}
-      {appReady && <WalletHUD gold={gold} soulEmbers={soulEmbers} />}
+      {appReady && !combatLab && <WalletHUD gold={gold} soulEmbers={soulEmbers} />}
 
-      {appReady && (isActiveCombat || isSelectingMapNode) && (
+      {appReady && !combatLab && (isActiveCombat || isSelectingMapNode) && (
         <button
           type="button"
           onClick={() => handleExitExpedition(isAtSectorBase)}
@@ -6583,7 +7216,7 @@ export default function App() {
       )}
 
       {/* Музыка + SFX + полноэкран (сдвинуты под кошелёк) */}
-      <div className="absolute top-14 right-[52px] z-[9000] flex items-center gap-3 bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg">
+      <div className={`${combatLab ? 'hidden ' : ''}absolute top-14 right-[52px] z-[9000] flex items-center gap-3 bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg`}>
         {/* Кнопка вкл/выкл музыки */}
         <button onClick={toggleMusic} className="text-slate-400 hover:text-white transition-colors flex items-center" title={musicOn ? "Выключить музыку" : "Включить музыку"}>
           {musicOn ? (
@@ -6604,7 +7237,7 @@ export default function App() {
           className="w-14 h-1 accent-[#1E88E5] cursor-pointer" title="Громкость SFX" />
       </div>
 
-      <button onClick={toggleFullscreen} className="absolute top-14 right-4 z-[9100] bg-slate-900/80 border border-slate-700 text-slate-400 hover:text-white hover:border-[#1E88E5] p-2 rounded-xl backdrop-blur-sm transition-all shadow-lg flex items-center justify-center group" title={isFullscreen ? "Выйти из полноэкранного режима" : "Развернуть игру на всё окно"}>
+      <button onClick={toggleFullscreen} className={`${combatLab ? 'hidden ' : ''}absolute top-14 right-4 z-[9100] bg-slate-900/80 border border-slate-700 text-slate-400 hover:text-white hover:border-[#1E88E5] p-2 rounded-xl backdrop-blur-sm transition-all shadow-lg flex items-center justify-center group`} title={isFullscreen ? "Выйти из полноэкранного режима" : "Развернуть игру на всё окно"}>
         {isFullscreen ? (
           <svg className="w-5 h-5 group-hover:scale-110 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></svg>
         ) : (
@@ -6612,7 +7245,7 @@ export default function App() {
         )}
       </button>
 
-      <div className="w-full h-6 shrink-0 bg-slate-900 border-b border-amber-600/30 relative shadow-2xl z-[150] flex items-center" ref={xpBarRef}>
+      <div className={`${combatLab ? 'hidden ' : ''}w-full h-6 shrink-0 bg-slate-900 border-b border-amber-600/30 relative shadow-2xl z-[150] flex items-center`} ref={xpBarRef}>
         <div className="h-full bg-gradient-to-r from-yellow-700 via-amber-500 to-yellow-300 transition-all duration-1000 ease-out shadow-xl" style={{ width: `${(xp / xpToNext) * 100}%` }}></div>
         <div className="absolute inset-0 flex items-center justify-center"><div className="text-[10px] font-black tracking-[0.2em] text-white drop-shadow-md uppercase">ПРОГРЕСС ОТРЯДА: {String(xp)} / {String(xpToNext)} XP (LVL {String(playerLevel)})</div></div>
       </div>
@@ -6723,6 +7356,8 @@ export default function App() {
                 const isHitStopped = enemyHitStopIds.includes(enemy.id);
                 const isSpeaking = speakingEnemy && speakingEnemy.id === enemy.id && !enemy.isDead;
                 const enemyAtlas = ENEMY_ATLASES[enemy.name] || null;
+                const spineUnit = getSpineUnit(getEnemySpineUnitId(enemy.name));
+                const spineAction = enemySpineActions[enemy.id];
                 const formation = ENEMY_FORMATIONS[enemies.length] || ENEMY_FORMATIONS[3];
                 const basePos = formation[eIdx] || formation[formation.length - 1];
                 const isBoss = Boolean(enemy.isBoss);
@@ -6806,7 +7441,7 @@ export default function App() {
                     )}
                     {/* Мини HP-бар без цифр: скрыт, всплывает при уроне */}
                     {!enemy.isDead && <EnemyHpBar hp={enemy.hp} maxHp={enemy.maxHp} />}
-                    <div className="relative" style={{ transform: 'scaleX(-1)' }}>
+                    <div className="relative" style={{ transform: spineUnit ? undefined : 'scaleX(-1)' }}>
                       <div
                         className={`relative ${enemyAtlas ? '' : 'text-6xl'} ${isHoveredTarget || isBeingAttacked ? 'drop-shadow-[0_0_25px_rgba(239,68,68,0.4)]' : ''} ${flashingTargets.includes(enemy.id) && !isHitStopped ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''} ${isHitStopped ? 'brightness-0 invert drop-shadow-[0_0_70px_white] scale-[1.4] z-[2000]' : ''}`}
                         style={{
@@ -6821,7 +7456,29 @@ export default function App() {
                           transformOrigin: 'center',
                         }}
                       >
-                        {enemyAtlas ? <CharSprite atlas={enemyAtlas} size={enemySize} paused={isHitStopped} /> : String(enemy.icon)}
+                        {spineUnit ? (
+                          <SpineUnit
+                            unitId={spineUnit.id}
+                            animation={spineAction?.animation || spineUnit.defaultAnimation}
+                            animationKey={spineAction?.key}
+                            animationSpeed={spineAction?.speed || 1}
+                            animationMixMs={spineUnit.animationMixMs}
+                            loop={spineAction?.loop ?? true}
+                            retroFps={spineUnit.retroFps}
+                            paused={isHitStopped}
+                            movement={spineAction?.movement}
+                            contentScale={spineUnit.legacyContentScale || 1}
+                            style={{
+                              width: enemySize * spineUnit.battleWidthScale,
+                              height: enemySize * (spineUnit.battleHeightScale || 1),
+                              marginLeft: enemySize * (1 - spineUnit.battleWidthScale) / 2,
+                              marginTop: enemySize * (1 - (spineUnit.battleHeightScale || 1)) / 2,
+                              transform: spineUnit.counterEnemyMirror ? 'scaleX(-1)' : undefined,
+                            }}
+                          />
+                        ) : enemyAtlas ? (
+                          <CharSprite atlas={enemyAtlas} size={enemySize} paused={isHitStopped} />
+                        ) : String(enemy.icon)}
                         {isHoveredTarget && !isAnimating && targetPreview && (
                           <TargetReticle damage={targetPreview.damage} lethal={targetPreview.isLethal} />
                         )}
