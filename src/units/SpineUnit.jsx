@@ -35,6 +35,7 @@ const SpineUnit = ({
   animationKey,
   animationSpeed = 1,
   animationMixMs = 0,
+  animationPlaybackMode,
   loop = true,
   paused = false,
   retroFps,
@@ -56,6 +57,7 @@ const SpineUnit = ({
   const fpsRef = useRef(retroFps);
   const animationRef = useRef(animation);
   const animationSpeedRef = useRef(animationSpeed);
+  const animationPlaybackModeRef = useRef(animationPlaybackMode);
   const loopRef = useRef(loop);
   const playbackTimingRef = useRef({
     entry: null,
@@ -122,8 +124,10 @@ const SpineUnit = ({
   }, [onAnimationMetaChange, onAnimationsChange, onMovementPositionChange, onError]);
 
   useEffect(() => {
+    const previousPlaybackMode = animationPlaybackModeRef.current;
     animationRef.current = animation;
     animationSpeedRef.current = animationSpeed;
+    animationPlaybackModeRef.current = animationPlaybackMode;
     loopRef.current = loop;
     const spine = spineRef.current;
     if (!spine) return;
@@ -132,10 +136,42 @@ const SpineUnit = ({
     spine.state.data.defaultMix = mixSeconds;
     spine.state.timeScale = animationSpeed;
     if (nextAnimation) {
+      const currentEntry = spine.state.getCurrent(0);
+      const playback = unit?.animationPlayback?.[nextAnimation];
+      if (
+        animationPlaybackMode === 'anticipation'
+        && previousPlaybackMode === 'bite'
+        && currentEntry?.animation?.name === nextAnimation
+        && playback
+      ) {
+        currentEntry.trackTime = playback.qteEndFrame
+          / Math.max(1, playback.sourceFps || 30);
+        playbackTimingRef.current.entry = currentEntry;
+        playbackTimingRef.current.transitionElapsedMs = 0;
+        playbackTimingRef.current.transitionCompleted = false;
+        spine.state.timeScale = 0;
+        return;
+      }
       const entry = spine.state.setAnimation(0, nextAnimation, loop);
-      if (entry) entry.mixDuration = mixSeconds;
+      if (entry) {
+        entry.mixDuration = mixSeconds;
+        if (
+          playback
+          && animationPlaybackMode === 'anticipation'
+        ) {
+          entry.trackTime = playback.qteEndFrame / Math.max(1, playback.sourceFps || 30);
+        }
+      }
     }
-  }, [animation, animationKey, animationMixMs, animationSpeed, loop, unit]);
+  }, [
+    animation,
+    animationKey,
+    animationMixMs,
+    animationPlaybackMode,
+    animationSpeed,
+    loop,
+    unit,
+  ]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -208,7 +244,17 @@ const SpineUnit = ({
         const firstAnimation = animationRef.current || unit.defaultAnimation || animations[0];
         spine.state.data.defaultMix = Math.max(0, animationMixMs) / 1000;
         spine.state.timeScale = animationSpeedRef.current;
-        if (firstAnimation) spine.state.setAnimation(0, firstAnimation, loopRef.current);
+        if (firstAnimation) {
+          const entry = spine.state.setAnimation(0, firstAnimation, loopRef.current);
+          const playback = unit.animationPlayback?.[firstAnimation];
+          if (
+            entry
+            && playback
+            && animationPlaybackModeRef.current === 'anticipation'
+          ) {
+            entry.trackTime = playback.qteEndFrame / Math.max(1, playback.sourceFps || 30);
+          }
+        }
         spine.update(0);
         movementBone = unit.movementBone
           ? spine.skeleton.findBone(unit.movementBone)
@@ -270,8 +316,10 @@ const SpineUnit = ({
 
           const playback = unit.animationPlayback?.[trackEntry?.animation?.name];
           const baseSpeed = Math.max(0, animationSpeedRef.current);
-          let transitionAfterUpdate = false;
-          if (!playback) {
+          const playbackMode = animationPlaybackModeRef.current;
+          let completeTransitionAfterUpdate = false;
+          let biteAfterUpdate = false;
+          if (!playback || !playbackMode) {
             spine.state.timeScale = baseSpeed;
           } else {
             const sourceFps = Math.max(1, playback.sourceFps || 30);
@@ -279,14 +327,14 @@ const SpineUnit = ({
             const pauseAt = playback.pauseFrame / sourceFps;
             const trackTime = trackEntry?.trackTime || 0;
 
-            if (playbackTiming.transitionCompleted) {
+            if (
+              playbackMode === 'anticipation'
+              && playbackTiming.transitionCompleted
+            ) {
               trackEntry.trackTime = pauseAt;
               spine.state.timeScale = 0;
               animationDelta = 0;
-            } else if (
-              playbackTiming.transitionElapsedMs > 0
-              || trackTime >= transitionStart
-            ) {
+            } else if (playbackMode === 'anticipation') {
               playbackTiming.transitionElapsedMs = Math.min(
                 playback.transitionMs,
                 playbackTiming.transitionElapsedMs + elapsedMs,
@@ -295,14 +343,22 @@ const SpineUnit = ({
                 1,
                 playbackTiming.transitionElapsedMs / Math.max(1, playback.transitionMs),
               );
-              trackEntry.trackTime = transitionStart
+              const desiredTrackTime = transitionStart
                 + (pauseAt - transitionStart) * movementEase('smooth', progress);
+              if (animationDelta > 0 && desiredTrackTime > trackTime) {
+                spine.state.timeScale = (desiredTrackTime - trackTime) / animationDelta;
+                completeTransitionAfterUpdate = progress >= 1;
+              } else {
+                spine.state.timeScale = 0;
+                animationDelta = 0;
+              }
+            } else if (
+              playbackMode === 'bite'
+              && trackTime >= transitionStart
+            ) {
               spine.state.timeScale = 0;
               animationDelta = 0;
-              if (progress >= 1) {
-                playbackTiming.transitionCompleted = true;
-              }
-            } else {
+            } else if (playbackMode === 'bite') {
               spine.state.timeScale = baseSpeed;
               const remainingTrackTime = transitionStart - trackTime;
               if (
@@ -310,8 +366,10 @@ const SpineUnit = ({
                 && animationDelta * baseSpeed >= remainingTrackTime
               ) {
                 animationDelta = remainingTrackTime / baseSpeed;
-                transitionAfterUpdate = true;
+                biteAfterUpdate = true;
               }
+            } else {
+              spine.state.timeScale = baseSpeed;
             }
           }
 
@@ -392,10 +450,14 @@ const SpineUnit = ({
           } else if (animationDelta > 0) {
             spine.update(animationDelta);
           }
-          if (transitionAfterUpdate && trackEntry) {
+          if (completeTransitionAfterUpdate && trackEntry) {
+            trackEntry.trackTime = playback.pauseFrame
+              / Math.max(1, playback.sourceFps || 30);
+            playbackTiming.transitionCompleted = true;
+            spine.state.timeScale = 0;
+          } else if (biteAfterUpdate && trackEntry) {
             trackEntry.trackTime = playback.qteEndFrame
               / Math.max(1, playback.sourceFps || 30);
-            playbackTiming.transitionElapsedMs = 0;
             spine.state.timeScale = 0;
           }
         });

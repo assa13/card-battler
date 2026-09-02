@@ -845,6 +845,7 @@ const BattleScreen = ({ zIndex }) => {
                   animationKey={spineAction?.key}
                   animationSpeed={spineAction?.speed || 1}
                   animationMixMs={spineUnit.animationMixMs}
+                  animationPlaybackMode={spineAction?.playbackMode}
                   loop={spineAction?.loop ?? true}
                   retroFps={spineUnit.retroFps}
                   paused={isHitStopped}

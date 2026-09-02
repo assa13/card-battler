@@ -3695,6 +3695,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     holdSlowMo = false,
     duration = ENEMY_QTE_DURATION_MS,
     label,
+    deferPerfectImpact = false,
   } = {}) => {
     const rect = avatarRefs.current[target.id]?.getBoundingClientRect();
     if (!rect) return Promise.resolve('miss');
@@ -3723,6 +3724,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       },
       resultLabels: { perfect: 'BLOCK!', good: 'GUARD', miss: 'MISS' },
       holdSlowMo,
+      deferPerfectImpact,
       resolve,
     })).finally(() => {
       setQteHeroId(prev => prev === target.id ? null : prev);
@@ -5884,10 +5886,10 @@ export default function App({ combatLab = false, onExitCombatLab }) {
             const enemyRect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
             const sourceFps = WORM_ATTACK1_PLAYBACK.sourceFps;
             const qteEndAt = WORM_ATTACK1_PLAYBACK.qteEndFrame / sourceFps;
-            const qteDurationMs = Math.round(
+            const biteDurationMs = Math.round(
               (qteEndAt * 1000) / wormPattern.animationSpeed,
             );
-            const returnMs = WORM_ATTACK1_PLAYBACK.transitionMs;
+            const anticipationMs = WORM_ATTACK1_PLAYBACK.transitionMs;
             const combatStageScale = Math.min(
               window.innerWidth / 3200,
               window.innerHeight / 1800,
@@ -5920,64 +5922,72 @@ export default function App({ combatLab = false, onExitCombatLab }) {
               const targetRect = avatarRefs.current[currentTarget?.id]?.getBoundingClientRect();
               if (!currentTarget || currentTarget.hp <= 0 || !enemyRect || !targetRect) continue;
 
-              const bonePosition = enemySpinePositionsRef.current[enemy.id];
-              const originX = bonePosition?.attackX
-                || bonePosition?.x
-                || (enemyRect.left + enemyRect.width / 2);
-              const originY = bonePosition?.attackY
-                || bonePosition?.y
-                || (enemyRect.top + enemyRect.height / 2);
               const targetX = targetRect.left + targetRect.width / 2;
               const targetY = targetRect.top + targetRect.height / 2;
-              const dx = targetX - originX;
-              const dy = targetY - originY;
-              const startOffsetX = bonePosition?.offsetX ?? stagingOffsetX;
-              const startOffsetY = bonePosition?.offsetY ?? 0;
-              const biteDx = dx;
-              const biteDy = dy;
+              const beforeAnticipation = enemySpinePositionsRef.current[enemy.id];
+              const beforeAnticipationX = beforeAnticipation?.offsetX ?? stagingOffsetX;
+              const beforeAnticipationY = beforeAnticipation?.offsetY ?? 0;
+              const anticipationTargetX = index === 0
+                ? stagingOffsetX
+                : beforeAnticipationX + (stagingOffsetX - beforeAnticipationX) * 0.375;
+              const anticipationTargetY = index === 0
+                ? 0
+                : beforeAnticipationY * 0.625;
+              setAnimatingTargetIds([currentTarget.id]);
               updateEnemySpineAction(enemy.id, {
                 animation: wormPattern.animation,
                 speed: wormPattern.animationSpeed,
+                playbackMode: 'anticipation',
                 loop: false,
                 movement: {
-                  x: startOffsetX + biteDx,
-                  y: startOffsetY + biteDy,
-                  durationMs: qteDurationMs,
+                  x: anticipationTargetX,
+                  y: anticipationTargetY,
+                  // Перед первым укусом Червь уже стоит в staging. После
+                  // остальных укусов отходим лишь на 37.5% пути к staging.
+                  durationMs: index === 0 ? 0 : anticipationMs,
+                  easing: 'smooth',
+                },
+              }, true);
+              const verdict = canDefend
+                ? runEnemyDefenseQte(currentTarget, enemy, {
+                    holdSlowMo: true,
+                    duration: anticipationMs,
+                    label: `Укус ${index + 1}/${targets.length}`,
+                    deferPerfectImpact: true,
+                  })
+                : Promise.resolve('miss');
+              const [result] = await Promise.all([verdict, wait(anticipationMs)]);
+              if (cancelled) break;
+
+              // После подготовительного участка 6→11 запускаем сам укус 1→6.
+              const preBitePosition = enemySpinePositionsRef.current[enemy.id];
+              const preBiteOriginX = preBitePosition?.attackX
+                ?? preBitePosition?.x
+                ?? (enemyRect.left + enemyRect.width / 2);
+              const preBiteOriginY = preBitePosition?.attackY
+                ?? preBitePosition?.y
+                ?? (enemyRect.top + enemyRect.height / 2);
+              const preBiteOffsetX = preBitePosition?.offsetX ?? stagingOffsetX;
+              const preBiteOffsetY = preBitePosition?.offsetY ?? 0;
+              updateEnemySpineAction(enemy.id, {
+                animation: wormPattern.animation,
+                speed: wormPattern.animationSpeed,
+                playbackMode: 'bite',
+                loop: false,
+                movement: {
+                  x: preBiteOffsetX + targetX - preBiteOriginX,
+                  y: preBiteOffsetY + targetY - preBiteOriginY,
+                  durationMs: biteDurationMs,
                   easing: 'smooth',
                   screenTargetX: targetX,
                 },
               }, true);
-              setAnimatingTargetIds([currentTarget.id]);
-              const verdict = canDefend
-                ? runEnemyDefenseQte(currentTarget, enemy, {
-                    holdSlowMo: true,
-                    duration: qteDurationMs,
-                    label: `Укус ${index + 1}/${targets.length}`,
-                  })
-                : Promise.resolve('miss');
-              const [result] = await Promise.all([verdict, wait(qteDurationMs)]);
+              await wait(biteDurationMs);
               if (cancelled) break;
 
-              // К исходному кадру 6 челюсть достигает героя и QTE заканчивается.
-              // До паузы кадра 11 отходим лишь на 10% пройденного пути.
-              const contactPosition = enemySpinePositionsRef.current[enemy.id];
-              const contactOffsetX = contactPosition?.offsetX
-                ?? startOffsetX + biteDx;
-              const contactOffsetY = contactPosition?.offsetY
-                ?? startOffsetY + biteDy;
-              const returnOffsetX = contactOffsetX
-                + (startOffsetX - contactOffsetX) * 0.1;
-              const returnOffsetY = contactOffsetY
-                + (startOffsetY - contactOffsetY) * 0.1;
-              updateEnemySpineAction(enemy.id, {
-                movement: {
-                  x: returnOffsetX,
-                  y: returnOffsetY,
-                  durationMs: returnMs,
-                  easing: 'smooth',
-                },
-              });
               if (result === 'perfect') {
+                startEnemyHitStop(enemy.id, currentTarget.id);
+                playEnemyDefenseParry(currentTarget.id, enemy.id, result);
                 await waitForEnemyHitStop(enemy.id);
                 if (cancelled) break;
               }
@@ -5990,16 +6000,9 @@ export default function App({ combatLab = false, onExitCombatLab }) {
                   1.25,
                 );
               }
-              await waitUntil(
-                () => Math.abs(
-                  (enemySpinePositionsRef.current[enemy.id]?.offsetX ?? returnOffsetX)
-                    - returnOffsetX,
-                ) <= 1,
-                returnMs + 500,
-              );
             }
             // После всей серии отдельно возвращаемся в обычную Idle-позицию.
-            // Короткий отход между отдельными укусами остаётся без изменений.
+            // Между укусами следующая подготовка начинается прямо с кадра 6.
             if (!cancelled) {
               await wait(100);
               updateEnemySpineAction(enemy.id, {
@@ -7447,6 +7450,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
                             animationKey={spineAction?.key}
                             animationSpeed={spineAction?.speed || 1}
                             animationMixMs={spineUnit.animationMixMs}
+                            animationPlaybackMode={spineAction?.playbackMode}
                             loop={spineAction?.loop ?? true}
                             retroFps={spineUnit.retroFps}
                             paused={isHitStopped}
@@ -7596,7 +7600,9 @@ export default function App({ combatLab = false, onExitCombatLab }) {
           resultLabels={qte.resultLabels}
           windowScale={qte.mode === 'enemy' ? 2 : 1}
           binaryResults={qte.mode === 'enemy'}
-          resultLingerMs={qte.mode === 'enemy' ? ENEMY_HIT_STOP_MS : undefined}
+          resultLingerMs={qte.deferPerfectImpact
+            ? 0
+            : qte.mode === 'enemy' ? ENEMY_HIT_STOP_MS : undefined}
           showTimingVisuals
           showContext={qte.mode !== 'enemy'}
           showVignette={qte.mode !== 'enemy' || qte.focusVignette}
@@ -7605,9 +7611,11 @@ export default function App({ combatLab = false, onExitCombatLab }) {
               showEnemyDefenseRipple(
                 qte.heroId,
                 verdict,
-                verdict === 'perfect' ? ENEMY_HIT_STOP_MS : defenseRippleDurationRef.current,
+                verdict === 'perfect' && !qte.deferPerfectImpact
+                  ? ENEMY_HIT_STOP_MS
+                  : defenseRippleDurationRef.current,
               );
-              if (verdict === 'perfect') {
+              if (verdict === 'perfect' && !qte.deferPerfectImpact) {
                 startEnemyHitStop(qte.enemyId, qte.heroId);
                 playEnemyDefenseParry(qte.heroId, qte.enemyId, verdict);
               }
