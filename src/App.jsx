@@ -5882,27 +5882,12 @@ export default function App({ combatLab = false, onExitCombatLab }) {
         try {
           if (attackName === 'bite') {
             const enemyRect = enemyRefs.current[enemy.id]?.getBoundingClientRect();
-            const sourceDuration = enemySpineMetaRef.current[enemy.id]?.[wormPattern.animation];
             const sourceFps = WORM_ATTACK1_PLAYBACK.sourceFps;
             const qteEndAt = WORM_ATTACK1_PLAYBACK.qteEndFrame / sourceFps;
-            const slowdownStart = WORM_ATTACK1_PLAYBACK.slowdownStartFrame / sourceFps;
-            const pauseAt = WORM_ATTACK1_PLAYBACK.pauseFrame / sourceFps;
-            const pauseArrivalMs = sourceDuration
-              ? Math.round(
-                  ((slowdownStart + 2 * (pauseAt - slowdownStart)) * 1000)
-                    / wormPattern.animationSpeed,
-                )
-              : Math.round(wormPattern.fallbackDurationMs * 0.42);
             const qteDurationMs = Math.round(
               (qteEndAt * 1000) / wormPattern.animationSpeed,
             );
-            const returnMs = Math.max(80, pauseArrivalMs - qteDurationMs);
-            const recoveryMs = sourceDuration
-              ? Math.round(
-                  (Math.max(0, sourceDuration - pauseAt) * 1000)
-                    / wormPattern.animationSpeed,
-                )
-              : Math.max(80, wormPattern.fallbackDurationMs - pauseArrivalMs);
+            const returnMs = WORM_ATTACK1_PLAYBACK.transitionMs;
             const combatStageScale = Math.min(
               window.innerWidth / 3200,
               window.innerHeight / 1800,
@@ -6012,7 +5997,6 @@ export default function App({ combatLab = false, onExitCombatLab }) {
                 ) <= 1,
                 returnMs + 500,
               );
-              await wait(WORM_ATTACK1_PLAYBACK.pauseMs + recoveryMs);
             }
             // После всей серии отдельно возвращаемся в обычную Idle-позицию.
             // Короткий отход между отдельными укусами остаётся без изменений.

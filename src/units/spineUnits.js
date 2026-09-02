@@ -3,9 +3,8 @@ export const WORM_BOSS_NAME = 'Червь';
 export const WORM_ATTACK1_PLAYBACK = Object.freeze({
   sourceFps: 30,
   qteEndFrame: 6,
-  slowdownStartFrame: 8,
   pauseFrame: 11,
-  pauseMs: 300,
+  transitionMs: 1200,
 });
 
 export const SPINE_UNITS = Object.freeze({

@@ -59,8 +59,8 @@ const SpineUnit = ({
   const loopRef = useRef(loop);
   const playbackTimingRef = useRef({
     entry: null,
-    pauseRemainingMs: 0,
-    pauseCompleted: false,
+    transitionElapsedMs: 0,
+    transitionCompleted: false,
   });
   const movementRef = useRef({
     x: 0,
@@ -264,61 +264,59 @@ const SpineUnit = ({
           const playbackTiming = playbackTimingRef.current;
           if (playbackTiming.entry !== trackEntry) {
             playbackTiming.entry = trackEntry;
-            playbackTiming.pauseRemainingMs = 0;
-            playbackTiming.pauseCompleted = false;
+            playbackTiming.transitionElapsedMs = 0;
+            playbackTiming.transitionCompleted = false;
           }
 
           const playback = unit.animationPlayback?.[trackEntry?.animation?.name];
           const baseSpeed = Math.max(0, animationSpeedRef.current);
-          let pauseAfterUpdate = false;
-          let freezeMovement = false;
-          if (!playback || playbackTiming.pauseCompleted) {
+          let transitionAfterUpdate = false;
+          if (!playback) {
             spine.state.timeScale = baseSpeed;
-          } else if (playbackTiming.pauseRemainingMs > 0) {
-            freezeMovement = true;
-            playbackTiming.pauseRemainingMs = Math.max(
-              0,
-              playbackTiming.pauseRemainingMs - elapsedMs,
-            );
-            spine.state.timeScale = 0;
-            animationDelta = 0;
-            if (playbackTiming.pauseRemainingMs === 0) {
-              playbackTiming.pauseCompleted = true;
-            }
           } else {
             const sourceFps = Math.max(1, playback.sourceFps || 30);
-            const slowdownStart = playback.slowdownStartFrame / sourceFps;
+            const transitionStart = playback.qteEndFrame / sourceFps;
             const pauseAt = playback.pauseFrame / sourceFps;
             const trackTime = trackEntry?.trackTime || 0;
 
-            if (trackTime >= pauseAt) {
-              freezeMovement = true;
+            if (playbackTiming.transitionCompleted) {
               trackEntry.trackTime = pauseAt;
-              playbackTiming.pauseRemainingMs = playback.pauseMs;
               spine.state.timeScale = 0;
               animationDelta = 0;
-            } else if (trackTime >= slowdownStart && animationDelta > 0) {
+            } else if (
+              playbackTiming.transitionElapsedMs > 0
+              || trackTime >= transitionStart
+            ) {
+              playbackTiming.transitionElapsedMs = Math.min(
+                playback.transitionMs,
+                playbackTiming.transitionElapsedMs + elapsedMs,
+              );
               const progress = Math.min(
                 1,
-                (trackTime - slowdownStart) / Math.max(0.0001, pauseAt - slowdownStart),
+                playbackTiming.transitionElapsedMs / Math.max(1, playback.transitionMs),
               );
-              // sqrt-кривая даёт равномерное торможение во времени и при этом
-              // достигает нужного кадра, не застревая перед ним асимптотически.
-              const speedScale = Math.max(0.05, Math.sqrt(1 - progress));
-              const effectiveSpeed = baseSpeed * speedScale;
-              spine.state.timeScale = effectiveSpeed;
-              const remainingTrackTime = pauseAt - trackTime;
-              if (effectiveSpeed > 0 && animationDelta * effectiveSpeed >= remainingTrackTime) {
-                animationDelta = remainingTrackTime / effectiveSpeed;
-                pauseAfterUpdate = true;
+              trackEntry.trackTime = transitionStart
+                + (pauseAt - transitionStart) * movementEase('smooth', progress);
+              spine.state.timeScale = 0;
+              animationDelta = 0;
+              if (progress >= 1) {
+                playbackTiming.transitionCompleted = true;
               }
             } else {
               spine.state.timeScale = baseSpeed;
+              const remainingTrackTime = transitionStart - trackTime;
+              if (
+                baseSpeed > 0
+                && animationDelta * baseSpeed >= remainingTrackTime
+              ) {
+                animationDelta = remainingTrackTime / baseSpeed;
+                transitionAfterUpdate = true;
+              }
             }
           }
 
           const motion = movementRef.current;
-          if (!freezeMovement && motion.durationMs > 0 && motion.elapsedMs < motion.durationMs) {
+          if (motion.durationMs > 0 && motion.elapsedMs < motion.durationMs) {
             motion.elapsedMs = Math.min(motion.durationMs, motion.elapsedMs + elapsedMs);
             const progress = movementEase(motion.easing, motion.elapsedMs / motion.durationMs);
             motion.x = motion.fromX + (motion.targetX - motion.fromX) * progress;
@@ -394,9 +392,10 @@ const SpineUnit = ({
           } else if (animationDelta > 0) {
             spine.update(animationDelta);
           }
-          if (pauseAfterUpdate && trackEntry) {
-            trackEntry.trackTime = playback.pauseFrame / Math.max(1, playback.sourceFps || 30);
-            playbackTiming.pauseRemainingMs = playback.pauseMs;
+          if (transitionAfterUpdate && trackEntry) {
+            trackEntry.trackTime = playback.qteEndFrame
+              / Math.max(1, playback.sourceFps || 30);
+            playbackTiming.transitionElapsedMs = 0;
             spine.state.timeScale = 0;
           }
         });
