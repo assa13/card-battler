@@ -13,8 +13,22 @@ import BattleScreen from './battle/BattleScreen';
 import { BattleViewContext } from './battle/battleView';
 import QteOverlay from './QteOverlay';
 import HorseHerdQte from './HorseHerdQte';
+import MashQte from './MashQte';
+import VolleyQte from './VolleyQte';
+import RuneTraceQte from './RuneTraceQte';
 import EnemyDefenseCue from './EnemyDefenseCue';
 import EnemyDefenseRipples from './EnemyDefenseRipples';
+import VfxStrip from './vfx/VfxStrip';
+import {
+  CARD_PROJECTILE_VFX,
+  ENEMY_HIT_VFX,
+  FIREBALL_VFX,
+  IMPACT_VFX_LINGER_MS,
+  MAGE_HIT_VFX,
+  ROGUE_HIT_VFX,
+  RUNE_LINE_VFX,
+  WARRIOR_HIT_VFX,
+} from './vfx/vfxCatalog';
 import SpineUnit from './units/SpineUnit';
 import {
   WORM_ATTACK1_PLAYBACK,
@@ -406,27 +420,21 @@ const HERO_ABILITIES = {
     basic: { id: 'b1', name: 'Удар мечом', cost: 1, mult: 1.8, dmgType: 'melee', icon: '⚔️', targeting: 'random2', rarity: 'COMMON', vfxType: 'slash', qte: { mechanic: 'RHYTHM', trigger: 'ALWAYS' } },
     skills: [
       { id: 's1_1', ownerId: 'p1', name: 'Молот Тора', cost: 2, mult: 2.8, dmgType: 'melee', icon: '🔨', targeting: 'strongest', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' }, qte: { mechanic: 'PRECISION', trigger: 'ALWAYS' } },
-      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.7, dmgType: 'melee', icon: '🌪️', targeting: 'all', rarity: 'COMMON', vfxType: 'slash', qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } },
-      { id: 's1_3', ownerId: 'p1', name: 'Рывок', cost: 1, mult: 1.6, dmgType: 'melee', icon: '🏃', targeting: 'strongest', rarity: 'COMMON', vfxType: 'slash', secondary: { effect: 'vuln' }, qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } },
-      { id: 's1_4', ownerId: 'p1', name: 'Берсерк', cost: 3, mult: 3.0, dmgType: 'melee', icon: '🪓', targeting: 'random2', rarity: 'EPIC', vfxType: 'smash', secondary: { effect: 'stun' }, qte: { mechanic: 'RHYTHM', trigger: 'ALWAYS' } }
+      { id: 's1_2', ownerId: 'p1', name: 'Размах', cost: 2, mult: 1.7, dmgType: 'melee', icon: '🌪️', targeting: 'all', rarity: 'COMMON', vfxType: 'slash', qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } }
     ]
   },
   p2: {
     basic: { id: 'b2', name: 'Кинжал', cost: 0, mult: 2.0, dmgType: 'ranged', icon: '🗡️', targeting: 'random2', rarity: 'COMMON', vfxType: 'dagger_single', qte: { mechanic: 'NONE' } },
     skills: [
       { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.8, dmgType: 'ranged', icon: '🧪', targeting: 'random2', rarity: 'COMMON', vfxType: 'poison', secondary: { effect: 'bleed' }, qte: { mechanic: 'RHYTHM', trigger: 'ALWAYS' } },
-      { id: 's2_2', ownerId: 'p2', name: 'Тысяча порезов', cost: 1, mult: 1.4, dmgType: 'ranged', icon: '✂️', targeting: 'all', rarity: 'RARE', vfxType: 'daggers', secondary: { effect: 'bleed' }, qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } },
-      { id: 's2_3', ownerId: 'p2', name: 'Танец стали', cost: 2, mult: 2.2, dmgType: 'ranged', icon: '⚔️', targeting: 'random2', rarity: 'RARE', vfxType: 'daggers', qte: { mechanic: 'RHYTHM', trigger: 'ALWAYS' } },
-      { id: 's2_4', ownerId: 'p2', name: 'Кровопускание', cost: 3, mult: 2.6, dmgType: 'ranged', icon: '🩸', targeting: 'all', rarity: 'EPIC', vfxType: 'daggers', secondary: { effect: 'bleed' }, qte: { mechanic: 'PRECISION', trigger: 'ALWAYS' } }
+      { id: 's2_2', ownerId: 'p2', name: 'Тысяча порезов', cost: 2, mult: 1.4, dmgType: 'ranged', icon: '✂️', targeting: 'all', rarity: 'RARE', vfxType: 'daggers', secondary: { effect: 'bleed' }, qte: { mechanic: 'VOLLEY', trigger: 'ALWAYS' } }
     ]
   },
   p3: {
     basic: { id: 'b3', name: 'Мертвая лошадь', cost: 2, mult: 1.0, dmgType: 'magic', icon: '🐎', targeting: 'all', rarity: 'COMMON', vfxType: 'horse_herd', qte: { mechanic: 'HORSE_HERD', trigger: 'ALWAYS' } },
     skills: [
-      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 2.5, dmgType: 'magic', icon: '☄️', targeting: 'all', rarity: 'RARE', vfxType: 'fireball', qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } },
-      { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, dmgType: 'magic', icon: '❄️', targeting: 'all', rarity: 'RARE', vfxType: 'ice_spike', secondary: { effect: 'mark' }, qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } },
-      { id: 's3_3', ownerId: 'p3', name: 'Цепная молния', cost: 3, mult: 2.0, dmgType: 'magic', icon: '⚡', targeting: 'random2', rarity: 'RARE', vfxType: 'lightning', secondary: { effect: 'vuln' }, qte: { mechanic: 'RHYTHM', trigger: 'ALWAYS' } },
-      { id: 's3_4', ownerId: 'p3', name: 'Чёрная дыра', cost: 5, mult: 3.2, dmgType: 'magic', icon: '🌌', targeting: 'all', rarity: 'LEGENDARY', vfxType: 'dark_void', secondary: { effect: 'weaken' }, qte: { mechanic: 'PRECISION', trigger: 'ALWAYS' } }
+      { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 1.0, dmgType: 'magic', icon: '☄️', targeting: 'all', rarity: 'RARE', vfxType: 'fireball', qte: { mechanic: 'MASH', trigger: 'ALWAYS' } },
+      { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, dmgType: 'magic', icon: '❄️', targeting: 'all', rarity: 'RARE', vfxType: 'ice_spike', secondary: { effect: 'mark' }, qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } }
     ]
   }
 };
@@ -435,7 +443,10 @@ const COMBAT_LAB_CARD_GROUPS = INITIAL_PLAYERS_DATA.map((hero) => ({
   heroId: hero.id,
   heroName: hero.name,
   cards: [HERO_ABILITIES[hero.id].basic, ...HERO_ABILITIES[hero.id].skills]
-    .filter((card) => card.cost > 0 && card.qte?.mechanic && card.qte.mechanic !== 'NONE')
+    .filter((card) => (
+      card.id === 'b2'
+      || (card.cost > 0 && card.qte?.mechanic && card.qte.mechanic !== 'NONE')
+    ))
     .map((card) => ({ ...card, ownerId: card.ownerId || hero.id })),
 }));
 const COMBAT_LAB_CARDS = COMBAT_LAB_CARD_GROUPS.flatMap((group) => group.cards);
@@ -1019,10 +1030,10 @@ const spawnEnemies = (type, stage, sector = 1) => {
 
   if (type === 'boss') {
     const bossName = sector <= 1
-      ? SKELETON_BOSS_NAME
+      ? WORM_BOSS_NAME
       : sector === 2
         ? 'Глаз'
-        : WORM_BOSS_NAME;
+        : SKELETON_BOSS_NAME;
     const boss = mk(bossName, 1);
     if (bossName === 'Глаз') {
       // Глаз остаётся боссом второго сектора. Понерфлен: −30% HP, −25% к атаке.
@@ -1046,9 +1057,9 @@ const spawnEnemies = (type, stage, sector = 1) => {
 };
 
 const COMBAT_LAB_BOSSES = [
-  { name: SKELETON_BOSS_NAME, sector: 1 },
+  { name: WORM_BOSS_NAME, sector: 1 },
   { name: 'Глаз', sector: 2 },
-  { name: WORM_BOSS_NAME, sector: 3 },
+  { name: SKELETON_BOSS_NAME, sector: 3 },
 ];
 const COMBAT_LAB_DEFAULT_BOSS = COMBAT_LAB_BOSSES[0].name;
 
@@ -1415,6 +1426,7 @@ const VFX_MULTI_TYPES = new Set(['daggers', 'poison']);
 const COMBO_VFX_PARTICLE_COUNT = [6, 9, 12];
 const COMBO_VFX_DUR_MS = [420, 460, 500];
 const COMBO_BLOOD_COUNT = [18, 14, 10];
+const IDLE_SHAKE = Object.freeze({ x: 0, y: 0, rot: 0 });
 
 // Эффект «печати» при получении брони / усиления цепи
 const ModStampEffect = ({ id, icon, amount, variant, x, y, onComplete }) => {
@@ -1491,15 +1503,35 @@ const HeroFieldBadges = ({ armor, chainBonus }) => {
   );
 };
 
-const CombatVfx = ({ vfx }) => {
+const CombatVfxView = ({ vfx }) => {
   const cs = vfx.comboScale || 1;
   const tier = vfx.comboTier || 0;
   const durMs = vfx.durationMs || COMBO_VFX_DUR_MS[tier] || 420;
   const tx = vfx.endX - vfx.startX;
   const ty = vfx.endY - vfx.startY;
+  const heroId = vfx.heroId;
+  const projectileVfx = heroId ? CARD_PROJECTILE_VFX[vfx.type] : null;
+  const usesProjectileSprite = Boolean(projectileVfx);
+  const impactSheet = vfx.type === 'warrior_hit'
+    ? WARRIOR_HIT_VFX
+    : vfx.type === 'rogue_hit'
+      ? ROGUE_HIT_VFX
+      : vfx.type === 'mage_hit'
+        ? MAGE_HIT_VFX
+        : vfx.type === 'enemy_hit'
+          ? ENEMY_HIT_VFX
+          : null;
   const isTravel = ['magic_spark', 'fireball', 'ice_spike', 'lightning', 'dark_void', 'enemy', 'daggers', 'poison', 'dagger_single', 'arrow', 'bone'].includes(vfx.type);
   const originX = isTravel ? vfx.startX + (vfx.scatterX || 0) : vfx.endX;
   const originY = isTravel ? vfx.startY + (vfx.scatterY || 0) : vfx.endY;
+  const directionAngle = Math.atan2(ty, tx) * 180 / Math.PI;
+  const projectileHit = useMemo(() => {
+    if (!projectileVfx?.hits.length) return null;
+    const seed = String(vfx.id);
+    const hash = Array.from(seed).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+    return projectileVfx.hits[hash % projectileVfx.hits.length];
+  }, [projectileVfx, vfx.id]);
+  const [showProjectileImpact, setShowProjectileImpact] = useState(false);
 
   const baseStyle = {
     left: originX,
@@ -1540,27 +1572,46 @@ const CombatVfx = ({ vfx }) => {
 
     run(() => {
       if (['magic_spark', 'fireball', 'ice_spike', 'lightning', 'dark_void', 'enemy'].includes(vfx.type)) {
-        setStyle(s => ({ ...s, opacity: 1, transform: tf(0, 0, 0.5 * cs) }));
-        runTravel(
-          tf(tx * approachRatio, ty * approachRatio, 1.15 * cs),
-          tf(tx, ty, 1.5 * cs),
-        );
+        if (usesProjectileSprite) {
+          const angle = Math.atan2(ty, tx) * 180 / Math.PI;
+          setStyle(s => ({ ...s, opacity: 1, transform: tf(0, 0, cs, `rotate(${angle}deg)`) }));
+          runTravel(
+            tf(tx * approachRatio, ty * approachRatio, cs, `rotate(${angle}deg)`),
+            tf(tx, ty, cs, `rotate(${angle}deg)`),
+          );
+        } else {
+          setStyle(s => ({ ...s, opacity: 1, transform: tf(0, 0, 0.5 * cs) }));
+          runTravel(
+            tf(tx * approachRatio, ty * approachRatio, 1.15 * cs),
+            tf(tx, ty, 1.5 * cs),
+          );
+        }
       } else if (['slash', 'smash', 'dark_strike'].includes(vfx.type)) {
         setStyle(s => ({ ...s, opacity: 1, transform: tf(0, 0, 0.2 * cs, 'rotate(-45deg)') }));
         run(() => setStyle(s => ({ ...s, opacity: 0, transform: tf(0, 0, 2 * cs, 'rotate(45deg)'), transition: trans })), 20);
       } else if (['daggers', 'poison', 'dagger_single', 'arrow', 'bone'].includes(vfx.type)) {
         const angle = Math.atan2(ty, tx) * 180 / Math.PI;
         const spin = vfx.type === 'arrow' ? 0 : vfx.type === 'bone' ? 540 : 360;
-        setStyle(s => ({ ...s, opacity: 1, transform: tf(0, 0, cs, `rotate(${angle + 90}deg)`) }));
+        const angleOffset = usesProjectileSprite ? 0 : 90;
+        setStyle(s => ({ ...s, opacity: 1, transform: tf(0, 0, cs, `rotate(${angle + angleOffset}deg)`) }));
         runTravel(
-          tf(tx * approachRatio, ty * approachRatio, cs, `rotate(${angle + 90 + spin * approachRatio}deg)`),
-          tf(tx, ty, cs, `rotate(${angle + 90 + spin}deg)`),
+          tf(tx * approachRatio, ty * approachRatio, cs, `rotate(${angle + angleOffset + (usesProjectileSprite ? 0 : spin * approachRatio)}deg)`),
+          tf(tx, ty, cs, `rotate(${angle + angleOffset + (usesProjectileSprite ? 0 : spin)}deg)`),
         );
       }
     }, vfx.delay || 0);
 
     return () => timers.forEach(clearTimeout);
-  }, [vfx, cs, durMs, tx, ty]);
+  }, [vfx, cs, durMs, tx, ty, usesProjectileSprite]);
+
+  useEffect(() => {
+    if (!usesProjectileSprite) return undefined;
+    let cancelled = false;
+    qteSlowMo.delay((vfx.delay || 0) + durMs).then(() => {
+      if (!cancelled) setShowProjectileImpact(true);
+    });
+    return () => { cancelled = true; };
+  }, [durMs, usesProjectileSprite, vfx.delay]);
 
   const sparkCount = vfx.showSparks ? (tier >= 2 ? 4 : tier >= 1 ? 3 : 0) : 0;
   const sparks = sparkCount > 0 ? Array.from({ length: sparkCount }, (_, i) => ({
@@ -1585,7 +1636,58 @@ const CombatVfx = ({ vfx }) => {
     </div>
   );
 
-  const heroId = vfx.heroId;
+  if (impactSheet) {
+    return (
+      <div
+        className="fixed pointer-events-none"
+        style={{
+          left: vfx.endX,
+          top: vfx.endY,
+          zIndex: vfx.realTime ? 8300 : 1002,
+          transform: `translate(-50%, -50%) scale(${cs})`,
+        }}
+      >
+        <VfxStrip sheet={impactSheet} realTime={vfx.realTime} />
+      </div>
+    );
+  }
+
+  if (usesProjectileSprite) {
+    const muzzleX = vfx.startX + (vfx.scatterX || 0);
+    const muzzleY = vfx.startY + (vfx.scatterY || 0);
+    return (
+      <>
+        <div
+          className="fixed z-[1001] pointer-events-none"
+          style={{
+            left: muzzleX,
+            top: muzzleY,
+            transform: `translate(-50%, -50%) rotate(${directionAngle}deg)`,
+          }}
+        >
+          <VfxStrip sheet={projectileVfx.muzzle} />
+        </div>
+        <div
+          style={{ ...style, opacity: showProjectileImpact ? 0 : style.opacity }}
+          className="fixed z-[1000] pointer-events-none flex items-center justify-center"
+        >
+          <VfxStrip sheet={projectileVfx.projectile} loop />
+        </div>
+        {showProjectileImpact && projectileHit && (
+          <div
+            className="fixed z-[1002] pointer-events-none"
+            style={{
+              left: vfx.endX,
+              top: vfx.endY,
+              transform: `translate(-50%, -50%) rotate(${directionAngle}deg)`,
+            }}
+          >
+            <VfxStrip sheet={projectileHit} />
+          </div>
+        )}
+      </>
+    );
+  }
 
   // --- Маг (p3): фиолетовое + черепа ---
   if (heroId === 'p3') {
@@ -1652,6 +1754,19 @@ const CombatVfx = ({ vfx }) => {
 
   return null;
 };
+
+const CombatVfx = React.memo(CombatVfxView);
+
+const CombatVfxLayer = React.forwardRef((_props, ref) => {
+  const [effects, setEffects] = useState([]);
+
+  React.useImperativeHandle(ref, () => ({
+    update: (updater) => setEffects(updater),
+    clear: () => setEffects([]),
+  }), []);
+
+  return effects.map(effect => <CombatVfx key={effect.id} vfx={effect} />);
+});
 
 const ShaderBackground = ({ hue = 210, sat = 60, speed = 0, embedded = false }) => {
   const canvasRef = useRef(null);
@@ -2060,6 +2175,7 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
 // --- 3. ЗВУКИ ---
 
 const _audioCache = {};
+const _imageCache = {};
 let _sfxVolume = 0.35; // глобальный множитель громкости SFX
 
 // Все ассеты, которые нужно прогреть до старта игры
@@ -2093,6 +2209,19 @@ const PRELOAD_ASSETS = [
   ...Object.values(ENEMY_ATLASES).map(a => a.url),
   './chars/necro_horse_default.webp',
   './chars/necro_horse_active.webp',
+  ...Object.values(CARD_PROJECTILE_VFX).flatMap(vfx => [
+    vfx.projectile.url,
+    vfx.muzzle.url,
+    ...vfx.hits.map(hit => hit.url),
+  ]),
+  FIREBALL_VFX.projectile.url,
+  FIREBALL_VFX.muzzle.url,
+  ...FIREBALL_VFX.hits.map(hit => hit.url),
+  WARRIOR_HIT_VFX.url,
+  ROGUE_HIT_VFX.url,
+  MAGE_HIT_VFX.url,
+  ENEMY_HIT_VFX.url,
+  RUNE_LINE_VFX.url,
 ];
 
 const MUSIC_URL = './file.mp3';
@@ -2725,9 +2854,14 @@ const Preloader = ({ assets, onEnter }) => {
         _audioCache[src] = a;
       } else {
         const img = new Image();
-        img.onload = bumpSfx;
+        img.onload = () => {
+          const decoded = img.decode?.();
+          if (decoded?.then) decoded.then(bumpSfx, bumpSfx);
+          else bumpSfx();
+        };
         img.onerror = bumpSfx;
         img.src = src;
+        _imageCache[src] = img;
       }
     });
 
@@ -3327,11 +3461,13 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     playSound('./assets/sfx/game/level_up.wav', 0.6);
     return true;
   };
-  const [vfxList, setVfxList] = useState([]);
+  const combatVfxLayerRef = useRef(null);
+  const setVfxList = useCallback((updater) => {
+    combatVfxLayerRef.current?.update(updater);
+  }, []);
   const [flashingTargets, setFlashingTargets] = useState([]);
 
-  const [shake, setShake] = useState({ x: 0, y: 0, rot: 0 });
-  const [flash, setFlash] = useState(false);
+  const shake = IDLE_SHAKE;
   const [lastPlayedCost, setLastPlayedCost] = useState(null);
   const [comboStreak, setComboStreak] = useState(0);
   // Число для крутящегося символа комбо справа от арены (0 = скрыт).
@@ -3452,6 +3588,9 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   }, [applyMusicSource, combatLab, startBackgroundMusic]);
 
   const appRef = useRef(null);
+  const impactAnimationRef = useRef(null);
+  const impactFlashRef = useRef(null);
+  const impactFlashAnimationRef = useRef(null);
   const slotRefs = useRef({});
   const enemyRefs = useRef({});
   const avatarRefs = useRef({});
@@ -3696,6 +3835,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     duration = ENEMY_QTE_DURATION_MS,
     label,
     deferPerfectImpact = false,
+    trace = null,
   } = {}) => {
     const rect = avatarRefs.current[target.id]?.getBoundingClientRect();
     if (!rect) return Promise.resolve('miss');
@@ -3725,6 +3865,9 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       resultLabels: { perfect: 'BLOCK!', good: 'GUARD', miss: 'MISS' },
       holdSlowMo,
       deferPerfectImpact,
+      // trace — «Руна защиты»: вместо кольца монтируется прямая линия с
+      // протяжкой пера (см. RuneTraceQte.jsx). Значение = { stepIndex }.
+      trace,
       resolve,
     })).finally(() => {
       setQteHeroId(prev => prev === target.id ? null : prev);
@@ -4331,18 +4474,33 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   }, []);
 
   const triggerImpact = (damageValue) => {
-    setFlash(true); setTimeout(() => setFlash(false), 100);
-    const intensity = Math.min(Math.max(damageValue, 15), 150) * 0.8; 
-    
-    const shakeInterval = setInterval(() => {
-      setShake({ 
-        x: (Math.random() - 0.5) * intensity, 
-        y: (Math.random() - 0.5) * intensity,
-        rot: (Math.random() - 0.5) * (intensity * 0.2) 
+    const intensity = Math.min(Math.max(damageValue, 15), 150) * 0.8;
+    const amplitude = Math.min(20, Math.max(3, intensity * 0.16));
+    if (appRef.current?.animate) {
+      impactAnimationRef.current?.cancel();
+      impactAnimationRef.current = appRef.current.animate([
+        { transform: 'translate(0, 0)', offset: 0 },
+        { transform: `translate(${amplitude}px, ${-amplitude * 0.55}px)`, offset: 0.18 },
+        { transform: `translate(${-amplitude * 0.75}px, ${amplitude * 0.45}px)`, offset: 0.38 },
+        { transform: `translate(${amplitude * 0.45}px, ${amplitude * 0.2}px)`, offset: 0.58 },
+        { transform: `translate(${-amplitude * 0.25}px, ${-amplitude * 0.15}px)`, offset: 0.78 },
+        { transform: 'translate(0, 0)', offset: 1 },
+      ], {
+        duration: 180,
+        easing: 'ease-out',
       });
-    }, 20);
-    
-    setTimeout(() => { clearInterval(shakeInterval); setShake({ x: 0, y: 0, rot: 0 }); }, 350);
+    }
+    if (impactFlashRef.current?.animate) {
+      impactFlashAnimationRef.current?.cancel();
+      impactFlashAnimationRef.current = impactFlashRef.current.animate([
+        { opacity: 0 },
+        { opacity: 0.2, offset: 0.15 },
+        { opacity: 0 },
+      ], {
+        duration: 100,
+        easing: 'ease-out',
+      });
+    }
   };
 
   const playEnemyDefenseParry = (heroId, enemyId, verdict) => {
@@ -4371,23 +4529,30 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     const vfxId = `defense_parry_${Date.now()}_${heroId}_${enemyId}`;
     const comboTier = 1;
     const comboScale = 1.35;
-    setVfxList(prev => [...prev, {
+    const hitType = heroId === 'p1'
+      ? 'warrior_hit'
+      : heroId === 'p2'
+        ? 'rogue_hit'
+        : 'mage_hit';
+    const parryVfx = [{
       id: vfxId,
-      type: card?.vfxType || 'slash',
+      type: hitType,
       heroId,
       delay: 0,
       comboTier,
       comboScale,
-      showSparks: true,
       startX: heroRect.left + heroRect.width / 2,
       startY: heroRect.top + heroRect.height / 2,
       endX: enemyRect.left + enemyRect.width / 2,
       endY: enemyRect.top + enemyRect.height / 2,
-    }]);
+    }];
+    setVfxList(prev => [...prev, ...parryVfx]);
 
     setFlashingTargets(prev => prev.includes(enemyId) ? prev : [...prev, enemyId]);
     setTimeout(() => setFlashingTargets(prev => prev.filter(id => id !== enemyId)), 250);
-    setTimeout(() => setVfxList(prev => prev.filter(vfx => vfx.id !== vfxId)), 650);
+    setTimeout(safeAnim(() => {
+      setVfxList(prev => prev.filter(vfx => vfx.id !== vfxId));
+    }), 650);
     triggerImpact(Math.max(55, dealtDamage));
     playSound(getCombatHitSound(card?.vfxType || 'slash'), 0.75);
     fxRef.current?.spawnDamagePopup({
@@ -5112,6 +5277,26 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     }
   };
 
+  const spawnImpactVfx = (type, points, scale = 1, realTime = false) => {
+    if (!points.length) return;
+    const entries = points.map(point => ({
+      id: Math.random(),
+      source: 'impact-sprite',
+      type,
+      realTime,
+      comboScale: scale,
+      startX: point.x,
+      startY: point.y,
+      endX: point.x,
+      endY: point.y,
+    }));
+    const ids = new Set(entries.map(entry => entry.id));
+    setVfxList(previous => [...previous, ...entries]);
+    setTimeout(safeAnim(() => {
+      setVfxList(previous => previous.filter(vfx => !ids.has(vfx.id)));
+    }), IMPACT_VFX_LINGER_MS);
+  };
+
   const playCard = (playerIndex, card) => {
     const player = players[playerIndex];
     const effectivePlayer = getEffectivePlayer(player, equipped[player.id]);
@@ -5149,18 +5334,82 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     // - 'PRECISION' — одиночное кольцо: при 2+ целях большое в центре зоны врагов,
     //   при одной — локально над спрайтом цели.
     // - 'RHYTHM' — ритм-стрим мульти-удара: кольцо над каждой целью по очереди.
+    // - 'MASH' — попадание Огненного шара и 7 секунд наращиваемого горения.
+    // - 'VOLLEY' — автоматический удар и своевременный отбив вернувшегося шара.
     // - null — без QTE (профиль NONE, не сработал триггер, 0 маны или QTE уже активен).
-    // НОВАЯ МЕХАНИКА: добавить ветку по qteMechanic здесь + раннер ниже (см. docs/qte-design.md).
     const qteMechanic = qteActiveRef.current
       ? null
       : resolveCardQte(card, { chainPos, targets: qteTargets, expectedLethal });
     const qteEligible = qteMechanic === 'PRECISION';
     const isSequentialStrike = qteMechanic === 'RHYTHM';
     const isHorseHerd = qteMechanic === 'HORSE_HERD';
+    const isMash = qteMechanic === 'MASH';
+    const isVolley = qteMechanic === 'VOLLEY';
     let qtePromise = Promise.resolve(1.0);
     let qteRingMounted = false; // кольцо реально смонтировано → замах героя ждёт вердикта на холде
+    let mashMounted = false;
+    let volleyMounted = false;
     let applyHorseImpact = () => null;
-    if (isHorseHerd) {
+    let applyMashImpact = () => false;
+    let applyMashBurnTick = () => false;
+    let requestVolleyTarget = () => null;
+    let applyVolleyImpact = () => false;
+    if (isMash) {
+      const heroRect = avatarRefs.current[player.id]?.getBoundingClientRect();
+      const targetNodes = qteTargets.map((target) => {
+        const rect = enemyRefs.current[target.id]?.getBoundingClientRect();
+        return rect ? {
+          id: target.id,
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        } : null;
+      }).filter(Boolean);
+      if (heroRect && targetNodes.length > 0) {
+        qteActiveRef.current = true;
+        qteRingMounted = true;
+        mashMounted = true;
+        setQteHeroId(player.id);
+        qtePromise = new Promise(resolve => setQte({
+          id: `mash_qte_${player.id}_${card.id}`,
+          mode: 'mash',
+          heroNode: {
+            x: heroRect.left + heroRect.width / 2,
+            y: heroRect.top + heroRect.height / 2,
+          },
+          targetNodes,
+          card: { icon: card.icon, name: card.name },
+          onMashImpact: () => applyMashImpact(),
+          onMashBurnTick: (tick) => applyMashBurnTick(tick),
+          resolve,
+        })).then((result) => {
+          setQteHeroId(prev => prev === player.id ? null : prev);
+          return result;
+        });
+      }
+    } else if (isVolley) {
+      const heroRect = avatarRefs.current[player.id]?.getBoundingClientRect();
+      if (heroRect && qteTargets.length > 0) {
+        qteActiveRef.current = true;
+        qteRingMounted = true;
+        volleyMounted = true;
+        setQteHeroId(player.id);
+        qtePromise = new Promise(resolve => setQte({
+          id: `volley_qte_${player.id}_${card.id}`,
+          mode: 'volley',
+          heroNode: {
+            x: heroRect.left + heroRect.width / 2,
+            y: heroRect.top + heroRect.height / 2,
+          },
+          card: { icon: card.icon, name: card.name },
+          onRequestTarget: (hitNumber) => requestVolleyTarget(hitNumber),
+          onVolleyImpact: (targetNode, hitNumber) => applyVolleyImpact(targetNode, hitNumber),
+          resolve,
+        })).then((result) => {
+          setQteHeroId(prev => prev === player.id ? null : prev);
+          return result;
+        });
+      }
+    } else if (isHorseHerd) {
       const arenaRect = enemyZoneRef.current?.parentElement?.getBoundingClientRect();
       if (arenaRect) {
         const targetNodes = qteTargets.map(target => {
@@ -5297,7 +5546,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     const comboTier = Math.min(comboStep, 2);
     const comboScale = COMBO_VFX_SCALE[comboTier];
     const vfxArr = [];
-    (isHorseHerd ? [] : targetIndices).forEach(idx => {
+    (isHorseHerd || mashMounted || volleyMounted || player.id === 'p1' ? [] : targetIndices).forEach(idx => {
        const tRect = enemyRefs.current[enemiesRef.current[idx]?.id]?.getBoundingClientRect();
        if (aRect && tRect) {
           const baseVfx = {
@@ -5336,7 +5585,11 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     const attackAtlas = CHAR_ATTACK_ATLASES[player.id];
     const attackAnimMs = attackAtlas ? Math.round((attackAtlas.frameCount / attackAtlas.fps) * 1000) : 300;
     const strikeFrameMs = attackAtlas ? Math.round((attackAtlas.impactFrame / attackAtlas.fps) * 1000) : 300;
-    const isRangedSingle = !isMelee && !isSequentialStrike;
+    const isRangedSingle = !isMelee
+      && !isSequentialStrike
+      && !isHorseHerd
+      && !mashMounted
+      && !volleyMounted;
     const flightMs = COMBO_VFX_DUR_MS[comboTier] || 420;
     if (isRangedSingle && !qteRingMounted) {
       const launchMs = Math.max(0, attackAnimMs - flightMs);
@@ -5351,7 +5604,19 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     // Применяет удар карты к списку целей (индексы) с данным QTE-множителем.
     // Общий для обоих режимов: одновременного (все цели разом) и серии (по одной).
     let chainBonusConsumed = false;
-    const applyStrike = (strikeIndices, qteMult) => {
+    const applyStrike = (
+      strikeIndices,
+      qteMult,
+      {
+        damageScale = 1,
+        applySecondary = true,
+        bloodScale = 1,
+        impactRealTime = false,
+        flashTargets = true,
+        impactMotion = true,
+        playHitSound = true,
+      } = {},
+    ) => {
       let { damage: baseDamage, critChance } = computeCardDamage(effectivePlayer, card, comboDamageMult);
       // Бонус от «Усиления цепи» добавляется к мощности этой карты и тратится
       if (chainBonusAtPlay > 0 && !chainBonusConsumed) {
@@ -5361,16 +5626,22 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       }
       // QTE «Perfect Hit»: множитель тайминга применяется к итоговому урону карты
       if (qteMult > 1) baseDamage = Math.round(baseDamage * qteMult);
+      if (damageScale !== 1) baseDamage = Math.max(1, Math.round(baseDamage * damageScale));
       // База — актуальное состояние врагов из рефа (важно при параллельных розыгрышах)
       const newEnemies = enemiesRef.current.map(e => ({...e})); let xpToSpawn = []; let lootToSpawn = [];
 
-      playSound(getCombatHitSound(card.vfxType || 'slash'));
+      if (playHitSound) playSound(getCombatHitSound(card.vfxType || 'slash'));
 
       const hitEnemyIds = strikeIndices.map(idx => newEnemies[idx]?.id).filter(Boolean);
-      setFlashingTargets(prev => [...prev, ...hitEnemyIds]);
-      setTimeout(() => setFlashingTargets(prev => prev.filter(id => !hitEnemyIds.includes(id))), 250);
+      if (flashTargets) {
+        setFlashingTargets(prev => [...prev, ...hitEnemyIds]);
+        setTimeout(() => {
+          setFlashingTargets(prev => prev.filter(id => !hitEnemyIds.includes(id)));
+        }, 250);
+      }
 
       const newBlood = [];
+      const heroImpactPoints = [];
       let anyCrit = false;
       let maxDealt = 0;
       const statusPopups = [];
@@ -5394,15 +5665,22 @@ export default function App({ combatLab = false, onExitCombatLab }) {
 
         const eRect = enemyRefs.current[target.id]?.getBoundingClientRect();
         if (eRect) {
+           heroImpactPoints.push({
+             x: eRect.left + eRect.width / 2,
+             y: eRect.top + eRect.height / 2,
+           });
            fxRef.current?.spawnDamagePopup({ id: Math.random(), value: dmg, isCrit, x: eRect.left + eRect.width / 2, y: eRect.top + eRect.height / 2 });
-           const bloodN = COMBO_BLOOD_COUNT[comboTier] || 18;
+           const bloodN = Math.max(
+             0,
+             Math.round((COMBO_BLOOD_COUNT[comboTier] || 18) * bloodScale),
+           );
            for(let i=0; i<bloodN; i++) {
               newBlood.push({ id: Math.random(), x: eRect.left + eRect.width/2, y: eRect.top + eRect.height/2 });
            }
         }
 
         // Наложение вторичного эффекта карты (масштабируется в комбо)
-        if (card.secondary && !target.isDead) {
+        if (applySecondary && card.secondary && !target.isDead) {
           const payload = buildSecondaryPayload(effectivePlayer, card, comboEffectMult);
           if (payload) {
             const { statuses, immediateHpLoss, applied } = applyStatusToEnemy(target.statuses, payload);
@@ -5425,7 +5703,13 @@ export default function App({ combatLab = false, onExitCombatLab }) {
         }
       });
       if (anyCrit) playSound('./assets/sfx/combat/hit_heavy.wav', 0.7);
-      triggerImpact(maxDealt);
+      if (impactMotion) triggerImpact(maxDealt);
+      const heroImpactType = player.id === 'p1'
+        ? 'warrior_hit'
+        : player.id === 'p2'
+          ? 'rogue_hit'
+          : 'mage_hit';
+      spawnImpactVfx(heroImpactType, heroImpactPoints, comboScale, impactRealTime);
       fxRef.current?.spawnBlood(newBlood);
       if (statusPopups.length) setTimeout(() => fxRef.current?.spawnDamagePopups(statusPopups), 260);
 
@@ -5488,12 +5772,78 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       const targetIndex = enemiesRef.current.findIndex(enemy => enemy.id === target.id);
       const rect = enemyRefs.current[target.id]?.getBoundingClientRect();
       if (targetIndex < 0) return null;
-      applyStrike([targetIndex], 1);
+      applyStrike([targetIndex], 1, { impactRealTime: true });
       return rect ? {
         id: target.id,
         x: rect.left + rect.width / 2,
         y: rect.top + rect.height / 2,
       } : requestedTarget;
+    };
+
+    const getLiveMashTargetIndices = () => targetIndices.filter((idx) => {
+      const target = enemiesRef.current[idx];
+      return target && !target.isDead && target.hp > 0;
+    });
+
+    applyMashImpact = () => {
+      const liveIndices = getLiveMashTargetIndices();
+      if (liveIndices.length === 0) return false;
+      applyStrike(liveIndices, 1);
+      finishAttackAnim(player.id, { fast: true });
+      return enemiesRef.current.some(enemy => !enemy.isDead && enemy.hp > 0);
+    };
+
+    applyMashBurnTick = ({ damageScale }) => {
+      const liveIndices = getLiveMashTargetIndices();
+      if (liveIndices.length === 0) return false;
+      applyStrike(liveIndices, 1, {
+        damageScale,
+        applySecondary: false,
+        bloodScale: 0,
+        flashTargets: false,
+        impactMotion: false,
+        playHitSound: false,
+      });
+      return enemiesRef.current.some(enemy => !enemy.isDead && enemy.hp > 0);
+    };
+
+    // Рикошет выбирает следующую живую цель по кругу. Координата запрашивается
+    // перед каждым вылетом, поэтому смерть врага посреди серии не роняет QTE.
+    requestVolleyTarget = (hitNumber) => {
+      for (let offset = 0; offset < targetIndices.length; offset += 1) {
+        const sourceIndex = targetIndices[(hitNumber + offset) % targetIndices.length];
+        const target = enemiesRef.current[sourceIndex];
+        if (!target || target.isDead || target.hp <= 0) continue;
+        const rect = enemyRefs.current[target.id]?.getBoundingClientRect();
+        if (!rect) continue;
+        return {
+          id: target.id,
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        };
+      }
+      return null;
+    };
+
+    applyVolleyImpact = (requestedTarget, hitNumber) => {
+      let targetIndex = enemiesRef.current.findIndex(enemy => (
+        enemy.id === requestedTarget?.id && !enemy.isDead && enemy.hp > 0
+      ));
+      if (targetIndex < 0) {
+        const redirected = requestVolleyTarget(hitNumber);
+        targetIndex = enemiesRef.current.findIndex(enemy => enemy.id === redirected?.id);
+      }
+      if (targetIndex < 0) return false;
+
+      // Первый удар использует полные 1.4 карты и единожды накладывает bleed.
+      // Каждый отбив добавляет ровно 0.4 исходного множителя.
+      const damageScale = hitNumber === 0 ? 1 : 0.4 / Math.max(0.01, card.mult);
+      applyStrike([targetIndex], 1, {
+        damageScale,
+        applySecondary: hitNumber === 0,
+      });
+      if (hitNumber === 0) finishAttackAnim(player.id, { fast: true });
+      return enemiesRef.current.some(enemy => !enemy.isDead && enemy.hp > 0);
     };
 
     // Завершение розыгрыша: проверка победы + анимация сброса карты.
@@ -5526,7 +5876,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     // ranged С КОЛЬЦОМ — цепочка «вердикт → вылет снаряда → полёт → импакт»:
     // пока замах ждёт на холде, ничего не летит и урон не приходит.
     // Игровое время: под слоу-мо тянется синхронно с визуалом, судья кольца — в реальном.
-    const impactDelay = isHorseHerd
+    const impactDelay = isHorseHerd || mashMounted || volleyMounted
       ? qtePromise
       : (isRangedSingle && qteRingMounted)
         ? qtePromise.then(() => {
@@ -5589,9 +5939,18 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     } else {
       // === ОДНОВРЕМЕННЫЙ УДАР (одиночная цель или AoE 'all') — как раньше ===
       Promise.all([impactDelay, qtePromise]).then(([, qteMult]) => safeAnim(() => {
-        setVfxList([]);
-        if (!isHorseHerd) {
-          applyStrike(targetIndices, qteMult);
+        const ownVfxIds = new Set(vfxArr.map(vfx => vfx.id));
+        const clearOwnVfx = () => setVfxList(previous => (
+          previous.filter(vfx => !ownVfxIds.has(vfx.id))
+        ));
+        const projectileProfile = CARD_PROJECTILE_VFX[card.vfxType];
+        if (projectileProfile) {
+          setTimeout(safeAnim(clearOwnVfx), projectileProfile.hitLingerMs);
+        } else {
+          clearOwnVfx();
+        }
+        if (!isHorseHerd && !mashMounted && !volleyMounted) {
+          if (targetIndices.length > 0) applyStrike(targetIndices, qteMult);
         } else if (chainBonusAtPlay > 0 && !chainBonusConsumed) {
           // Карта уже разыграна: усиление цепи тратится даже если ни одного коня
           // не удалось активировать.
@@ -5756,12 +6115,17 @@ export default function App({ combatLab = false, onExitCombatLab }) {
         setTimeout(() => setFlashingTargets(prev => prev.filter(id => !damagedIds.includes(id))), 250);
       }
 
+      const enemyImpactPoints = [];
       targets.forEach(target => {
         const rawDamage = rawDamageById[target.id] || 0;
         const pRect = avatarRefs.current[target.id]?.getBoundingClientRect();
         if (!pRect || rawDamage <= 0) return;
         const { hpLoss } = applyIncomingDamage(target, rawDamage);
         if (hpLoss <= 0) return;
+        enemyImpactPoints.push({
+          x: pRect.left + pRect.width / 2,
+          y: pRect.top + pRect.height / 2,
+        });
         fxRef.current?.spawnDamagePopup({
           id: Math.random(), value: hpLoss,
           x: pRect.left + pRect.width / 2, y: pRect.top + pRect.height / 2,
@@ -5772,6 +6136,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
         }));
         fxRef.current?.spawnBlood(blood);
       });
+      spawnImpactVfx('enemy_hit', enemyImpactPoints, impactScale, true);
 
       // Реф обновляем синхронно: следующая атака в async-очереди должна видеть
       // уже нанесённый урон, не дожидаясь React effect после setPlayers.
@@ -5954,6 +6319,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
                     duration: anticipationMs,
                     label: `Укус ${index + 1}/${targets.length}`,
                     deferPerfectImpact: true,
+                    trace: { stepIndex: index },
                   })
                 : Promise.resolve('miss');
               const [result] = await Promise.all([verdict, wait(anticipationMs)]);
@@ -6801,7 +7167,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       // Значки эффектов и полоска HP сюда не входят: они рисуются в пикселях
       // холста, а этот слой, наоборот, компенсирует масштаб сцены и живёт в
       // экранных.
-      enemyOverlay: (enemy, { isHoveredTarget, isBeingAttacked }) => {
+      enemyOverlay: (enemy, { isHoveredTarget }) => {
         const preview = hoverTargetPreview[enemy.id];
         return (
           <>
@@ -6814,9 +7180,6 @@ export default function App({ combatLab = false, onExitCombatLab }) {
             )}
             {isHoveredTarget && !isAnimating && preview && (
               <TargetReticle damage={preview.damage} lethal={preview.isLethal} />
-            )}
-            {isBeingAttacked && (
-              <div className="pointer-events-none absolute inset-0 z-50 flex animate-bounce items-center justify-center text-6xl text-red-500">💥</div>
             )}
           </>
         );
@@ -7166,10 +7529,13 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       <div 
         ref={appRef} 
         className="w-full h-full flex flex-col items-center relative overflow-y-auto overflow-x-hidden custom-scrollbar" 
-        style={{ transform: `translate(${shake.x * 0.5}px, ${shake.y * 0.5}px)` }}
+        style={{ transform: 'translate(0, 0)' }}
       >
       
-      {flash && <div className="absolute inset-0 z-[1000] bg-white opacity-20 pointer-events-none transition-opacity duration-100"></div>}
+      <div
+        ref={impactFlashRef}
+        className="absolute inset-0 z-[1000] bg-white opacity-0 pointer-events-none"
+      />
 
       
       {fullscreenError && (
@@ -7237,7 +7603,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
         <div className="absolute inset-0 flex items-center justify-center"><div className="text-[10px] font-black tracking-[0.2em] text-white drop-shadow-md uppercase">ПРОГРЕСС ОТРЯДА: {String(xp)} / {String(xpToNext)} XP (LVL {String(playerLevel)})</div></div>
       </div>
 
-      {vfxList.map(v => <CombatVfx key={v.id} vfx={v} />)}
+      <CombatVfxLayer ref={combatVfxLayerRef} />
       <FxLayer ref={fxRef} />
       {itemTooltip && <ItemTooltip item={itemTooltip.item} x={itemTooltip.x} y={itemTooltip.y} />}
       {effectTooltip && <EffectTooltip badges={effectTooltip.badges} x={effectTooltip.x} y={effectTooltip.y} />}
@@ -7470,7 +7836,6 @@ export default function App({ combatLab = false, onExitCombatLab }) {
                         {isHoveredTarget && !isAnimating && targetPreview && (
                           <TargetReticle damage={targetPreview.damage} lethal={targetPreview.isLethal} />
                         )}
-                        {isBeingAttacked && <div className="absolute inset-0 flex items-center justify-center text-red-500 text-6xl animate-bounce pointer-events-none z-50">💥</div>}
                       </div>
                     </div>
                   </div>
@@ -7590,7 +7955,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       )}
 
       {/* Общее QTE-кольцо; enemy-QTE дополнительно даёт авто-замах и белый сигнал окна. */}
-      {qte && qte.mode !== 'horse' && (
+      {qte && !['horse', 'mash', 'volley'].includes(qte.mode) && !qte.trace && (
         <QteOverlay
           key={qte.id}
           targetType={qte.targetType}
@@ -7655,6 +8020,43 @@ export default function App({ combatLab = false, onExitCombatLab }) {
           }}
         />
       )}
+      {qte?.mode === 'mash' && (
+        <MashQte
+          key={qte.id}
+          heroNode={qte.heroNode}
+          targetNodes={qte.targetNodes}
+          card={qte.card}
+          onImpact={() => qte.onMashImpact?.()}
+          onBurnTick={(tick) => qte.onMashBurnTick?.(tick)}
+          onResolve={(clicks) => qte.resolve(clicks)}
+          onDone={() => {
+            setQte(prev => {
+              if (prev && prev.id !== qte.id) return prev;
+              qteActiveRef.current = false;
+              return null;
+            });
+          }}
+        />
+      )}
+      {qte?.mode === 'volley' && (
+        <VolleyQte
+          key={qte.id}
+          heroNode={qte.heroNode}
+          card={qte.card}
+          onRequestTarget={(hitNumber) => qte.onRequestTarget?.(hitNumber)}
+          onPrompt={() => playSound('./assets/sfx/ui/click.wav', 0.35)}
+          onDeflect={() => playSound('./assets/sfx/combat/hit_light.wav', 0.4)}
+          onImpact={(targetNode, hitNumber) => qte.onVolleyImpact?.(targetNode, hitNumber)}
+          onResolve={(deflects) => qte.resolve(deflects)}
+          onDone={() => {
+            setQte(prev => {
+              if (prev && prev.id !== qte.id) return prev;
+              qteActiveRef.current = false;
+              return null;
+            });
+          }}
+        />
+      )}
       {qte?.mode === 'horse' && (
         <HorseHerdQte
           key={qte.id}
@@ -7676,7 +8078,41 @@ export default function App({ combatLab = false, onExitCombatLab }) {
           }}
         />
       )}
-      {qte?.mode === 'enemy' && qteHeroId && (
+      {/* «Руна защиты»: игрок сам прочерчивает линию маркером. Оверлей живёт
+          ровно столько, сколько длится подготовка босса — это дедлайн на
+          проход. Hit-stop и контрудар ждут настоящего контакта
+          (deferPerfectImpact). */}
+      {qte?.trace && (
+        <RuneTraceQte
+          key={qte.id}
+          targetNode={qte.targetNode}
+          durationMs={qte.duration}
+          stepIndex={qte.trace.stepIndex}
+          label={qte.card?.name}
+          resultLabels={qte.resultLabels}
+          showVignette={qte.focusVignette}
+          onGrab={() => playSound('./assets/sfx/ui/click.wav', 0.3)}
+          onBreak={() => playSound('./assets/sfx/ui/click.wav', 0.15)}
+          onRelease={(verdict) => {
+            showEnemyDefenseRipple(qte.heroId, verdict, defenseRippleDurationRef.current);
+            strikeEnemyDefense(qte.heroId);
+            playSound('./assets/sfx/combat/hit_light.wav', verdict === 'perfect' ? 0.35 : 0.2);
+          }}
+          onResolve={(res) => {
+            if (!qte.holdSlowMo) qteSlowMo.end();
+            if (res !== 'perfect') cancelEnemyDefenseWindup(qte.heroId);
+            qte.resolve(res);
+          }}
+          onDone={() => {
+            setQte(prev => {
+              if (prev && prev.id !== qte.id) return prev;
+              qteActiveRef.current = false;
+              return null;
+            });
+          }}
+        />
+      )}
+      {qte?.mode === 'enemy' && !qte.trace && qteHeroId && (
         <EnemyDefenseCue key={`defense-cue-${qte.id}`} targetNode={qte.targetNode} />
       )}
       {defenseRipple && (

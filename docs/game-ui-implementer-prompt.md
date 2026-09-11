@@ -38,7 +38,7 @@ Figma. Ты забираешь конкретный Figma frame, читаешь 
 1. `docs/screen-scale.md`;
 2. этот документ;
 3. целевой React-компонент и его родитель;
-4. `src/screenScale.js` и `src/ScreenStage.jsx`;
+4. `src/screenScale.js`, `src/ScreenStage.jsx` и `src/ui/StageBox.jsx`;
 5. `src/index.css` и конфигурацию Tailwind;
 6. существующие компоненты, которые визуально или функционально совпадают с
    элементами макета.
@@ -48,7 +48,7 @@ Figma. Ты забираешь конкретный Figma frame, читаешь 
 - сцены таверны и сущности — `docs/layout-designer-prompt.md`;
 - диалоги — `docs/dialogue-authoring.md`;
 - мета-интерфейсы и экономика — `docs/meta.md`;
-- боевой UI — `docs/core.md`;
+- боевой UI: правила — `docs/core.md`, вёрстка и слои — `docs/battle-migration.md`;
 - QTE — `docs/qte-design.md` и `docs/enemy-qte-design.md`.
 
 ## Обязательный процесс Figma → код
@@ -101,19 +101,23 @@ width  = 3200
 height = 1800
 ```
 
-Масштаб viewport:
+Масштаб viewport (`computeStageScale` в `src/screenScale.js`, с учётом
+леттербокса `SCREEN_PADDING_PX = 32` с каждой стороны):
 
 ```text
-scale = min(viewportWidth / 3200, viewportHeight / 1800)
+scale = min((viewportWidth - 64) / 3200, (viewportHeight - 64) / 1800)
 ```
 
-Примеры:
+Не пиши эту формулу заново в компоненте: бери `useStageScale()` внутри сцены и
+`useStageSpace()` для оверлеев снаружи неё.
+
+Примеры (в скобках — без леттербокса, «идеальный» масштаб холста):
 
 ```text
-1600×900  → 0.5
-1920×1080 → 0.6
-2560×1440 → 0.8
-3200×1800 → 1
+1600×900  → 0.464 (0.5)
+1920×1080 → 0.564 (0.6)
+2560×1440 → 0.764 (0.8)
+3200×1800 → 0.964 (1)
 ```
 
 Жёсткие правила:

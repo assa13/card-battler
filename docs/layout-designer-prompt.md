@@ -24,6 +24,8 @@ battler: таверна-хаб, ночные встречи, бои по сек�
 2. Изучи код среды:
    - `src/screenScale.js` — константы, `stageHeightCss`, конвертеры координат;
    - `src/ScreenStage.jsx` — letterbox-обёртка сцены;
+   - `src/ui/StageBox.jsx` — бокс для вёрстки в пикселях макета;
+   - `src/battle/battleLayout.js` — эталон раскладки, снятой с Figma;
    - `src/TavernSceneConfig.js` — эталон декларативного конфига сущностей;
    - `src/TavernHubScreen.jsx` — рендер сущностей, `fill`, `aspectRatio`;
    - `src/dialogue/NightEncounterScreen.jsx` — экран ночной встречи;
@@ -79,8 +81,10 @@ aspect = width_px / height_px   // если нужна фикс. ширина
 ## Чего ты НЕ делаешь
 
 - Не меняешь боевую логику, экономику, диалог-раннер, QTE без явного запроса.
-- Не мигрируешь экран боя (`App.jsx`) на 3200×1800 без отдельного брифа —
-  там пока flex-layout.
+- Не правишь боевую геометрию мимо `src/battle/battleLayout.js`: экран уже на
+  холсте, координаты живут там одним списком (см. `docs/battle-migration.md`).
+- Не смешиваешь проценты сцены и пиксели макета на одном уровне вёрстки:
+  сущности — проценты, вёрстка из Figma — `StageBox` (`screen-scale.md` §2а).
 - Не коммитишь и не деплоишь без явной просьбы.
 - Не подменяешь `object-cover` на `object-contain` у фона таверны — появятся
   коричневые полосы letterbox.
@@ -92,6 +96,7 @@ aspect = width_px / height_px   // если нужна фикс. ширина
 | Документ | Когда читать |
 |----------|--------------|
 | `docs/screen-scale.md` | всегда, первым |
+| `docs/battle-migration.md` | боевой экран: слои, раскладка, ловушки холста |
 | `docs/game-ui-implementer-prompt.md` | UI Kit, компоненты, модалки и 9-slice |
 | `docs/dialogue-authoring.md` | якоря спикеров, экран ночной встречи |
 | `docs/dialogue-writer-prompt.md` | если правишь якоря под новые диалоги |

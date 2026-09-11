@@ -4,7 +4,7 @@ export const WORM_ATTACK1_PLAYBACK = Object.freeze({
   sourceFps: 30,
   qteEndFrame: 6,
   pauseFrame: 11,
-  transitionMs: 1200,
+  transitionMs: 800,
 });
 
 export const SPINE_UNITS = Object.freeze({

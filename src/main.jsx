@@ -10,6 +10,7 @@ const DEV_ROUTES = import.meta.env.DEV
   ? {
       '#uikit': lazy(() => import('./dev/UiKitGallery.jsx')),
       '#battle': lazy(() => import('./battle/BattleScreen.jsx')),
+      '#dungeon': lazy(() => import('./dev/DungeonTest.jsx')),
     }
   : {}
 

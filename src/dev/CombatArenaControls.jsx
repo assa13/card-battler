@@ -68,7 +68,7 @@ const CombatArenaControls = ({
       )}
 
       <label className="block">
-        <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-500">QTE-карта</span>
+        <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-500">Карта атаки</span>
         <select className={selectClass} value={cardId} onChange={(event) => onCardChange(event.target.value)} disabled={busy}>
           {cardsByHero.map((group) => (
             <optgroup key={group.heroId} label={group.heroName}>
@@ -108,7 +108,7 @@ const CombatArenaControls = ({
           onClick={onRunCard}
           className={`${buttonClass} border-violet-500 bg-violet-500/15 text-violet-200 hover:bg-violet-500/25`}
         >
-          Магия
+          Разыграть карту
         </button>
         <button
           type="button"

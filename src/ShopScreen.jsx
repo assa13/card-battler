@@ -1,9 +1,14 @@
 import { useMemo, useState } from 'react';
+import ScreenStage from './ScreenStage';
+import StageBox from './ui/StageBox';
 import AtlasSprite from './AtlasSprite';
+import NineSlice from './ui/NineSlice';
+import UiSprite from './ui/UiSprite';
+import RarityWash from './ui/RarityWash';
+import { BASE_ASPECT } from './screenScale';
 import {
   EMBER_JUNK_THRESHOLD,
   ITEM_RARITIES,
-  RARITY_TINT,
   getItemBuyPrice,
   getItemIconUrl,
   getItemSellPrice,
@@ -11,20 +16,63 @@ import {
   sumJunkPoints,
 } from './itemSystem';
 
-const ItemIcon = ({ item }) => {
-  if (!item) return null;
-  const tint = item.tinted ? RARITY_TINT[item.rarity] : null;
-  return (
-    <div className="relative h-full w-full">
-      <img src={getItemIconUrl(item.icon)} alt={item.name || ''} className="h-full w-full object-cover" draggable={false} />
-      {tint && (
-        <div className="pointer-events-none absolute inset-0" style={{ backgroundColor: tint, opacity: 0.5 }} />
-      )}
-    </div>
-  );
-};
+// Экран магазина на холсте 3200×1800.
+//
+// Сцена — внутри ScreenStage: бармен стоит процентами сцены, прилавок —
+// широкой полосой перед ним (z выше, перекрывает снизу, как стойка бармена
+// в таверне: npc z 10, bar_counter z 20). Панель — StageBox в пикселях макета
+// с единым transform: scale(). Модальный фон, тултипы — снаружи сцены.
+//
+// UI Kit: панель — NineSlice location_frame (та же рамка, что у арены, режется
+// по границам 529/529/378/378, центр 45×32 тянется); слоты — UiSprite item_slot
+// + RarityWash; кнопки — NineSlice button_red; дорожка котла — PB_empty + PB.
+// Текст поверх атласа — Counter: кегль = высота бокса / 0.625 (капитель
+// шрифта), привязка к центру бокса — Figma отдаёт боксы обрезанными по
+// cap-height.
 
-const PAGE_SIZE = 35;
+// Текст поверх атласа (см. BattleScreen Counter).
+const FONT = "'Greybeard', sans-serif";
+const TEXT_COLOR = '#fffdcc';
+const TEXT_SHADOW = '0px 4px 0px black';
+
+const Counter = ({ children, style }) => (
+  <p
+    className="pointer-events-none absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-center"
+    style={{ fontFamily: FONT, fontWeight: 700, color: TEXT_COLOR, textShadow: TEXT_SHADOW, ...style }}
+  >
+    {children}
+  </p>
+);
+
+// ─── Геометрия на холсте 3200×1800 ─────────────────────────────────────────
+// Бармен — та же поза, что npc_bartender в таверне, крупнее. Прилавок перед
+// ним: ширина — натуральная (w-auto по родному aspect картинки, без aspect-
+// гаданий в конфиге), высота 32% сцены, верхняя кромка режет торс бармена.
+const BARKEEP = { left: '28%', top: '42%', scale: 0.74, zIndex: 10 };
+const COUNTER = { left: '24%', top: '68%', scale: 0.32, zIndex: 20 };
+
+// Панель: правые две пятых холста. Контент центрируется внутри панели:
+// боковые отступы симметричны (IN.left == IN.right), сетка — по центру
+// внутренней ширины, по вертикали — по центру свободного места между
+// вкладками и низом (см. gridTopFor).
+const PANEL = { x: 1813, y: 198, width: 1235, height: 1404, zIndex: 30 };
+const IN = { left: 125, right: 125, top: 116 };
+const INNER_WIDTH = PANEL.width - IN.left - IN.right; // 985
+const HEADER = { top: 116, height: 90, titleSize: 76, walletSize: 40, closeSize: 44 };
+const TABS = { top: 226, height: 110, gap: 16 }; // высота >= минимума button_red 107
+const CAULDRON = { top: 402, height: 118 };
+// Сетка заполняет панель по ширине целиком: 5 × 184 с шагом 200 = 984 ≈ 985.
+const GRID = { cols: 5, rows: 3, top: 464, slotSize: 184, step: 200, iconInset: 14 };
+const FOOTER = { button: { width: 560, height: 113 } };
+const PB_TRACK = { left: 18, right: 17 };
+
+// Свободное место между вкладками (низ 336) и низом (верх кнопки 1175):
+// 839px на сетку 584px — центрируем с полями ~128px. С котлом (118+6+584=708)
+// сетка едет вниз на его высоту, котёл — по центру оставшегося.
+const gridTopFor = (tab) => (tab === 'cauldron' ? GRID.top + CAULDRON.height + 6 : GRID.top);
+
+const PAGE_SIZE = GRID.cols * GRID.rows;
+
 const BARTENDER_SPRITE = {
   url: './assets/tavern/barman.webp',
   cols: 4,
@@ -33,24 +81,63 @@ const BARTENDER_SPRITE = {
   fps: 4,
 };
 
-const ItemCell = ({ item, selected, onClick, onHover, onLeave }) => {
-  const rarity = ITEM_RARITIES[item?.rarity];
-  return (
-    <button
-      type="button"
-      disabled={!item}
-      onClick={onClick}
-      onMouseEnter={onHover}
-      onMouseLeave={onLeave}
-      className={`relative flex h-[52px] w-[52px] items-center justify-center overflow-hidden rounded-xl border-2 bg-slate-900 transition ${
-        selected ? 'scale-105 brightness-150' : 'hover:brightness-125'
-      } ${item ? rarity?.border || 'border-slate-600' : 'border-dashed border-slate-700'}`}
-      style={item ? { boxShadow: selected ? `0 0 18px ${rarity?.color || '#fff'}` : undefined } : undefined}
-    >
-      {item && <ItemIcon item={item} />}
-    </button>
-  );
-};
+// Слот предмета: гнездо из атласа, иконка — cover во внутренней рамке
+// (заполняет плитку целиком, без letterbox-полей), заливка редкости под ней.
+// Рамку рисует сам атлас.
+const ItemCell = ({ item, selected, onClick, onHover, onLeave }) => (
+  <button
+    type="button"
+    disabled={!item}
+    onClick={onClick}
+    onMouseEnter={onHover}
+    onMouseLeave={onLeave}
+    className={`relative block transition-transform ${
+      !item ? 'pointer-events-none' : ''
+    } ${selected ? 'scale-105' : !item ? '' : 'hover:scale-105'}`}
+    style={{
+      filter: selected
+        ? 'brightness(1.5) drop-shadow(0 0 18px rgba(255,255,255,0.65))'
+        : undefined,
+    }}
+  >
+    <UiSprite name="item_slot" width={GRID.slotSize} height={GRID.slotSize}>
+      {item && (
+        <>
+          <RarityWash color={(ITEM_RARITIES[item.rarity] || ITEM_RARITIES.COMMON).color} inset={10} radius={12} />
+          <div
+            className="absolute overflow-hidden"
+            style={{ left: GRID.iconInset, top: GRID.iconInset, right: GRID.iconInset, bottom: GRID.iconInset }}
+          >
+            <img
+              src={getItemIconUrl(item.icon)}
+              alt={item.name || ''}
+              draggable={false}
+              className="h-full w-full select-none object-cover"
+              style={{ imageRendering: 'pixelated' }}
+            />
+          </div>
+        </>
+      )}
+    </UiSprite>
+  </button>
+);
+
+// Кнопка: красная рамка атласа + живой текст по центру
+// (запечённого текста в атласе нет — см. battle-migration).
+const ActionButton = ({ disabled, onClick, children }) => (
+  <button
+    type="button"
+    disabled={disabled}
+    onClick={onClick}
+    className="relative block transition-transform enabled:hover:scale-105 enabled:active:scale-95 disabled:opacity-60"
+    style={{ width: FOOTER.button.width, height: FOOTER.button.height }}
+  >
+    <NineSlice name="button_red" width={FOOTER.button.width} height={FOOTER.button.height} />
+    <Counter style={{ left: FOOTER.button.width / 2, top: FOOTER.button.height / 2, fontSize: 36 }}>
+      {children}
+    </Counter>
+  </button>
+);
 
 export default function ShopScreen({
   stock,
@@ -102,138 +189,196 @@ export default function ShopScreen({
     setHovered({ item, x: event.clientX, y: event.clientY });
   };
 
+  const gridTop = gridTopFor(tab);
+  // Сетка — по центру внутренней ширины; низ — по центру (баланс слева,
+  // действие справа симметричны: IN.left/IN.right одинаковы с обеих сторон).
+  const gridWidth = (GRID.cols - 1) * GRID.step + GRID.slotSize;
+  const gridLeft = IN.left + (INNER_WIDTH - gridWidth) / 2;
+  const footerTop = PANEL.height - IN.top - FOOTER.button.height;
+  const tabWidth = (INNER_WIDTH - TABS.gap * 2) / 3;
+  const fillMin = 12;
+  const fillWidth = totalProgress > 0
+    ? Math.max(fillMin, Math.round((INNER_WIDTH - PB_TRACK.left - PB_TRACK.right) * Math.min(1, totalProgress / EMBER_JUNK_THRESHOLD)))
+    : 0;
+  // Шапка: заголовок и кошелёк — симметрично от краёв контента: заголовок
+  // центрирован в левой половине, кошелёк — в правой, крестик в самом углу.
+  const closeLeft = PANEL.width - IN.right - HEADER.closeSize;
+  const titleCenter = IN.left + INNER_WIDTH / 4;
+  const walletCenter = IN.left + (INNER_WIDTH * 3) / 4 - HEADER.closeSize / 2;
+
   return (
-    <div className="fixed inset-0 z-[9450] bg-black" onPointerDown={(event) => event.stopPropagation()}>
-      <div className="pointer-events-none absolute bottom-0 left-0 h-full w-[60%] overflow-hidden">
-        <div className="absolute inset-0 origin-bottom" style={{ animation: 'shopBarkeepFocus 480ms cubic-bezier(0.16, 1, 0.3, 1) both' }}>
-          <div className="absolute bottom-[25%] left-[43%] z-[1] h-[63%] -translate-x-1/2">
-            <AtlasSprite sprite={BARTENDER_SPRITE} alt="Бармен" />
-          </div>
+    <div className="fixed inset-0 z-[9450]" style={{ backgroundColor: '#000' }} onPointerDown={(event) => event.stopPropagation()}>
+      <ScreenStage aspectRatio={BASE_ASPECT} backgroundColor="#000">
+        {/* Бармен за прилавком */}
+        <div
+          className="absolute"
+          style={{
+            left: BARKEEP.left,
+            top: BARKEEP.top,
+            height: `${BARKEEP.scale * 100}%`,
+            aspectRatio: '1',
+            transform: 'translate(-50%, -50%)',
+            zIndex: BARKEEP.zIndex,
+          }}
+        >
+          <AtlasSprite sprite={BARTENDER_SPRITE} alt="Бармен" />
+        </div>
+        {/* Прилавок — перед барменом (z выше), ширина натуральная */}
+        <div
+          className="absolute"
+          style={{
+            left: COUNTER.left,
+            top: COUNTER.top,
+            height: `${COUNTER.scale * 100}%`,
+            transform: 'translate(-50%, -50%)',
+            zIndex: COUNTER.zIndex,
+          }}
+        >
           <img
             src="./assets/tavern/bar_counter.webp"
             alt=""
             draggable={false}
-            className="absolute bottom-[5%] left-1/2 z-[2] w-[96%] -translate-x-1/2 select-none object-contain"
+            className="block h-full w-auto select-none"
             style={{ imageRendering: 'pixelated' }}
           />
         </div>
-        <style>{`
-          @keyframes shopBarkeepFocus {
-            from { opacity: 0; transform: scale(0.72) translateY(8%); }
-            to { opacity: 1; transform: scale(1.18) translateY(0); }
-          }
-        `}</style>
-      </div>
-      <section
-        className="absolute right-[6.8%] top-1/2 z-10 flex h-[78%] w-[38.6%] -translate-y-1/2 flex-col gap-4 rounded-[18px] border-[5px] border-[#d4a359] bg-[#0b0a09] p-7 text-[#e8dcd0] shadow-[14px_18px_20px_rgba(0,0,0,0.75)]"
-        style={{ fontFamily: "'Greybeard', 'Geist Mono', monospace" }}
-      >
-        <header className="flex items-center justify-between">
-          <h1 className="text-4xl font-black text-[#f1b82d]">Магазин</h1>
-          <button type="button" onClick={onClose} className="text-2xl text-[#8c7a70] hover:text-white">✕</button>
-        </header>
 
-        <nav className="grid grid-cols-3 gap-2">
-          {[
-            ['buy', 'КУПИТЬ'],
-            ['sell', 'ПРОДАТЬ'],
-            ['cauldron', 'КОТЁЛ'],
-          ].map(([id, label]) => (
+        {/* Панель: StageBox в пикселях макета, внутри — единый scale() */}
+        <StageBox x={PANEL.x} y={PANEL.y} width={PANEL.width} height={PANEL.height} zIndex={PANEL.zIndex}>
+          <div style={{ position: 'relative', width: PANEL.width, height: PANEL.height }}>
+            <NineSlice name="location_frame" width={PANEL.width} height={PANEL.height} />
+
+            {/* Заголовок слева, кошелёк справа, крестик в углу */}
+            <Counter style={{ left: titleCenter, top: HEADER.top + HEADER.height / 2, fontSize: HEADER.titleSize }}>
+              Магазин
+            </Counter>
+            <Counter style={{ left: walletCenter, top: HEADER.top + HEADER.height / 2, fontSize: HEADER.walletSize }}>
+              {`🪙 ${gold}  🔥 ${soulEmbers}`}
+            </Counter>
             <button
-              key={id}
               type="button"
-              onClick={() => switchTab(id)}
-              className={`rounded-lg border-2 px-2 py-3 text-sm font-black ${
-                tab === id ? 'border-[#d4a359] bg-[#120f0d] text-[#f1b82d]' : 'border-[#8c7a70] text-[#8c7a70] opacity-70'
-              }`}
+              onClick={onClose}
+              className="absolute flex items-center justify-center transition-transform hover:scale-110 active:scale-95"
+              style={{ left: closeLeft, top: HEADER.top + (HEADER.height - HEADER.closeSize) / 2, width: HEADER.closeSize, height: HEADER.closeSize }}
+              aria-label="Закрыть магазин"
             >
-              {tab === id ? `[ ${label} ]` : label}
+              <Counter style={{ left: '50%', top: '50%', fontSize: 44 }}>✕</Counter>
             </button>
-          ))}
-        </nav>
 
-        {tab === 'cauldron' && (
-          <div className="relative flex h-32 items-center justify-center overflow-hidden rounded-xl border-2 border-[#805b2e] bg-gradient-to-b from-[#17100d] to-black">
-            <div className="absolute bottom-[-42px] h-28 w-44 rounded-[50%] border-4 border-[#805b2e] bg-[#171311] shadow-[0_0_35px_rgba(139,92,246,0.45)]" />
-            <div className="absolute bottom-7 text-5xl drop-shadow-[0_0_20px_rgba(96,165,250,0.9)]">♨</div>
-            <div className="absolute left-5 right-5 top-4">
-              <div className="mb-1 flex justify-between text-[10px] text-[#8c7a70]">
-                <span>ОГОНЁК ДУШИ</span>
-                <span>{String(totalProgress)} / {String(EMBER_JUNK_THRESHOLD)}</span>
+            {/* Вкладки */}
+            {[['buy', 'КУПИТЬ'], ['sell', 'ПРОДАТЬ'], ['cauldron', 'КОТЁЛ']].map(([id, label], index) => {
+              const active = tab === id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => switchTab(id)}
+                  className="absolute block transition-transform hover:scale-[1.03] active:scale-95"
+                  style={{ left: IN.left + index * (tabWidth + TABS.gap), top: TABS.top, width: tabWidth, height: TABS.height }}
+                >
+                  <NineSlice name="button_red" width={tabWidth} height={TABS.height} style={active ? undefined : { filter: 'brightness(0.55)' }} />
+                  <Counter style={{ left: tabWidth / 2, top: TABS.height / 2, fontSize: 40, opacity: active ? 1 : 0.7 }}>
+                    {label}
+                  </Counter>
+                </button>
+              );
+            })}
+
+            {/* Котёл: дорожка PB_empty + живое заполнение PB */}
+            {tab === 'cauldron' && (
+              <div className="absolute" style={{ left: IN.left, top: CAULDRON.top }}>
+                <NineSlice name="PB_empty" width={INNER_WIDTH} height={38}>
+                  {fillWidth > 0 && (
+                    <NineSlice name="PB" width={fillWidth} height={16} style={{ position: 'absolute', left: PB_TRACK.left, top: 11 }} />
+                  )}
+                </NineSlice>
+                <Counter style={{ left: INNER_WIDTH / 2, top: 62, fontSize: 32 }}>
+                  {`${totalProgress} / ${EMBER_JUNK_THRESHOLD}`}
+                </Counter>
               </div>
-              <div className="h-3 overflow-hidden rounded-full border border-[#805b2e] bg-black">
-                <div className="h-full bg-gradient-to-r from-cyan-500 via-violet-500 to-fuchsia-500" style={{ width: `${Math.min(100, totalProgress / EMBER_JUNK_THRESHOLD * 100)}%` }} />
-              </div>
+            )}
+
+            {/* Сетка слотов во всю ширину контента */}
+            {slots.map((item, index) => {
+              const row = Math.floor(index / GRID.cols);
+              const col = index % GRID.cols;
+              const selected = tab === 'cauldron'
+                ? Boolean(item && cauldronUids.includes(item.uid))
+                : item?.uid === selectedUid;
+              return (
+                <div
+                  key={item?.uid || `empty-${index}`}
+                  className="absolute"
+                  style={{ left: gridLeft + col * GRID.step, top: gridTop + row * GRID.step }}
+                >
+                  <ItemCell
+                    item={item}
+                    selected={selected}
+                    onClick={() => {
+                      if (!item) return;
+                      if (tab === 'cauldron') toggleCauldron(item.uid);
+                      else setSelectedUid(item.uid);
+                    }}
+                    onHover={(event) => showTooltip(item, event)}
+                    onLeave={() => setHovered(null)}
+                  />
+                </div>
+              );
+            })}
+
+            {/* Низ: пагинация слева, действие справа */}
+            <div className="absolute" style={{ left: IN.left, top: footerTop + (FOOTER.button.height - 56) / 2, width: 300, height: 56 }}>
+              <button
+                type="button"
+                disabled={safePage <= 0}
+                onClick={() => setPage(value => Math.max(0, value - 1))}
+                className="absolute top-0 disabled:opacity-20"
+                style={{ left: 0, position: 'absolute', width: 56, height: 56 }}
+                aria-label="Назад"
+              >
+                <Counter style={{ left: '50%', top: '50%', fontSize: 40 }}>◀</Counter>
+              </button>
+              <Counter style={{ left: 150, top: 28, fontSize: 32 }}>{`${safePage + 1} / ${pageCount}`}</Counter>
+              <button
+                type="button"
+                disabled={safePage >= pageCount - 1}
+                onClick={() => setPage(value => Math.min(pageCount - 1, value + 1))}
+                className="absolute top-0 disabled:opacity-20"
+                style={{ right: 0, position: 'absolute', width: 56, height: 56 }}
+                aria-label="Вперёд"
+              >
+                <Counter style={{ left: '50%', top: '50%', fontSize: 40 }}>▶</Counter>
+              </button>
+            </div>
+            <div className="absolute" style={{ right: IN.right, top: footerTop }}>
+              {tab === 'buy' && (
+                <ActionButton
+                  disabled={!selectedItem || gold < getItemBuyPrice(selectedItem)}
+                  onClick={() => { if (onBuy(selectedItem)) setSelectedUid(null); }}
+                >
+                  {selectedItem ? `КУПИТЬ · ${getItemBuyPrice(selectedItem)} 🪙` : 'КУПИТЬ'}
+                </ActionButton>
+              )}
+              {tab === 'sell' && (
+                <ActionButton
+                  disabled={!selectedItem}
+                  onClick={() => { if (onSell(selectedItem.uid)) setSelectedUid(null); }}
+                >
+                  {selectedItem ? `ПРОДАТЬ · ${getItemSellPrice(selectedItem)} 🪙` : 'ПРОДАТЬ'}
+                </ActionButton>
+              )}
+              {tab === 'cauldron' && (
+                <ActionButton
+                  disabled={!canConvert}
+                  onClick={() => { if (onConvert(cauldronUids)) setCauldronUids([]); }}
+                >
+                  ПРЕОБРАЗОВАТЬ
+                </ActionButton>
+              )}
             </div>
           </div>
-        )}
-
-        <div className="grid min-h-0 flex-1 grid-cols-7 content-start justify-items-center gap-2 overflow-hidden rounded-xl border-2 border-[#805b2e] bg-[#120f0d] p-3">
-          {slots.map((item, index) => {
-            const selected = tab === 'cauldron'
-              ? Boolean(item && cauldronUids.includes(item.uid))
-              : item?.uid === selectedUid;
-            return (
-              <ItemCell
-                key={item?.uid || `empty-${index}`}
-                item={item}
-                selected={selected}
-                onClick={() => {
-                  if (!item) return;
-                  if (tab === 'cauldron') toggleCauldron(item.uid);
-                  else setSelectedUid(item.uid);
-                }}
-                onHover={(event) => showTooltip(item, event)}
-                onLeave={() => setHovered(null)}
-              />
-            );
-          })}
-        </div>
-
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-[10px] text-[#8c7a70]">ВАШ БАЛАНС:</p>
-            <p className="text-2xl font-black text-[#f1b82d]">🪙 {String(gold)} <span className="ml-3 text-sky-300">🔥 {String(soulEmbers)}</span></p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button type="button" disabled={safePage <= 0} onClick={() => setPage(value => Math.max(0, value - 1))} className="disabled:opacity-20">◀</button>
-            <span className="text-sm">{String(safePage + 1)} / {String(pageCount)}</span>
-            <button type="button" disabled={safePage >= pageCount - 1} onClick={() => setPage(value => Math.min(pageCount - 1, value + 1))} className="disabled:opacity-20">▶</button>
-            {tab === 'buy' && (
-              <button
-                type="button"
-                disabled={!selectedItem || gold < getItemBuyPrice(selectedItem)}
-                onClick={() => { if (onBuy(selectedItem)) setSelectedUid(null); }}
-                className="rounded-lg border-4 border-[#245339] bg-[#3b7a57] px-6 py-3 font-black disabled:opacity-35"
-              >
-                КУПИТЬ {selectedItem ? `· ${getItemBuyPrice(selectedItem)} 🪙` : ''}
-              </button>
-            )}
-            {tab === 'sell' && (
-              <button
-                type="button"
-                disabled={!selectedItem}
-                onClick={() => { if (onSell(selectedItem.uid)) setSelectedUid(null); }}
-                className="rounded-lg border-4 border-[#6b321f] bg-[#8c3f28] px-6 py-3 font-black disabled:opacity-35"
-              >
-                ПРОДАТЬ {selectedItem ? `· ${getItemSellPrice(selectedItem)} 🪙` : ''}
-              </button>
-            )}
-            {tab === 'cauldron' && (
-              <button
-                type="button"
-                disabled={!canConvert}
-                onClick={() => {
-                  if (onConvert(cauldronUids)) setCauldronUids([]);
-                }}
-                className="rounded-lg border-4 border-violet-900 bg-violet-700 px-6 py-3 font-black disabled:opacity-35"
-              >
-                ПРЕОБРАЗОВАТЬ
-              </button>
-            )}
-          </div>
-        </div>
-      </section>
+        </StageBox>
+      </ScreenStage>
       {hovered && renderItemTooltip?.(hovered)}
     </div>
   );
