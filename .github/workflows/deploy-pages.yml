@@ -5,6 +5,7 @@ on:
     branches:
       - master
       - main
+      - site-release-20260911
   workflow_dispatch:
 
 permissions:
