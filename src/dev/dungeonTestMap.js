@@ -2,7 +2,7 @@
 export const ATLAS_URL = './assets/dev/dungeon/figma-crypt.png?v=cracked-wall-e-20260911';
 export const FIGMA_URL = 'https://www.figma.com/design/zG9zihyiBTJFjR5dVta74Z/card-crawler?node-id=328-5193';
 export const SOURCE_TILE = 82;
-export const TILE = 41;
+export const TILE = 32;
 export const BACKGROUND = '#3b3955';
 export const ATLAS_COLUMNS = 11;
 export const ATLAS_ROWS = 8;

@@ -1,17 +1,22 @@
 import { useEffect, useRef, useState } from 'react';
-import { ATLAS_URL, FIGMA_URL, COLS, ROWS, LEVELS } from './dungeonTestMap.js';
+import { ATLAS_URL } from './dungeonTestMap.js';
+import { COLS, ROWS, ENTITY_URLS, CHARACTERS_FIGMA_URL, generateDungeon } from './dungeonGenerator.js';
 import { WIDTH, HEIGHT, createDungeonRenderer } from './dungeonRenderer.js';
 import './DungeonTest.css';
+
+const newSeed = () => crypto.getRandomValues(new Uint32Array(1))[0];
 
 export default function DungeonTest() {
   const canvasRef = useRef(null);
   const frameRef = useRef(null);
-  const [atlas, setAtlas] = useState(null);
+  const [assets, setAssets] = useState(null);
   const [error, setError] = useState(false);
   const [pixelScale, setPixelScale] = useState(1);
   const [showGrid, setShowGrid] = useState(false);
-  const [levelIndex, setLevelIndex] = useState(1);
-  const level = LEVELS[levelIndex];
+  const [level, setLevel] = useState(() => generateDungeon(newSeed()));
+  const [seedInput, setSeedInput] = useState(String(level.seed));
+  const enemies = level.entities.filter(entity => entity.kind === 'enemy').length;
+  const chests = level.entities.filter(entity => entity.kind === 'chest').length;
 
   useEffect(() => {
     const observer = new ResizeObserver(([entry]) => {
@@ -22,49 +27,69 @@ export default function DungeonTest() {
   }, []);
 
   useEffect(() => {
-    const image = new Image();
-    image.onload = () => setAtlas(image);
-    image.onerror = () => setError(true);
-    image.src = ATLAS_URL;
-    return () => { image.onload = null; image.onerror = null; };
+    let active = true;
+    const load = url => new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = reject;
+      image.src = url;
+    });
+    Promise.all(Object.entries({ atlas: ATLAS_URL, ...ENTITY_URLS }).map(async ([name, url]) => [name, await load(url)]))
+      .then(entries => { if (active) setAssets(Object.fromEntries(entries)); })
+      .catch(() => { if (active) setError(true); });
+    return () => { active = false; };
   }, []);
 
   useEffect(() => {
-    if (!atlas) return;
+    if (!assets) return;
     const ctx = canvasRef.current.getContext('2d');
-    if (ctx) createDungeonRenderer(ctx, atlas, level.tiles)({ showGrid });
-  }, [atlas, showGrid, level]);
+    if (ctx) createDungeonRenderer(ctx, assets.atlas, level, assets)({ showGrid });
+  }, [assets, showGrid, level]);
+
+  function generate(seed) {
+    const next = generateDungeon(seed);
+    setLevel(next);
+    setSeedInput(String(next.seed));
+  }
 
   return (
     <main className="dungeon-test">
       <header className="dungeon-test-header">
         <div>
-          <p className="dungeon-test-eyebrow">Тестовый уровень · тайлсет из Figma</p>
-          <h1>{level.title}</h1>
+          <p className="dungeon-test-eyebrow">Генератор подземелий · {COLS} × {ROWS}</p>
+          <h1>Холодные крипты</h1>
         </div>
         <nav aria-label="Материалы уровня">
           <a href={ATLAS_URL} target="_blank" rel="noreferrer">Тайлсет ↗</a>
-          <a href={FIGMA_URL} target="_blank" rel="noreferrer">Figma ↗</a>
+          <a href={CHARACTERS_FIGMA_URL} target="_blank" rel="noreferrer">Персонажи ↗</a>
           <a href="#">К игре ↗</a>
         </nav>
       </header>
-      <div className="dungeon-test-levels" role="group" aria-label="Выбор уровня">
-        {LEVELS.map((item, index) => (
-          <button key={item.id} type="button" aria-pressed={levelIndex === index}
-            onClick={() => setLevelIndex(index)}>
-            {String(index + 1).padStart(2, '0')} · {item.title}
-          </button>
-        ))}
+      <div className="dungeon-test-controls">
+        <button className="dungeon-test-generate" type="button" onClick={() => generate(newSeed())}>Новый уровень ↻</button>
+        <form className="dungeon-test-seed" onSubmit={event => { event.preventDefault(); generate(Number(seedInput)); }}>
+          <label htmlFor="dungeon-seed">Код карты</label>
+          <input id="dungeon-seed" type="number" min="0" max="4294967295" step="1" required
+            value={seedInput} onChange={event => setSeedInput(event.target.value)} />
+          <button type="submit">Открыть</button>
+        </form>
+      </div>
+      <div className="dungeon-test-stats" aria-label="Состав уровня">
+        <span>Комнаты <b>{level.rooms.length}</b></span>
+        <span>Враги <b>{enemies}</b></span>
+        <span>Сундуки <b>{chests}</b></span>
+        <span className="dungeon-test-entry">Вход <b>1</b></span>
+        <span className="dungeon-test-exit">Выход <b>1</b></span>
       </div>
       <div ref={frameRef} className="dungeon-test-frame">
-        <canvas ref={canvasRef} width={WIDTH} height={HEIGHT}
+        <canvas ref={canvasRef} width={WIDTH} height={HEIGHT} role="img"
           style={{ width: WIDTH * pixelScale, height: HEIGHT * pixelScale }}
-          aria-label={`${level.title}. ${level.description}`} />
+          aria-label={`Карта ${level.seed}: ${COLS} на ${ROWS} тайлов, ${level.rooms.length} комнаты, врагов ${enemies}, сундуков ${chests}. Герой у единственного входа слева, единственный выход справа.`} />
       </div>
       <footer className="dungeon-test-footer">
         <div>
-          <p role="status">{error ? 'Не удалось загрузить тайлсет. Обнови страницу.' : !atlas ? 'Загрузка тайлсета…' : level.description}</p>
-          <small>{COLS} × {ROWS} клеток · квадратные тайлы · 2.5D, вид сверху</small>
+          <p role="status">{error ? 'Не удалось загрузить изображения. Обнови страницу.' : !assets ? 'Загрузка подземелья…' : `Карта № ${level.seed} · ${COLS} × ${ROWS} тайлов`}</p>
+          <small>Герой у голубого входа · золотой выход в последней комнате</small>
         </div>
         <button type="button" aria-pressed={showGrid} onClick={() => setShowGrid(value => !value)}>
           {showGrid ? 'Скрыть сетку' : 'Показать сетку'}
@@ -73,4 +98,3 @@ export default function DungeonTest() {
     </main>
   );
 }
-
