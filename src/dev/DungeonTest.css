@@ -11,7 +11,7 @@
 .dungeon-test-stats b { margin-left: 4px; color: #d3dce7; }
 .dungeon-test-stats .dungeon-test-entry, .dungeon-test-entry b { color: #91d8ee; }
 .dungeon-test-stats .dungeon-test-exit, .dungeon-test-exit b { color: #e3bd78; }
-.dungeon-test-frame { border: 2px solid #55556b; background: #3b3955; padding: 10px; overflow: auto; }
+.dungeon-test-frame { border: 2px solid #55556b; background: #32314b; padding: 10px; overflow: auto; }
 .dungeon-test canvas { display: block; margin: auto; image-rendering: pixelated; max-width: none; }
 .dungeon-test-footer { display: flex; justify-content: space-between; align-items: center; gap: 20px; margin-top: 20px; }
 .dungeon-test-footer p { margin: 0 0 8px; font-size: 15px; }

@@ -117,7 +117,8 @@ export function generateDungeon(seed) {
   }
   const entities = [{ id: 'hero', kind: 'hero', sprite: 'hero', ...portals[0].access }];
   const occupied = new Set(portals.map(portal => key(portal.access)));
-  const candidates = shuffle(floor.filter(cell => !reserved.has(key(cell)) && !occupied.has(key(cell))));
+  const candidates = shuffle(floor.filter(cell => !reserved.has(key(cell)) && !occupied.has(key(cell)) &&
+    floorNeighbors(tiles, cell).some(neighbor => reserved.has(key(neighbor)))));
   function place(kind, sprite, preferred = []) {
     const cell = [...preferred, ...candidates].find(candidate => !occupied.has(key(candidate)) && !reserved.has(key(candidate)));
     if (!cell) return false;
@@ -125,9 +126,10 @@ export function generateDungeon(seed) {
     entities.push({ id: `${kind}-${entities.length}`, kind, sprite, ...cell });
     return true;
   }
-  const chestCount = integer(2, 3);
+  const chestCount = Math.min(integer(2, 3), candidates.length - 4);
   for (let i = 0; i < chestCount; i++) place('chest', 'chest', shuffle(deadEnds));
-  const enemyCount = integer(3, 5);
+  const freeCells = candidates.filter(cell => !occupied.has(key(cell))).length;
+  const enemyCount = Math.min(integer(3, 5), freeCells - 1);
   for (let i = 0; i < enemyCount; i++) place('enemy', pick(ENEMY_SPRITES));
   for (let i = 0; i < 2; i++) place('decor', pick(DECOR_SPRITES));
 

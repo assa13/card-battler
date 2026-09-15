@@ -76,8 +76,10 @@ export default function DungeonTest() {
       </div>
       <div className="dungeon-test-stats" aria-label="Состав уровня">
         <span>Комнаты <b>{level.rooms.length}</b></span>
+        <span>Тупики <b>{level.deadEnds.length}</b></span>
         <span>Враги <b>{enemies}</b></span>
         <span>Сундуки <b>{chests}</b></span>
+        <span>Факелы <b>{level.lights.length}</b></span>
         <span className="dungeon-test-entry">Вход <b>1</b></span>
         <span className="dungeon-test-exit">Выход <b>1</b></span>
       </div>
@@ -89,7 +91,7 @@ export default function DungeonTest() {
       <footer className="dungeon-test-footer">
         <div>
           <p role="status">{error ? 'Не удалось загрузить изображения. Обнови страницу.' : !assets ? 'Загрузка подземелья…' : `Карта № ${level.seed} · ${COLS} × ${ROWS} тайлов`}</p>
-          <small>Герой у голубого входа · золотой выход в последней комнате</small>
+          <small>Голубая лестница — вход · золотая — выход · сундуки в тупиках</small>
         </div>
         <button type="button" aria-pressed={showGrid} onClick={() => setShowGrid(value => !value)}>
           {showGrid ? 'Скрыть сетку' : 'Показать сетку'}
