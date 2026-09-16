@@ -1001,7 +1001,7 @@ const pickEnemyNames = (pool, count) => {
   return Array.from({ length: count }, (_, index) => shuffled[index % shuffled.length]);
 };
 
-const spawnEnemies = (type, stage, sector = 1) => {
+const spawnEnemies = (type, stage, sector = 1, enemyNames = null) => {
   const s = (stage || 1) + (sector - 1) * 6;
   const mult = Math.pow(1.55, sector - 1);
   let counter = 0;
@@ -1027,6 +1027,8 @@ const spawnEnemies = (type, stage, sector = 1) => {
       statuses: {},
     };
   };
+
+  if (enemyNames) return enemyNames.map(name => ({ ...mk(name), isBoss: type === 'boss' }));
 
   if (type === 'boss') {
     const bossName = sector <= 1
@@ -3235,15 +3237,16 @@ const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNod
 
 // --- 3. ГЛАВНОЕ ПРИЛОЖЕНИЕ ---
 
-export default function App({ combatLab = false, onExitCombatLab }) {
+export default function App({ combatLab = false, onExitCombatLab, dungeonEncounter = null, onDungeonEncounterEnd }) {
+  const isolatedBattle = combatLab || Boolean(dungeonEncounter);
   // Мета-прогресс между перезапусками пока не сохраняем — чистим хвосты localStorage.
   useEffect(() => {
-    if (combatLab) return;
+    if (isolatedBattle) return;
     clearMetaSessionStorage();
     [STRANGER_IN_TAVERN_STORAGE_KEY, STRANGER_HIRED_STORAGE_KEY].forEach((key) => {
       try { localStorage.removeItem(key); } catch { /* quota */ }
     });
-  }, [combatLab]);
+  }, [isolatedBattle]);
 
   const [players, setPlayers] = useState(() => (
     combatLab
@@ -3251,17 +3254,19 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       : INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p }))
   ));
   const [enemies, setEnemies] = useState(() => (
-    combatLab ? createCombatLabEnemies() : []
+    combatLab ? createCombatLabEnemies() : dungeonEncounter
+      ? spawnEnemies(dungeonEncounter.enemyName === SKELETON_BOSS_NAME ? 'boss' : 'combat_easy', 1, 1, [dungeonEncounter.enemyName])
+      : []
   ));
   
   const [maxMana, setMaxMana] = useState(combatLab ? 99 : MAX_MANA);
   const [mana, setMana] = useState(combatLab ? 99 : 0);
-  const [turnState, setTurnState] = useState(combatLab ? 'player' : 'map');
+  const [turnState, setTurnState] = useState(combatLab ? 'player' : dungeonEncounter ? 'dealing' : 'map');
 
   // Откат на старую вёрстку боя по F9 — только в dev.
-  const [canvasBattle, setCanvasBattle] = useState(combatLab ? true : CANVAS_BATTLE_DEFAULT);
+  const [canvasBattle, setCanvasBattle] = useState(isolatedBattle ? true : CANVAS_BATTLE_DEFAULT);
   useEffect(() => {
-    if (!import.meta.env.DEV || combatLab) return;
+    if (!import.meta.env.DEV || isolatedBattle) return;
     const onKeyDown = (event) => {
       if (event.key !== 'F9') return;
       event.preventDefault();
@@ -3269,7 +3274,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [combatLab]);
+  }, [isolatedBattle]);
   // Коллекция и разблокировки — только в рамках текущей сессии (без localStorage).
   const [permanentlyUnlockedCards, setPermanentlyUnlockedCards] = useState(() => createEmptyUnlockedCards());
   const permanentlyUnlockedRef = useRef(permanentlyUnlockedCards);
@@ -3340,7 +3345,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   const [gameMap, setGameMap] = useState(initialMapRef.current);
   const [currentMapNodeId, setCurrentMapNodeId] = useState(initialMapRef.current[0].id);
   const [completedNodes, setCompletedNodes] = useState([initialMapRef.current[0].id]);
-  const [currentStage, setCurrentStage] = useState(combatLab ? 5 : 0);
+  const [currentStage, setCurrentStage] = useState(combatLab ? 5 : dungeonEncounter ? 1 : 0);
   const [sector, setSector] = useState(1);
   const [sectorSplash, setSectorSplash] = useState(null);
   // Лучший достигнутый сектор (переживает смерть и перезапуск) — мета-прогресс
@@ -3349,9 +3354,9 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     try { return Math.max(1, Number(localStorage.getItem('idler_maxSectorReached')) || 1); } catch { return 1; }
   });
   useEffect(() => {
-    if (combatLab) return;
+    if (isolatedBattle) return;
     try { localStorage.setItem('idler_maxSectorReached', String(maxSectorReached)); } catch { /* quota */ }
-  }, [combatLab, maxSectorReached]);
+  }, [isolatedBattle, maxSectorReached]);
   const sectorRef = useRef(sector);
   const currentStageRef = useRef(currentStage);
   useEffect(() => { sectorRef.current = sector; }, [sector]);
@@ -3362,8 +3367,8 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   // смонтированной чуть дольше, чем сам turnState === 'map', чтобы отыграть
   // веил на исчезание. Боевая машина состояний это не трогает — смена
   // turnState происходит как обычно, веил просто донашивает визуал поверх.
-  const [mapPanelMounted, setMapPanelMounted] = useState(combatLab ? false : turnState === 'map');
-  const [mapPanelPhase, setMapPanelPhase] = useState(combatLab ? 'idle' : 'entering');
+  const [mapPanelMounted, setMapPanelMounted] = useState(isolatedBattle ? false : turnState === 'map');
+  const [mapPanelPhase, setMapPanelPhase] = useState(isolatedBattle ? 'idle' : 'entering');
   // Гейт раздачи: закрывается в момент клика по узлу (см. handleNodeClick),
   // открывается через MAP_DEAL_GATE_DELAY_MS ПОСЛЕ того, как веил карты
   // доиграет исчезание (onExited) — раздача не стартует, пока карта не ушла + пауза.
@@ -3402,10 +3407,10 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   const [rewardTitle, setRewardTitle] = useState('УРОВЕНЬ ПОВЫШЕН!');
   // Попап «слоты отряда» устарел — заменён на CardRevealOverlay (cardReveal).
   const [showReserve, setShowReserve] = useState(false);
-  const [appReady, setAppReady] = useState(combatLab);
+  const [appReady, setAppReady] = useState(isolatedBattle);
   // Стартовый экран Таверны-Хаба: показывается один раз после прелоадера,
   // закрывается по клику на дверь → отряд попадает на карту сектора.
-  const [showTavern, setShowTavern] = useState(!combatLab);
+  const [showTavern, setShowTavern] = useState(!isolatedBattle);
   const [combatLabBossName, setCombatLabBossName] = useState(COMBAT_LAB_DEFAULT_BOSS);
   const [combatLabCardId, setCombatLabCardId] = useState(COMBAT_LAB_DEFAULT_CARD_ID);
   const [combatLabEnemyCount, setCombatLabEnemyCount] = useState(1);
@@ -3488,7 +3493,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   const musicStartedRef = useRef(false);
   const enteredRef = useRef(false);
   const [mediaBytes, setMediaBytes] = useState(
-    combatLab ? { loaded: 1, total: 1, done: true } : { loaded: 0, total: 0, done: false },
+    isolatedBattle ? { loaded: 1, total: 1, done: true } : { loaded: 0, total: 0, done: false },
   );
 
   useEffect(() => { _sfxVolume = sfxVolume; }, [sfxVolume]);
@@ -3533,7 +3538,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
 
   // Фоновая загрузка музыки: качаем только первую половину файла (обрезка трека вдвое)
   useEffect(() => {
-    if (combatLab) return undefined;
+    if (isolatedBattle) return undefined;
     let cancelled = false;
     (async () => {
       try {
@@ -3585,7 +3590,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [applyMusicSource, combatLab, startBackgroundMusic]);
+  }, [applyMusicSource, isolatedBattle, startBackgroundMusic]);
 
   const appRef = useRef(null);
   const impactAnimationRef = useRef(null);
@@ -3604,6 +3609,9 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   const pendingTransitionRef = useRef(null);
   // Таймер паузы «смерть последнего врага → очистка поля → карта»
   const victoryPauseRef = useRef(null);
+  useEffect(() => () => {
+    if (dungeonEncounter && victoryPauseRef.current) clearTimeout(victoryPauseRef.current);
+  }, [dungeonEncounter]);
   // Счётчик раздач: каждые 3 хода колода обновляется (сброс замешивается в резерв)
   const dealCounterRef = useRef(0);
 
@@ -4223,6 +4231,10 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   // Полный wipe больше не открывает отдельный экран:
   // забег сбрасывается, часть общего инвентаря и экипировка возвращаются в таверну.
   const handlePartyWipe = () => {
+    if (dungeonEncounter) {
+      onDungeonEncounterEnd?.({ victory: false });
+      return;
+    }
     if (retreatInProgressRef.current) return;
     retainInventoryShare(PARTY_WIPE_ITEM_KEEP_RATIO);
     resetGame(false, false, true);
@@ -5022,6 +5034,12 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   // затем очистка поля и дизолв карты поверх боя (MapOverlay). Босс — заставка
   // нового сектора. Открытый level-up откладывает переход.
   const triggerVictoryTransition = () => {
+    if (dungeonEncounter) {
+      if (!victoryPauseRef.current) {
+        victoryPauseRef.current = setTimeout(() => onDungeonEncounterEnd?.({ victory: true }), 700);
+      }
+      return;
+    }
     if (!questVictoryNodesRef.current.has(currentMapNodeId)) {
       questVictoryNodesRef.current.add(currentMapNodeId);
       recordTaskProgress(TASK_METRICS.BATTLES_WON, 1);
@@ -7547,9 +7565,9 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       <audio ref={audioRef} loop preload="auto" />
 
       {/* Глобальный кошелёк — поверх всех экранов, правый верхний угол */}
-      {appReady && !combatLab && <WalletHUD gold={gold} soulEmbers={soulEmbers} />}
+      {appReady && !isolatedBattle && <WalletHUD gold={gold} soulEmbers={soulEmbers} />}
 
-      {appReady && !combatLab && (isActiveCombat || isSelectingMapNode) && (
+      {appReady && !isolatedBattle && (isActiveCombat || isSelectingMapNode) && (
         <button
           type="button"
           onClick={() => handleExitExpedition(isAtSectorBase)}
@@ -7569,7 +7587,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       )}
 
       {/* Музыка + SFX + полноэкран (сдвинуты под кошелёк) */}
-      <div className={`${combatLab ? 'hidden ' : ''}absolute top-14 right-[52px] z-[9000] flex items-center gap-3 bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg`}>
+      <div className={`${isolatedBattle ? 'hidden ' : ''}absolute top-14 right-[52px] z-[9000] flex items-center gap-3 bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg`}>
         {/* Кнопка вкл/выкл музыки */}
         <button onClick={toggleMusic} className="text-slate-400 hover:text-white transition-colors flex items-center" title={musicOn ? "Выключить музыку" : "Включить музыку"}>
           {musicOn ? (

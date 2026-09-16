@@ -33,6 +33,9 @@ test('5,000 seeds preserve dimensions, unique placements, portals and connected 
       assert.equal(row.length, COLS, context);
       assert.ok(row.every(tile => tile === 'partition' || Object.hasOwn(SPRITES, tile)), context);
     }
+    assert.ok(level.tiles[0].slice(1, -1).every(tile => ['wallN', 'stairsN'].includes(tile)), context);
+    assert.ok(level.tiles[4].slice(1, -1).every(tile => ['wallS', 'stairsS'].includes(tile)), context);
+    assert.deepEqual(level.tiles[5], ['baseW', ...Array(16).fill('base'), 'baseE'], context);
     assert.equal(level.portals.length, 2, context);
     const entrance = level.portals.filter(portal => portal.kind === 'entrance');
     const exit = level.portals.filter(portal => portal.kind === 'exit');
@@ -62,7 +65,7 @@ test('5,000 seeds preserve dimensions, unique placements, portals and connected 
       assert.notEqual(key(entity), key(exit[0].access), context);
     }
     assert.ok(level.rooms.length >= 4 && level.rooms.length <= 5, context);
-    assert.ok(level.deadEnds.length >= 2, context);
+    assert.ok(level.deadEnds.length >= 3, context);
     for (const cell of level.deadEnds) {
       assert.equal([[0, 1], [0, -1], [1, 0], [-1, 0]].filter(([dx, dy]) => isFloor(level.tiles[cell.y + dy]?.[cell.x + dx])).length, 1, context);
     }
@@ -72,16 +75,30 @@ test('5,000 seeds preserve dimensions, unique placements, portals and connected 
       if (level.route[i].x - level.route[i - 1].x !== level.route[i - 1].x - level.route[i - 2].x ||
           level.route[i].y - level.route[i - 1].y !== level.route[i - 1].y - level.route[i - 2].y) turns++;
     }
-    assert.ok(turns >= 4, context);
+    assert.ok(turns >= 6, context);
     assert.ok(level.route.length >= 20, context);
-    assert.equal(level.lights.length, level.rooms.length, context);
+    assert.equal(level.lights.length, level.rooms.length + 1, context);
     assert.equal(new Set(level.lights.map(key)).size, level.lights.length, context);
     for (const light of level.lights) {
-      assert.equal(light.sprite, 'torch_decor', context);
-      assert.ok(['wallN', 'wallS'].includes(level.tiles[light.y][light.x]), context);
+      if (light.entityId) {
+        const source = level.entities.find(entity => entity.id === light.entityId);
+        assert.equal(source?.sprite, 'candle', context);
+        assert.equal(key(source), key(light), context);
+        assert.ok(isFloor(level.tiles[light.y][light.x]), context);
+      } else {
+        assert.equal(light.sprite, 'torch_decor', context);
+        assert.ok(['wallN', 'wallS'].includes(level.tiles[light.y][light.x]), context);
+      }
       assert.ok(!level.portals.some(portal => key(portal) === key(light)), context);
     }
     const floorCount = level.tiles.flat().filter(isFloor).length;
+    level.tiles.forEach((row, y) => row.forEach((tile, x) => {
+      if (!isFloor(tile)) return;
+      for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+        assert.ok(level.tiles[y + dy]?.[x + dx] && level.tiles[y + dy][x + dx] !== '.',
+          `${context}: exposed floor at ${x},${y}`);
+      }
+    }));
     assert.equal(reachable(level, entrance[0].access).size, floorCount, context);
     const blocked = new Set(level.entities.filter(entity => entity.kind !== 'hero').map(key));
     const clearPath = reachable(level, entrance[0].access, blocked);
@@ -103,15 +120,33 @@ test('seed reproduces a complete map, including unsigned boundary values', () =>
 
 test('generation varies room geometry and uses all supplied enemy types', () => {
   const geometries = new Set();
+  const layouts = new Set();
+  const shapes = new Set();
   const enemies = new Set();
   const roomCounts = new Set();
+  let splitConnections = 0;
+  let middleConnections = 0;
   for (let seed = 0; seed < 200; seed++) {
     const level = generateDungeon(seed);
     geometries.add(JSON.stringify(level.rooms));
+    // Compare walkable masks, independent of decorations and sprite names.
+    layouts.add(JSON.stringify(level.tiles.map(row => row.map(isFloor))));
+    level.rooms.forEach(room => {
+      shapes.add(room.shape);
+      const cells = level.tiles.flatMap((row, y) => row.flatMap((tile, x) =>
+        x >= room.x && x < room.x + room.width && isFloor(tile) ? [{ x, y }] : []));
+      assert.deepEqual(room.cells, cells);
+    });
+    if (level.openings.some(opening => opening.y === 2)) middleConnections++;
+    if (new Set(level.openings.map(opening => opening.x)).size < level.openings.length) splitConnections++;
     roomCounts.add(level.rooms.length);
     level.entities.filter(entity => entity.kind === 'enemy').forEach(entity => enemies.add(entity.sprite));
   }
   assert.ok(geometries.size >= 15);
+  assert.ok(layouts.size >= 180, 'At least 90% of the sampled floor plans should differ');
+  assert.deepEqual(shapes, new Set(['open', 'bend', 'notch', 'fork', 'stagger', 'island', 'split']));
+  assert.ok(middleConnections >= 10, 'Connections also use the middle row');
+  assert.ok(splitConnections >= 10, 'Some walls have alternate connections');
   assert.deepEqual(roomCounts, new Set([4, 5]));
   assert.deepEqual(enemies, new Set(ENEMY_SPRITES));
 });

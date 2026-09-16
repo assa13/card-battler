@@ -33,6 +33,7 @@ import {
   MERGE_PANEL_CLIP,
   MERGE_PANEL_HIDDEN_Y,
   MERGE_PANEL_OFFSET_Y,
+  getDecorSprite,
 } from './battleLayout';
 
 // Боевой экран на холсте 3200×1800.
@@ -563,7 +564,12 @@ const BattleScreen = ({ zIndex }) => {
     onEnemySpinePositionChange,
     mapPanelMounted,
     arenaVeilVisible,
+    decorEmotion,
   } = useBattleView() ?? DEMO;
+
+  // Состояние горгулий. App его пока не публикует — придёт, когда декор начнёт
+  // отвечать на события боя; до тех пор обе стоят в idle.
+  const decorAtlas = getDecorSprite(decorEmotion);
 
   const hidden = turnState === 'map';
   const mergeOpen = Boolean(merge.open);
@@ -586,8 +592,8 @@ const BattleScreen = ({ zIndex }) => {
 
   // Слот на ховере вырастает и заезжает верхней кромкой в полосу инвентаря.
   // Инвентарь при этом лежит выше — над панелью слияния, — поэтому на время
-  // ховера вся нижняя группа поднимается над ним. Панели это не мешает: пока она
-  // открыта, слоты мышь не принимают и ховера там быть не может.
+  // ховера вся нижняя группа поднимается над ним и над горгульями. Панели это не
+  // мешает: пока она открыта, слоты мышь не принимают и ховера там быть не может.
   const heroHovered = heroes.some((hero) => hero.isHovered);
 
   // Векторы прыжков боевой код считает по getBoundingClientRect, то есть в
@@ -884,6 +890,12 @@ const BattleScreen = ({ zIndex }) => {
         <NineSlice name="location_frame" width={locationFrame.width} height={locationFrame.height} />
       </StageBox>
 
+      {/* Фаза у каждой горгульи своя: с общего нуля пара машет крыльями кадр в
+          кадр и читается одним механизмом, а не двумя статуями.
+
+          Горгульи сидят в бутерброде между инвентарём и органами управления:
+          верхней частью они перекрывают полосу инвентаря, а нижней заходят под
+          счётчик маны и кнопку хода — те остаются читаемыми поверх крыльев. */}
       {DECOR.map((decor) => (
         <StageBox
           key={decor.id}
@@ -891,12 +903,12 @@ const BattleScreen = ({ zIndex }) => {
           y={decor.y}
           width={decor.size}
           height={decor.size}
-          zIndex={25}
+          zIndex={62}
           className="transition-opacity duration-200"
-          style={{ opacity: mergeOpen ? 0.4 : 1 }}
+          style={{ opacity: mergeOpen ? 0.4 : 1, pointerEvents: 'none' }}
         >
           <div style={{ width: decor.size, height: decor.size, transform: decor.flip ? 'scaleX(-1)' : undefined }}>
-            <UiSprite name="decor" width={decor.size} height={decor.size} />
+            <CharSprite atlas={decorAtlas} size={decor.size} startFrame={idleStartFrame(decor.id)} />
           </div>
         </StageBox>
       ))}
@@ -970,28 +982,8 @@ const BattleScreen = ({ zIndex }) => {
           от её узлов VFX считают точки вылета карт. */}
       <div
         className="absolute inset-0 transition-opacity duration-200"
-        style={{ opacity: hudOpacity, pointerEvents: 'none', zIndex: heroHovered ? 62 : 30 }}
+        style={{ opacity: hudOpacity, pointerEvents: 'none', zIndex: heroHovered ? 63 : 30 }}
       >
-        <StageBox {...manaCounter} zIndex={30}>
-          <UiSprite name="mana_counter">
-            <Counter style={{ left: 128, top: 128, fontSize: 117 }}>{mana}</Counter>
-          </UiSprite>
-        </StageBox>
-
-        <StageBox {...buttonRed} zIndex={30} style={{ pointerEvents: hudPointer }}>
-          <button
-            type="button"
-            onClick={onEndTurn ?? noop}
-            disabled={!canEndTurn}
-            className="relative block w-full transition-transform enabled:hover:scale-105 enabled:active:scale-95 disabled:opacity-60"
-          >
-            <NineSlice name="button_red" width={buttonRed.width} height={buttonRed.height} />
-            <Counter style={{ left: buttonRed.width / 2, top: buttonRed.height / 2, fontSize: 44 }}>
-              {endTurnLabel}
-            </Counter>
-          </button>
-        </StageBox>
-
         {CARD_DECKS.map((deck, index) => {
           const isDraw = index === 0;
           return (
@@ -1061,6 +1053,38 @@ const BattleScreen = ({ zIndex }) => {
         })}
       </div>
 
+      {/* Мана и кнопка хода вынесены из нижней панели отдельной группой только
+          ради слоя: они обязаны читаться поверх горгулий, а те, в свою очередь,
+          перекрывают инвентарь. Гаснут и перестают принимать мышь эти органы
+          вместе с остальным HUD, поэтому условия у группы те же.
+
+          Панели слияния группа не мешает: по горизонтали мана и кнопка с ней не
+          пересекаются, а на время слияния всё равно приглушены. */}
+      <div
+        className="absolute inset-0 transition-opacity duration-200"
+        style={{ opacity: hudOpacity, pointerEvents: 'none', zIndex: 64 }}
+      >
+        <StageBox {...manaCounter} zIndex={30}>
+          <UiSprite name="mana_counter">
+            <Counter style={{ left: 128, top: 128, fontSize: 117 }}>{mana}</Counter>
+          </UiSprite>
+        </StageBox>
+
+        <StageBox {...buttonRed} zIndex={30} style={{ pointerEvents: hudPointer }}>
+          <button
+            type="button"
+            onClick={onEndTurn ?? noop}
+            disabled={!canEndTurn}
+            className="relative block w-full transition-transform enabled:hover:scale-105 enabled:active:scale-95 disabled:opacity-60"
+          >
+            <NineSlice name="button_red" width={buttonRed.width} height={buttonRed.height} />
+            <Counter style={{ left: buttonRed.width / 2, top: buttonRed.height / 2, fontSize: 44 }}>
+              {endTurnLabel}
+            </Counter>
+          </button>
+        </StageBox>
+      </div>
+
       {/* Инвентарь целиком в одном узле: от него FxLayer считает, куда летит лут. */}
       <div ref={setInventoryNode} className="pointer-events-none absolute" style={{
         left: `${(ITEM_SLOTS.x / 3200) * 100}%`,
@@ -1073,15 +1097,18 @@ const BattleScreen = ({ zIndex }) => {
           пикселях (MAP_PANEL_DESIGN), поэтому бокс сцены только даёт им место, а
           масштаб до него доводит вложенный scale — до редизайна содержимое карты
           не трогаем. Веил ниже карты по слою: он проявляет HUD уже после того,
-          как карта растворилась. */}
+          как карта растворилась.
+
+          Карта лежит выше всего нижнего этажа, включая горгулий: она занимает их
+          полосу целиком, и торчащие поверх неё крылья читались бы мусором. */}
       {arenaVeilVisible && (
-        <StageBox {...MAP_PANEL} zIndex={50} style={{ pointerEvents: 'none' }}>
+        <StageBox {...MAP_PANEL} zIndex={65} style={{ pointerEvents: 'none' }}>
           <MapPanelFrame>{render.arenaVeil?.()}</MapPanelFrame>
         </StageBox>
       )}
 
       {mapPanelMounted && (
-        <StageBox {...MAP_PANEL} zIndex={55} style={{ pointerEvents: 'none' }}>
+        <StageBox {...MAP_PANEL} zIndex={66} style={{ pointerEvents: 'none' }}>
           <MapPanelFrame>{render.mapPanel?.()}</MapPanelFrame>
         </StageBox>
       )}
