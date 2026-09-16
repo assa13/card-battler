@@ -63,7 +63,7 @@ const EquipmentTooltip = ({ item, inventory, onSwap, onUnequip, onItemHover, onI
             )}
           </div>
         </div>
-      , document.getElementById('root') ?? document.body)}
+      , document.body)}
     </div>
   );
 };

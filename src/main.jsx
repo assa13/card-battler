@@ -2,7 +2,6 @@ import { StrictMode, Suspense, lazy } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import PixelGridEffect from './rendering/PixelGridEffect.jsx'
 
 // Dev-маршруты по хешу. В production объект пустой, ветка с import() мертва и
 // Rollup выбрасывает её целиком — ни витрина, ни новый боевой экран в бандл
@@ -34,6 +33,5 @@ createRoot(document.getElementById('root')).render(
     {DevScreen
       ? <Suspense fallback={null}><DevScreen /></Suspense>
       : <App />}
-    <PixelGridEffect />
   </StrictMode>,
 )
