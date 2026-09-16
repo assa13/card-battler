@@ -1,6 +1,6 @@
-// Square cells exported from Figma 328:5193; coordinates retain the supplied layout.
-export const ATLAS_URL = './assets/dev/dungeon/figma-crypt.png?v=cracked-wall-e-20260911';
-export const FIGMA_URL = 'https://www.figma.com/design/zG9zihyiBTJFjR5dVta74Z/card-crawler?node-id=328-5193';
+// Square cells exported from Figma 359:5030; coordinates retain the supplied layout.
+export const ATLAS_URL = './assets/dev/dungeon/figma-crypt.png?v=edge-alpha-359-5030-20260916';
+export const FIGMA_URL = 'https://www.figma.com/design/zG9zihyiBTJFjR5dVta74Z/card-crawler?node-id=359-5030';
 export const SOURCE_TILE = 82;
 export const TILE = 32;
 export const BACKGROUND = '#3b3955';
@@ -15,7 +15,8 @@ export const SPRITES = {
   brokenN: [9, 2], brokenNE: [10, 2],
   pillarTopW: [0, 3],
   passageNW: [4, 3], stairsN: [5, 3], passageNE: [6, 3], brokenE: [10, 3],
-  pillarW: [0, 4], crate: [2, 4], pillarE: [10, 4],
+  // Side-facing stairs, previously mislabeled as pillars. Portal use only.
+  stairsW: [0, 4], crate: [2, 4], stairsE: [10, 4],
   wallLowerW: [0, 5],
   passageSW: [4, 5], stairsS: [5, 5], passageSE: [6, 5], wallLowerE: [10, 5],
   outerSW: [0, 6], wallS: [1, 6], door: [2, 6], outerSE: [4, 6],
@@ -40,7 +41,7 @@ export const LEVEL = [
   '. . wallW floor_shadow_NW_alcove wallE . . . . . . . .',
   'outerNW wallN nookJoinW wallN nookJoinE wallN outerNE . outerNW wallN wallN brokenN brokenNE',
   'pillarTopW floor_shadow_NW floor_shadow_N floor_shadow_N floor_shadow_N floor_shadow_NE passageNW stairsN passageNE floor_shadow_NW floor_shadow_N floor_shadow_NE brokenE',
-  'pillarW floor_shadow_W floor floor floor floor floor_shadow_N floor_shadow_N floor_shadow_N floor floor floor_shadow_E pillarE',
+  'wallLowerW floor_shadow_W floor floor floor floor floor_shadow_N floor_shadow_N floor_shadow_N floor floor floor_shadow_E wallLowerE',
   'wallLowerW floor_shadow_W floor crate floor floor floor floor floor floor floor floor_shadow_E wallLowerE',
   'wallLowerW floor_shadow_W floor floor floor floor_shadow_E passageSW stairsS passageSE floor_shadow_W floor floor_shadow_E wallLowerE',
   'wallLowerW floor_shadow_W floor floor floor floor_shadow_E wallE . wallLowerW floor_shadow_W floor floor_shadow_E wallLowerE',
@@ -57,7 +58,7 @@ const TWIN_CRYPT = [
   '. . wallW floor_shadow_NW_alcove wallE . . . wallW floor_shadow_NW_alcove wallE . .',
   'outerNW wallN nookJoinW wallN nookJoinE wallN wallN wallN nookJoinW wallN nookJoinE wallN outerNE',
   'pillarTopW floor_shadow_NW floor_shadow_N floor_shadow_N floor_shadow_N floor_shadow_N floor_shadow_N floor_shadow_N floor_shadow_N floor_shadow_N floor_shadow_N floor_shadow_NE wallE',
-  'pillarW floor_shadow_W floor floor floor floor floor floor floor floor floor floor_shadow_E pillarE',
+  'wallLowerW floor_shadow_W floor floor floor floor floor floor floor floor floor floor_shadow_E wallLowerE',
   'wallLowerW floor_shadow_W floor crate floor floor floor floor floor crate floor floor_shadow_E wallE',
   'wallLowerW floor_shadow_W floor floor floor floor floor floor floor floor floor floor_shadow_E wallE',
   'wallLowerW floor_shadow_W floor floor floor floor crate floor floor floor floor floor_shadow_E wallE',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo, useContext } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, useContext, useReducer } from 'react';
 import TavernHubScreen from './TavernHubScreen';
 import HeroInventoryScreen from './HeroInventoryScreen';
 import ShopScreen from './ShopScreen';
@@ -20,11 +20,16 @@ import EnemyDefenseCue from './EnemyDefenseCue';
 import EnemyDefenseRipples from './EnemyDefenseRipples';
 import VfxStrip from './vfx/VfxStrip';
 import {
+  ARMOR_BUFF_VFX,
+  BLEED_DEBUFF_VFX,
   CARD_PROJECTILE_VFX,
+  CHAIN_BUFF_VFX,
+  CHAIN_START_VFX,
   ENEMY_HIT_VFX,
   FIREBALL_VFX,
   IMPACT_VFX_LINGER_MS,
   MAGE_HIT_VFX,
+  MARK_DEBUFF_VFX,
   ROGUE_HIT_VFX,
   RUNE_LINE_VFX,
   WARRIOR_HIT_VFX,
@@ -60,6 +65,7 @@ import {
   getItemIconUrl,
   getItemSellPrice,
   getNextRarity,
+  rollItemRarity,
   rollLootDrops,
   sortUniqueItemsByRarity,
   sumJunkPoints,
@@ -98,7 +104,6 @@ import {
   taskMasterHasTasks,
   unlockTaskMaster,
 } from './taskMasterSystem';
-
 import {
   SKELETON_FIRST_DEATH_SCRIPT,
   STRANGER_SECOND_DEATH_SCRIPT,
@@ -1001,7 +1006,7 @@ const pickEnemyNames = (pool, count) => {
   return Array.from({ length: count }, (_, index) => shuffled[index % shuffled.length]);
 };
 
-const spawnEnemies = (type, stage, sector = 1) => {
+const spawnEnemies = (type, stage, sector = 1, enemyNames = null) => {
   const s = (stage || 1) + (sector - 1) * 6;
   const mult = Math.pow(1.55, sector - 1);
   let counter = 0;
@@ -1027,6 +1032,8 @@ const spawnEnemies = (type, stage, sector = 1) => {
       statuses: {},
     };
   };
+
+  if (enemyNames) return enemyNames.map(name => ({ ...mk(name), isBoss: type === 'boss' }));
 
   if (type === 'boss') {
     const bossName = sector <= 1
@@ -1427,37 +1434,28 @@ const COMBO_VFX_PARTICLE_COUNT = [6, 9, 12];
 const COMBO_VFX_DUR_MS = [420, 460, 500];
 const COMBO_BLOOD_COUNT = [18, 14, 10];
 const IDLE_SHAKE = Object.freeze({ x: 0, y: 0, rot: 0 });
+let statusVfxSequence = 0;
+const nextStatusVfxId = (prefix) => `${prefix}_${++statusVfxSequence}`;
 
-// Эффект «печати» при получении брони / усиления цепи
-const ModStampEffect = ({ id, icon, amount, variant, x, y, onComplete }) => {
-  const onCompleteRef = useRef(onComplete);
-  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
-  useEffect(() => {
-    const t = setTimeout(() => onCompleteRef.current(id), 1300);
-    return () => clearTimeout(t);
-  }, [id]);
-
-  const isArmor = variant === 'armor';
-  const ringColor = isArmor ? 'rgba(56,189,248,0.85)' : 'rgba(251,191,36,0.85)';
-  const glowColor = isArmor ? 'rgba(56,189,248,0.55)' : 'rgba(251,191,36,0.55)';
-
+const StatusVfxEffect = ({ id, sheet, amount, x, y, onComplete }) => {
   return (
-    <div className="fixed z-[980] pointer-events-none" style={{ left: x, top: y }}>
-      <div className="absolute rounded-full border-[10px]" style={{
-        left: 0, top: 0, width: 400, height: 400, marginLeft: -200, marginTop: -200,
-        borderColor: ringColor, animation: 'modStampRing 650ms ease-out forwards',
-      }} />
-      <div className="absolute flex flex-col items-center justify-center" style={{
-        left: 0, top: 0, width: 320, height: 320, marginLeft: -160, marginTop: -160,
-        animation: 'modStampSlam 550ms cubic-bezier(0.22, 1, 0.36, 1) forwards',
-        filter: `drop-shadow(0 0 56px ${glowColor}) drop-shadow(0 16px 0 rgba(0,0,0,0.85))`,
-      }}>
-        <span className="leading-none select-none" style={{ fontSize: 176 }}>{icon}</span>
-        <span className={`font-black text-4xl mt-2 ${isArmor ? 'text-sky-200' : 'text-amber-200'}`}
-          style={{ WebkitTextStroke: '3px rgba(0,0,0,0.9)', textShadow: '4px 4px 0 rgba(0,0,0,1)' }}>
+    <div
+      className="fixed z-[8300] pointer-events-none flex flex-col items-center"
+      style={{ left: x, top: y, transform: 'translate(-50%, -100%)' }}
+    >
+      <VfxStrip
+        sheet={sheet}
+        realTime
+        onComplete={() => onComplete(id)}
+      />
+      {amount != null && (
+        <span
+          className="absolute top-full -mt-3 font-black text-xl text-white"
+          style={{ WebkitTextStroke: '2px rgba(0,0,0,0.95)', textShadow: '0 0 10px rgba(255,255,255,0.9)' }}
+        >
           +{amount}
         </span>
-      </div>
+      )}
     </div>
   );
 };
@@ -2221,6 +2219,11 @@ const PRELOAD_ASSETS = [
   ROGUE_HIT_VFX.url,
   MAGE_HIT_VFX.url,
   ENEMY_HIT_VFX.url,
+  ARMOR_BUFF_VFX.url,
+  CHAIN_START_VFX.url,
+  MARK_DEBUFF_VFX.url,
+  BLEED_DEBUFF_VFX.url,
+  CHAIN_BUFF_VFX.url,
   RUNE_LINE_VFX.url,
 ];
 
@@ -2917,7 +2920,7 @@ const FxLayer = React.forwardRef((_props, ref) => {
   const [bloodParticles, setBloodParticles] = useState([]);
   const [flyingXps, setFlyingXps] = useState([]);
   const [flyingItems, setFlyingItems] = useState([]);
-  const [modStamps, setModStamps] = useState([]);
+  const [statusVfx, setStatusVfx] = useState([]);
   const [flyingCards, setFlyingCards] = useState([]);
 
   // Хранилище таймеров автоудаления FlyingCard — чтобы корректно вычищать на unmount.
@@ -2933,7 +2936,10 @@ const FxLayer = React.forwardRef((_props, ref) => {
     spawnBlood: (particles) => { if (particles?.length) setBloodParticles(prev => [...prev, ...particles]); },
     spawnFlyingXp: (xp) => setFlyingXps(prev => [...prev, xp]),
     spawnFlyingItem: (item) => setFlyingItems(prev => [...prev, item]),
-    spawnModStamp: (stamp) => setModStamps(prev => [...prev, stamp]),
+    spawnStatusVfx: (effect) => setStatusVfx(prev => [...prev, effect]),
+    spawnStatusVfxs: (effects) => {
+      if (effects?.length) setStatusVfx(prev => [...prev, ...effects]);
+    },
     // Карта с автоудалением и опциональным колбэком по истечении lifetime
     spawnFlyingCard: (card, lifetimeMs = 850, onExpire) => {
       setFlyingCards(prev => [...prev, card]);
@@ -2947,7 +2953,7 @@ const FxLayer = React.forwardRef((_props, ref) => {
     },
     clearAll: () => {
       setDamagePopups([]); setBloodParticles([]); setFlyingXps([]);
-      setFlyingItems([]); setModStamps([]); setFlyingCards([]);
+      setFlyingItems([]); setStatusVfx([]); setFlyingCards([]);
       cardTimersRef.current.forEach(t => clearTimeout(t));
       cardTimersRef.current.clear();
     },
@@ -2956,9 +2962,9 @@ const FxLayer = React.forwardRef((_props, ref) => {
   return (
     <>
       {flyingCards.map(card => <FlyingCard key={card.id} {...card} />)}
-      {modStamps.map(s => (
-        <ModStampEffect key={s.id} {...s}
-          onComplete={(id) => setModStamps(prev => prev.filter(x => x.id !== id))} />
+      {statusVfx.map(effect => (
+        <StatusVfxEffect key={effect.id} {...effect}
+          onComplete={(id) => setStatusVfx(prev => prev.filter(x => x.id !== id))} />
       ))}
       {damagePopups.map(dp => (
         <DamagePopup key={dp.id} {...dp}
@@ -3233,17 +3239,56 @@ const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNod
   );
 };
 
+const dungeonSeedForNode = (nodeId, sector) => {
+  const source = `${sector}:${nodeId}`;
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index++) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+};
+
+const dungeonBossForSector = (sector) => (
+  sector <= 1
+    ? { sprite: 'boss_worm', enemyName: WORM_BOSS_NAME }
+    : sector === 2
+      ? { sprite: 'boss_eye', enemyName: 'Глаз' }
+      : { sprite: 'boss_skeletal_golem', enemyName: SKELETON_BOSS_NAME }
+);
+
+const idleDungeonReducer = state => state;
+
+const createDungeonLevelForNode = (node, sector, generateDungeonLevel) => {
+  const boss = dungeonBossForSector(sector);
+  return generateDungeonLevel(dungeonSeedForNode(node.id, sector), {
+    exitCount: node.type === 'boss' ? 1 : node.next.length,
+    nodeType: node.type,
+    guardSprite: node.type === 'boss' ? boss.sprite : undefined,
+    guardEnemyName: node.type === 'boss' ? boss.enemyName : undefined,
+  });
+};
+
 // --- 3. ГЛАВНОЕ ПРИЛОЖЕНИЕ ---
 
-export default function App({ combatLab = false, onExitCombatLab }) {
+export default function App({
+  combatLab = false,
+  onExitCombatLab,
+  dungeonEncounter = null,
+  onDungeonEncounterEnd,
+  dungeonMode = false,
+  dungeonTools = null,
+}) {
+  const isolatedBattle = combatLab || Boolean(dungeonEncounter);
+  const activeDungeonMode = dungeonMode && Boolean(dungeonTools);
   // Мета-прогресс между перезапусками пока не сохраняем — чистим хвосты localStorage.
   useEffect(() => {
-    if (combatLab) return;
+    if (isolatedBattle) return;
     clearMetaSessionStorage();
     [STRANGER_IN_TAVERN_STORAGE_KEY, STRANGER_HIRED_STORAGE_KEY].forEach((key) => {
       try { localStorage.removeItem(key); } catch { /* quota */ }
     });
-  }, [combatLab]);
+  }, [isolatedBattle]);
 
   const [players, setPlayers] = useState(() => (
     combatLab
@@ -3251,17 +3296,19 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       : INITIAL_PLAYERS_DATA.map(p => syncPlayerMaxHp({ ...p }))
   ));
   const [enemies, setEnemies] = useState(() => (
-    combatLab ? createCombatLabEnemies() : []
+    combatLab ? createCombatLabEnemies() : dungeonEncounter
+      ? spawnEnemies(dungeonEncounter.enemyName === SKELETON_BOSS_NAME ? 'boss' : 'combat_easy', 1, 1, [dungeonEncounter.enemyName])
+      : []
   ));
   
   const [maxMana, setMaxMana] = useState(combatLab ? 99 : MAX_MANA);
   const [mana, setMana] = useState(combatLab ? 99 : 0);
-  const [turnState, setTurnState] = useState(combatLab ? 'player' : 'map');
+  const [turnState, setTurnState] = useState(combatLab ? 'player' : dungeonEncounter ? 'dealing' : 'map');
 
   // Откат на старую вёрстку боя по F9 — только в dev.
-  const [canvasBattle, setCanvasBattle] = useState(combatLab ? true : CANVAS_BATTLE_DEFAULT);
+  const [canvasBattle, setCanvasBattle] = useState(isolatedBattle ? true : CANVAS_BATTLE_DEFAULT);
   useEffect(() => {
-    if (!import.meta.env.DEV || combatLab) return;
+    if (!import.meta.env.DEV || isolatedBattle || activeDungeonMode) return;
     const onKeyDown = (event) => {
       if (event.key !== 'F9') return;
       event.preventDefault();
@@ -3269,7 +3316,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [combatLab]);
+  }, [activeDungeonMode, isolatedBattle]);
   // Коллекция и разблокировки — только в рамках текущей сессии (без localStorage).
   const [permanentlyUnlockedCards, setPermanentlyUnlockedCards] = useState(() => createEmptyUnlockedCards());
   const permanentlyUnlockedRef = useRef(permanentlyUnlockedCards);
@@ -3340,7 +3387,15 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   const [gameMap, setGameMap] = useState(initialMapRef.current);
   const [currentMapNodeId, setCurrentMapNodeId] = useState(initialMapRef.current[0].id);
   const [completedNodes, setCompletedNodes] = useState([initialMapRef.current[0].id]);
-  const [currentStage, setCurrentStage] = useState(combatLab ? 5 : 0);
+  const [dungeonRun, dispatchDungeon] = useReducer(
+    activeDungeonMode ? dungeonTools.reducer : idleDungeonReducer,
+    null,
+    () => activeDungeonMode
+      ? dungeonTools.createRun(createDungeonLevelForNode(gameMap[0], 1, dungeonTools.generate))
+      : null,
+  );
+  const creditedDungeonCoinsRef = useRef(new Set());
+  const [currentStage, setCurrentStage] = useState(combatLab ? 5 : dungeonEncounter ? 1 : 0);
   const [sector, setSector] = useState(1);
   const [sectorSplash, setSectorSplash] = useState(null);
   // Лучший достигнутый сектор (переживает смерть и перезапуск) — мета-прогресс
@@ -3349,9 +3404,9 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     try { return Math.max(1, Number(localStorage.getItem('idler_maxSectorReached')) || 1); } catch { return 1; }
   });
   useEffect(() => {
-    if (combatLab) return;
+    if (isolatedBattle) return;
     try { localStorage.setItem('idler_maxSectorReached', String(maxSectorReached)); } catch { /* quota */ }
-  }, [combatLab, maxSectorReached]);
+  }, [isolatedBattle, maxSectorReached]);
   const sectorRef = useRef(sector);
   const currentStageRef = useRef(currentStage);
   useEffect(() => { sectorRef.current = sector; }, [sector]);
@@ -3362,8 +3417,8 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   // смонтированной чуть дольше, чем сам turnState === 'map', чтобы отыграть
   // веил на исчезание. Боевая машина состояний это не трогает — смена
   // turnState происходит как обычно, веил просто донашивает визуал поверх.
-  const [mapPanelMounted, setMapPanelMounted] = useState(combatLab ? false : turnState === 'map');
-  const [mapPanelPhase, setMapPanelPhase] = useState(combatLab ? 'idle' : 'entering');
+  const [mapPanelMounted, setMapPanelMounted] = useState(isolatedBattle ? false : turnState === 'map');
+  const [mapPanelPhase, setMapPanelPhase] = useState(isolatedBattle ? 'idle' : 'entering');
   // Гейт раздачи: закрывается в момент клика по узлу (см. handleNodeClick),
   // открывается через MAP_DEAL_GATE_DELAY_MS ПОСЛЕ того, как веил карты
   // доиграет исчезание (onExited) — раздача не стартует, пока карта не ушла + пауза.
@@ -3402,10 +3457,10 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   const [rewardTitle, setRewardTitle] = useState('УРОВЕНЬ ПОВЫШЕН!');
   // Попап «слоты отряда» устарел — заменён на CardRevealOverlay (cardReveal).
   const [showReserve, setShowReserve] = useState(false);
-  const [appReady, setAppReady] = useState(combatLab);
+  const [appReady, setAppReady] = useState(isolatedBattle || activeDungeonMode);
   // Стартовый экран Таверны-Хаба: показывается один раз после прелоадера,
   // закрывается по клику на дверь → отряд попадает на карту сектора.
-  const [showTavern, setShowTavern] = useState(!combatLab);
+  const [showTavern, setShowTavern] = useState(!isolatedBattle && !activeDungeonMode);
   const [combatLabBossName, setCombatLabBossName] = useState(COMBAT_LAB_DEFAULT_BOSS);
   const [combatLabCardId, setCombatLabCardId] = useState(COMBAT_LAB_DEFAULT_CARD_ID);
   const [combatLabEnemyCount, setCombatLabEnemyCount] = useState(1);
@@ -3488,7 +3543,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   const musicStartedRef = useRef(false);
   const enteredRef = useRef(false);
   const [mediaBytes, setMediaBytes] = useState(
-    combatLab ? { loaded: 1, total: 1, done: true } : { loaded: 0, total: 0, done: false },
+    isolatedBattle ? { loaded: 1, total: 1, done: true } : { loaded: 0, total: 0, done: false },
   );
 
   useEffect(() => { _sfxVolume = sfxVolume; }, [sfxVolume]);
@@ -3533,7 +3588,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
 
   // Фоновая загрузка музыки: качаем только первую половину файла (обрезка трека вдвое)
   useEffect(() => {
-    if (combatLab) return undefined;
+    if (isolatedBattle) return undefined;
     let cancelled = false;
     (async () => {
       try {
@@ -3585,7 +3640,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [applyMusicSource, combatLab, startBackgroundMusic]);
+  }, [applyMusicSource, isolatedBattle, startBackgroundMusic]);
 
   const appRef = useRef(null);
   const impactAnimationRef = useRef(null);
@@ -3604,6 +3659,9 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   const pendingTransitionRef = useRef(null);
   // Таймер паузы «смерть последнего врага → очистка поля → карта»
   const victoryPauseRef = useRef(null);
+  useEffect(() => () => {
+    if (dungeonEncounter && victoryPauseRef.current) clearTimeout(victoryPauseRef.current);
+  }, [dungeonEncounter]);
   // Счётчик раздач: каждые 3 хода колода обновляется (сброс замешивается в резерв)
   const dealCounterRef = useRef(0);
 
@@ -4190,6 +4248,13 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     const newMap = generateMap();
     questVictoryNodesRef.current.clear();
     setGameMap(newMap); setCurrentMapNodeId(newMap[0].id); setCompletedNodes([newMap[0].id]); setCurrentStage(0);
+    if (activeDungeonMode) {
+      creditedDungeonCoinsRef.current.clear();
+      dispatchDungeon({
+        type: 'reset',
+        level: createDungeonLevelForNode(newMap[0], nextSector, dungeonTools.generate),
+      });
+    }
     setBgLocation(pickBgLocation(nextSector, 0));
     setTurnState('map');
   };
@@ -4223,6 +4288,10 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   // Полный wipe больше не открывает отдельный экран:
   // забег сбрасывается, часть общего инвентаря и экипировка возвращаются в таверну.
   const handlePartyWipe = () => {
+    if (dungeonEncounter) {
+      onDungeonEncounterEnd?.({ victory: false });
+      return;
+    }
     if (retreatInProgressRef.current) return;
     retainInventoryShare(PARTY_WIPE_ITEM_KEEP_RATIO);
     resetGame(false, false, true);
@@ -5018,10 +5087,35 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     setTurnState('map');
   };
 
+  const finishDungeonBattle = () => {
+    const encounterId = dungeonRun?.encounter?.id;
+    if (encounterId) dispatchDungeon({ type: 'battle-result', id: encounterId, victory: true });
+    enterMapPhase();
+  };
+
   // Пост-бой: смерть последнего врага → короткая пауза (анимация смерти доигрывает),
   // затем очистка поля и дизолв карты поверх боя (MapOverlay). Босс — заставка
   // нового сектора. Открытый level-up откладывает переход.
   const triggerVictoryTransition = () => {
+    if (dungeonEncounter) {
+      if (!victoryPauseRef.current) {
+        victoryPauseRef.current = setTimeout(() => onDungeonEncounterEnd?.({ victory: true }), 700);
+      }
+      return;
+    }
+    if (activeDungeonMode && dungeonRun?.encounter) {
+      const victoryKey = `${currentMapNodeId}:${dungeonRun.encounter.id}`;
+      if (!questVictoryNodesRef.current.has(victoryKey)) {
+        questVictoryNodesRef.current.add(victoryKey);
+        recordTaskProgress(TASK_METRICS.BATTLES_WON, 1);
+      }
+      if (showLevelUpRef.current) {
+        pendingTransitionRef.current = 'dungeon';
+      } else if (!victoryPauseRef.current) {
+        victoryPauseRef.current = setTimeout(finishDungeonBattle, 700);
+      }
+      return;
+    }
     if (!questVictoryNodesRef.current.has(currentMapNodeId)) {
       questVictoryNodesRef.current.add(currentMapNodeId);
       recordTaskProgress(TASK_METRICS.BATTLES_WON, 1);
@@ -5039,6 +5133,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     if (pending) {
       pendingTransitionRef.current = null;
       if (pending === 'nextSector') startNextSector();
+      else if (pending === 'dungeon') finishDungeonBattle();
       else enterMapPhase();
     }
   };
@@ -5231,15 +5326,38 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     const comboMult = COMBO_DAMAGE_MULT[Math.min(comboStep, 2)];
     const amount = Math.round(getModValue(card) * comboMult);
     const aRect = avatarRefs.current[player.id]?.getBoundingClientRect();
-    if (aRect) {
-      fxRef.current?.spawnModStamp({
-        id: `stamp_${Date.now()}_${player.id}`,
-        icon: card.modType === 'armor' ? '🛡️' : '🔗',
-        amount,
-        variant: card.modType,
-        x: aRect.left + aRect.width / 2,
-        y: aRect.top + aRect.height / 2,
+    const slotRect = slotRefs.current[player.id]?.getBoundingClientRect();
+    if (nextComboStreak === 1 && slotRect) {
+      fxRef.current?.spawnStatusVfx({
+        id: nextStatusVfxId(`chain_start_${player.id}`),
+        sheet: CHAIN_START_VFX,
+        x: slotRect.left + slotRect.width / 2,
+        y: slotRect.top + 12,
       });
+    }
+    if (card.modType === 'armor' && aRect) {
+      fxRef.current?.spawnStatusVfx({
+        id: nextStatusVfxId(`armor_buff_${player.id}`),
+        sheet: ARMOR_BUFF_VFX,
+        amount,
+        x: aRect.left + aRect.width / 2,
+        y: aRect.top + 12,
+      });
+    } else if (card.modType === 'chain') {
+      const chainEffects = players
+        .filter(hero => hero.hp > 0)
+        .map(hero => {
+          const rect = avatarRefs.current[hero.id]?.getBoundingClientRect();
+          return rect ? {
+            id: nextStatusVfxId(`chain_buff_${hero.id}`),
+            sheet: CHAIN_BUFF_VFX,
+            amount,
+            x: rect.left + rect.width / 2,
+            y: rect.top + 12,
+          } : null;
+        })
+        .filter(Boolean);
+      fxRef.current?.spawnStatusVfxs(chainEffects);
     }
     if (card.modType === 'armor') {
       setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, armor: (p.armor || 0) + amount, currentCard: null, hasActed: true } : p));
@@ -5501,6 +5619,14 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     // не перерасходовали ману и авто-завершение хода видело статус мгновенно.
     manaRef.current -= card.cost; setMana(manaRef.current);
     const playSlotRect = slotRefs.current[player.id]?.getBoundingClientRect();
+    if (nextComboStreak === 1 && playSlotRect) {
+      fxRef.current?.spawnStatusVfx({
+        id: nextStatusVfxId(`chain_start_${player.id}`),
+        sheet: CHAIN_START_VFX,
+        x: playSlotRect.left + playSlotRect.width / 2,
+        y: playSlotRect.top + 12,
+      });
+    }
     setPlayers(prev => prev.map(p => p.id === player.id ? { ...p, currentCard: null, hasActed: true } : p));
     setAnimatingPlayerId(player.id); setAnimatingTargetIds(targetIndices.map(idx => enemiesRef.current[idx]?.id).filter(Boolean));
     // Спрайт-замах: играет при ЛЮБОЙ атаке героя, живёт своим пер-геройным состоянием.
@@ -5645,6 +5771,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       let anyCrit = false;
       let maxDealt = 0;
       const statusPopups = [];
+      const statusEffects = [];
       strikeIndices.forEach(idx => {
         const target = newEnemies[idx];
         target.statuses = { ...(target.statuses || {}) };
@@ -5689,6 +5816,19 @@ export default function App({ combatLab = false, onExitCombatLab }) {
             if (applied && eRect) {
               const def = SECONDARY_EFFECTS[payload.effect];
               statusPopups.push({ id: Math.random(), text: `${def.icon} ${def.label}`, color: def.color, x: eRect.left + eRect.width / 2, y: eRect.top - 10 });
+              const statusSheet = payload.effect === 'mark'
+                ? MARK_DEBUFF_VFX
+                : payload.effect === 'bleed'
+                  ? BLEED_DEBUFF_VFX
+                  : null;
+              if (statusSheet) {
+                statusEffects.push({
+                  id: nextStatusVfxId(`status_${payload.effect}_${target.id}`),
+                  sheet: statusSheet,
+                  x: eRect.left + eRect.width / 2,
+                  y: eRect.top + 12,
+                });
+              }
             }
           }
         }
@@ -5711,6 +5851,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
           : 'mage_hit';
       spawnImpactVfx(heroImpactType, heroImpactPoints, comboScale, impactRealTime);
       fxRef.current?.spawnBlood(newBlood);
+      fxRef.current?.spawnStatusVfxs(statusEffects);
       if (statusPopups.length) setTimeout(() => fxRef.current?.spawnDamagePopups(statusPopups), 260);
 
       // Синхронно обновляем реф, чтобы параллельный розыгрыш видел свежий HP врагов
@@ -6959,6 +7100,75 @@ export default function App({ combatLab = false, onExitCombatLab }) {
 
   const currentNode = gameMap.find(n => n.id === currentMapNodeId);
   const currentNodeInfo = getNodeInfo(currentNode?.type);
+  const handleDungeonCoins = (collectedIds, coins) => {
+    let foundGold = 0;
+    for (const coin of coins) {
+      if (!collectedIds.includes(coin.id)) continue;
+      const creditKey = `${currentMapNodeId}:${coin.id}`;
+      if (creditedDungeonCoinsRef.current.has(creditKey)) continue;
+      creditedDungeonCoinsRef.current.add(creditKey);
+      foundGold += coin.value;
+    }
+    if (foundGold > 0) setGold(value => value + foundGold);
+  };
+
+  const handleDungeonEncounter = (encounter) => {
+    if (!activeDungeonMode || turnState !== 'map' || !currentNode) return;
+    const encounterName = encounter.enemyName;
+    const battleType = encounter.difficultyType || (currentNode.type === 'boss' ? 'boss'
+      : currentNode.type.startsWith('combat_') ? currentNode.type : 'combat_easy');
+    setEnemies(spawnEnemies(battleType, currentNode.stage, sector, [encounterName]));
+    setPlayers(previous => previous.map(player => ({ ...player, armor: 0 })));
+    setChainAttackBonus(0);
+    setTurnState('dealing');
+  };
+
+  const handleDungeonChest = (chest) => {
+    if (!activeDungeonMode || !chest || turnState !== 'map') return;
+    const item = generateItemOfRarity(rollItemRarity(sector, currentStage));
+    setInventory(previous => sortUniqueItemsByRarity([...previous, item]));
+    dispatchDungeon({
+      type: 'chest-result',
+      id: chest.id,
+      itemName: item.name,
+      itemImage: getItemIconUrl(item.icon),
+    });
+    playSound('./assets/sfx/events/powerup_select.wav', 0.55);
+  };
+
+  const handleDungeonExit = (portal) => {
+    if (!activeDungeonMode || !portal || turnState !== 'map' || !currentNode) return;
+    dispatchDungeon({ type: 'consume-exit' });
+    setCompletedNodes(previous => previous.includes(currentNode.id) ? previous : [...previous, currentNode.id]);
+    if (currentNode.type === 'boss' || currentNode.stage === 5) {
+      playSound('./assets/sfx/game/victory.wav');
+      setSectorSplash({
+        text: SECTOR_NARRATIVES[Math.floor(Math.random() * SECTOR_NARRATIVES.length)],
+        sector: sector + 1,
+      });
+      return;
+    }
+    const targets = currentNode.next
+      .map(id => gameMap.find(node => node.id === id))
+      .filter(Boolean)
+      .sort((left, right) => left.y - right.y);
+    const target = targets[portal.branchIndex];
+    if (!target) return;
+    setCurrentMapNodeId(target.id);
+    setCurrentStage(target.stage);
+    setBgLocation(pickBgLocation(sector, target.stage));
+    dispatchDungeon({
+      type: 'reset',
+      level: createDungeonLevelForNode(target, sector, dungeonTools.generate),
+    });
+    if (target.type === 'event') {
+      playSound('./assets/sfx/events/event_start.wav');
+      const narrative = EVENT_NARRATIVES[Math.floor(Math.random() * EVENT_NARRATIVES.length)];
+      setCurrentEvent({ narrative, options: shuffleArray([...POWERUPS]).slice(0, 3) });
+      setTurnState('event');
+    }
+  };
+
   const isActiveCombat = !showTavern
     && enemies.some(enemy => !enemy.isDead && enemy.hp > 0)
     && players.some(player => player.hp > 0)
@@ -7157,8 +7367,8 @@ export default function App({ combatLab = false, onExitCombatLab }) {
     onEquipDrop: handleEquipDrop,
     onUnequip: handleUnequip,
 
-    mapPanelMounted,
-    arenaVeilVisible: arenaUiPhase !== 'idle',
+    mapPanelMounted: activeDungeonMode ? turnState === 'map' : mapPanelMounted,
+    arenaVeilVisible: !activeDungeonMode && arenaUiPhase !== 'idle',
 
     render: {
       combo: () => <ComboIndicator count={comboCount} />,
@@ -7241,27 +7451,53 @@ export default function App({ combatLab = false, onExitCombatLab }) {
   // Карта сектора и её дизолв-веил нужны обоим экранам боя: старый кладёт их в
   // свою колонку от вьюпорта, холст — в бокс сцены. Отличается только отступ
   // сверху: на холсте бокс сам задаёт геометрию, поэтому topPx там нулевой.
-  const mapPanelNode = (topPx) => (
-    <MapOverlay
-      sector={sector}
-      nodes={gameMap}
-      links={mapLinks}
-      completedNodes={completedNodes}
-      currentNodeId={currentMapNodeId}
-      isNodeClickable={isNodeClickable}
-      onNodeClick={handleNodeClick}
-      hue={bgLocation.hue}
-      sat={bgLocation.sat}
-      phase={mapPanelPhase}
-      topPx={topPx}
-      onEntered={() => setMapPanelPhase('idle')}
-      onExited={() => {
-        setMapPanelMounted(false);
-        setArenaUiPhase('entering');
-        dealGateTimeoutRef.current = setTimeout(() => setDealGateOpen(true), MAP_DEAL_GATE_DELAY_MS);
-      }}
-    />
-  );
+  const mapPanelNode = (topPx) => {
+    if (activeDungeonMode && dungeonRun) {
+      const DungeonMap = dungeonTools.Map;
+      const branchNodes = (currentNode?.next || [])
+        .map(id => gameMap.find(node => node.id === id))
+        .filter(Boolean)
+        .sort((left, right) => left.y - right.y);
+      const dungeonBranches = branchNodes.length > 0
+        ? branchNodes.map((node, index) => {
+          const info = getNodeInfo(node.type);
+          return { icon: info.icon, label: `Ветка ${index + 1}: ${info.label}` };
+        })
+        : [{ icon: NODE_INFO.base.icon, label: 'Выход в следующий сектор' }];
+      return (
+        <DungeonMap
+          run={dungeonRun}
+          dispatch={dispatchDungeon}
+          branches={dungeonBranches}
+          onEncounter={handleDungeonEncounter}
+          onChest={handleDungeonChest}
+          onExit={handleDungeonExit}
+          onCoinsCollected={handleDungeonCoins}
+        />
+      );
+    }
+    return (
+      <MapOverlay
+        sector={sector}
+        nodes={gameMap}
+        links={mapLinks}
+        completedNodes={completedNodes}
+        currentNodeId={currentMapNodeId}
+        isNodeClickable={isNodeClickable}
+        onNodeClick={handleNodeClick}
+        hue={bgLocation.hue}
+        sat={bgLocation.sat}
+        phase={mapPanelPhase}
+        topPx={topPx}
+        onEntered={() => setMapPanelPhase('idle')}
+        onExited={() => {
+          setMapPanelMounted(false);
+          setArenaUiPhase('entering');
+          dealGateTimeoutRef.current = setTimeout(() => setDealGateOpen(true), MAP_DEAL_GATE_DELAY_MS);
+        }}
+      />
+    );
+  };
 
   // Тем же дизолв-веилом материализуются слоты/колода/инвентарь после того, как
   // карта сектора растворилась (см. arenaUiPhase). Занимает ровно ту же зону,
@@ -7547,9 +7783,9 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       <audio ref={audioRef} loop preload="auto" />
 
       {/* Глобальный кошелёк — поверх всех экранов, правый верхний угол */}
-      {appReady && !combatLab && <WalletHUD gold={gold} soulEmbers={soulEmbers} />}
+      {appReady && !isolatedBattle && <WalletHUD gold={gold} soulEmbers={soulEmbers} />}
 
-      {appReady && !combatLab && (isActiveCombat || isSelectingMapNode) && (
+      {appReady && !isolatedBattle && (isActiveCombat || isSelectingMapNode) && (
         <button
           type="button"
           onClick={() => handleExitExpedition(isAtSectorBase)}
@@ -7569,7 +7805,7 @@ export default function App({ combatLab = false, onExitCombatLab }) {
       )}
 
       {/* Музыка + SFX + полноэкран (сдвинуты под кошелёк) */}
-      <div className={`${combatLab ? 'hidden ' : ''}absolute top-14 right-[52px] z-[9000] flex items-center gap-3 bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg`}>
+      <div className={`${isolatedBattle ? 'hidden ' : ''}absolute top-14 right-[52px] z-[9000] flex items-center gap-3 bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg`}>
         {/* Кнопка вкл/выкл музыки */}
         <button onClick={toggleMusic} className="text-slate-400 hover:text-white transition-colors flex items-center" title={musicOn ? "Выключить музыку" : "Включить музыку"}>
           {musicOn ? (

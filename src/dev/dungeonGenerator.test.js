@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { COLS, ROWS, ENTITY_URLS, ENEMY_SPRITES, generateDungeon, isFloor } from './dungeonGenerator.js';
+import { COLS, ROWS, COIN_DENSITY, ENTITY_URLS, generateDungeon, isFloor } from './dungeonGenerator.js';
 import { SPRITES } from './dungeonTestMap.js';
 import { lightAt } from './dungeonLighting.js';
 
@@ -27,12 +27,15 @@ test('5,000 seeds preserve dimensions, unique placements, portals and connected 
     const level = generateDungeon(seed);
     const context = `seed ${seed}`;
     assert.equal(level.width, 18, context);
-    assert.equal(level.height, 6, context);
+    assert.equal(level.height, 7, context);
     assert.equal(level.tiles.length, ROWS, context);
     for (const row of level.tiles) {
       assert.equal(row.length, COLS, context);
       assert.ok(row.every(tile => tile === 'partition' || Object.hasOwn(SPRITES, tile)), context);
     }
+    assert.ok(level.tiles[0].slice(1, -1).every(tile => ['wallN', 'stairsN'].includes(tile)), context);
+    assert.ok(level.tiles[ROWS - 2].slice(1, -1).every(tile => ['wallS', 'stairsS'].includes(tile)), context);
+    assert.deepEqual(level.tiles[ROWS - 1], ['baseW', ...Array(16).fill('base'), 'baseE'], context);
     assert.equal(level.portals.length, 2, context);
     const entrance = level.portals.filter(portal => portal.kind === 'entrance');
     const exit = level.portals.filter(portal => portal.kind === 'exit');
@@ -42,7 +45,10 @@ test('5,000 seeds preserve dimensions, unique placements, portals and connected 
     const specialTiles = level.tiles.flat().filter(tile => tile === 'door' || tile.startsWith('stairs') || tile.startsWith('passage'));
     assert.equal(specialTiles.length, 2, context);
     for (const portal of level.portals) {
-      assert.equal(level.tiles[portal.y][portal.x], portal.y === 0 ? 'stairsN' : 'stairsS', context);
+      const expectedTile = portal.side === 'north' ? 'stairsN'
+        : portal.side === 'south' ? 'stairsS'
+          : portal.side === 'east' ? 'stairsE' : 'stairsW';
+      assert.equal(level.tiles[portal.y][portal.x], expectedTile, context);
       assert.ok(isFloor(level.tiles[portal.access.y][portal.access.x]), context);
       assert.equal(Math.abs(portal.x - portal.access.x) + Math.abs(portal.y - portal.access.y), 1, context);
     }
@@ -54,6 +60,7 @@ test('5,000 seeds preserve dimensions, unique placements, portals and connected 
     assert.ok(enemies.length >= 3 && enemies.length <= 5, context);
     assert.ok(chests.length >= 2 && chests.length <= 3, context);
     assert.ok(level.entities.some(entity => entity.kind === 'decor'), context);
+    assert.equal(enemies.filter(enemy => enemy.required).length, 1, context);
     assert.equal(new Set(level.entities.map(key)).size, level.entities.length, context);
     assert.equal(new Set(level.entities.map(entity => entity.id)).size, level.entities.length, context);
     for (const entity of level.entities) {
@@ -62,7 +69,7 @@ test('5,000 seeds preserve dimensions, unique placements, portals and connected 
       assert.notEqual(key(entity), key(exit[0].access), context);
     }
     assert.ok(level.rooms.length >= 4 && level.rooms.length <= 5, context);
-    assert.ok(level.deadEnds.length >= 2, context);
+    assert.ok(level.deadEnds.length >= 3, context);
     for (const cell of level.deadEnds) {
       assert.equal([[0, 1], [0, -1], [1, 0], [-1, 0]].filter(([dx, dy]) => isFloor(level.tiles[cell.y + dy]?.[cell.x + dx])).length, 1, context);
     }
@@ -72,48 +79,161 @@ test('5,000 seeds preserve dimensions, unique placements, portals and connected 
       if (level.route[i].x - level.route[i - 1].x !== level.route[i - 1].x - level.route[i - 2].x ||
           level.route[i].y - level.route[i - 1].y !== level.route[i - 1].y - level.route[i - 2].y) turns++;
     }
-    assert.ok(turns >= 4, context);
+    assert.ok(turns >= 6, context);
     assert.ok(level.route.length >= 20, context);
-    assert.equal(level.lights.length, level.rooms.length, context);
+    assert.equal(level.lights.length, level.rooms.length + 1, context);
     assert.equal(new Set(level.lights.map(key)).size, level.lights.length, context);
     for (const light of level.lights) {
-      assert.equal(light.sprite, 'torch_decor', context);
-      assert.ok(['wallN', 'wallS'].includes(level.tiles[light.y][light.x]), context);
+      if (light.entityId) {
+        const source = level.entities.find(entity => entity.id === light.entityId);
+        assert.equal(source?.sprite, 'candle', context);
+        assert.equal(key(source), key(light), context);
+        assert.ok(isFloor(level.tiles[light.y][light.x]), context);
+      } else {
+        assert.equal(light.sprite, 'torch_decor', context);
+        assert.ok(['wallN', 'wallS'].includes(level.tiles[light.y][light.x]), context);
+      }
       assert.ok(!level.portals.some(portal => key(portal) === key(light)), context);
     }
     const floorCount = level.tiles.flat().filter(isFloor).length;
+    level.tiles.forEach((row, y) => row.forEach((tile, x) => {
+      if (!isFloor(tile)) return;
+      for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+        assert.ok(level.tiles[y + dy]?.[x + dx] && level.tiles[y + dy][x + dx] !== '.',
+          `${context}: exposed floor at ${x},${y}`);
+      }
+    }));
     assert.equal(reachable(level, entrance[0].access).size, floorCount, context);
     const blocked = new Set(level.entities.filter(entity => entity.kind !== 'hero').map(key));
-    const clearPath = reachable(level, entrance[0].access, blocked);
-    assert.ok(clearPath.has(key(exit[0].access)), context);
+    const beforeGuard = reachable(level, entrance[0].access, blocked);
+    assert.ok(!beforeGuard.has(key(exit[0].access)), context);
+    const requiredIds = new Set(level.entities.filter(entity => entity.required).map(key));
+    const afterGuard = reachable(level, entrance[0].access,
+      new Set([...blocked].filter(cell => !requiredIds.has(cell))));
+    assert.ok(afterGuard.has(key(exit[0].access)), context);
     for (const entity of level.entities) {
       // Every chest/enemy remains approachable from the shared passage.
+      const reachableArea = entity.required ? beforeGuard : afterGuard;
       assert.ok([[0, 1], [0, -1], [1, 0], [-1, 0]].some(([dx, dy]) =>
-        clearPath.has(key({ x: entity.x + dx, y: entity.y + dy }))), context);
+        reachableArea.has(key({ x: entity.x + dx, y: entity.y + dy }))), context);
     }
+    const occupied = new Set([...level.entities.map(key), ...level.portals.map(portal => key(portal.access))]);
+    const coinCells = new Set(level.coins.map(key));
+    assert.equal(coinCells.size, level.coins.length, context);
+    level.coins.forEach(coin => {
+      assert.ok(isFloor(level.tiles[coin.y][coin.x]), context);
+      assert.ok(!occupied.has(key(coin)), context);
+      assert.ok(coin.value === 1 || coin.value === 2, context);
+    });
+    const eligibleCoinCells = level.tiles.flatMap((row, y) => row.flatMap((tile, x) =>
+      isFloor(tile) && !occupied.has(key({ x, y })) ? [{ x, y }] : []));
+    assert.equal(level.coins.length, Math.floor(eligibleCoinCells.length * COIN_DENSITY), context);
   }
 });
 
 test('seed reproduces a complete map, including unsigned boundary values', () => {
   for (const seed of [0, 1, 42, 2147483648, 4294967295]) {
     assert.deepEqual(generateDungeon(seed), generateDungeon(seed));
+    assert.deepEqual(
+      generateDungeon(seed, { exitCount: 3, nodeType: 'event' }),
+      generateDungeon(seed, { exitCount: 3, nodeType: 'event' }),
+    );
     assert.equal(generateDungeon(seed).seed, seed);
   }
 });
 
-test('generation varies room geometry and uses all supplied enemy types', () => {
+test('one to three exits preserve branch order and share one mandatory gate', () => {
+  for (const exitCount of [1, 2, 3]) {
+    const level = generateDungeon(42 + exitCount, { exitCount, nodeType: 'combat_hard' });
+    const exits = level.portals.filter(portal => portal.kind === 'exit');
+    assert.equal(exits.length, exitCount);
+    assert.deepEqual(exits.map(portal => portal.branchIndex), Array.from({ length: exitCount }, (_, index) => index));
+    const guard = level.entities.find(entity => entity.required);
+    assert.ok(guard);
+    const blocked = new Set([key(guard)]);
+    exits.forEach(portal => {
+      assert.equal(reachable(level, level.portals[0].access, blocked).has(key(portal.access)), false);
+      assert.ok(reachable(level, level.portals[0].access).has(key(portal.access)));
+    });
+  }
+});
+
+test('every non-boss node has enemies; boss alone guards the sector exit', () => {
+  for (const nodeType of ['base', 'event']) {
+    const level = generateDungeon(7, { exitCount: 3, nodeType });
+    const enemies = level.entities.filter(entity => entity.kind === 'enemy');
+    assert.ok(enemies.length >= 3 && enemies.length <= 5);
+    assert.ok(enemies.every(enemy => enemy.sprite === 'wolf'));
+    assert.ok(enemies.every(enemy => enemy.difficultyType === 'combat_easy'));
+    assert.ok(level.entities.some(entity => entity.kind === 'chest'));
+  }
+  const level = generateDungeon(7, {
+    exitCount: 1,
+    nodeType: 'boss',
+    guardSprite: 'boss_eye',
+    guardEnemyName: 'Глаз',
+  });
+  const encounters = level.entities.filter(entity => entity.kind === 'enemy' || entity.kind === 'chest');
+  assert.equal(encounters.length, 1);
+  assert.deepEqual(
+    { sprite: encounters[0].sprite, enemyName: encounters[0].enemyName, required: encounters[0].required },
+    { sprite: 'boss_eye', enemyName: 'Глаз', required: true },
+  );
+});
+
+test('generation varies room geometry', () => {
   const geometries = new Set();
-  const enemies = new Set();
+  const layouts = new Set();
+  const shapes = new Set();
   const roomCounts = new Set();
+  let splitConnections = 0;
+  let middleConnections = 0;
   for (let seed = 0; seed < 200; seed++) {
     const level = generateDungeon(seed);
     geometries.add(JSON.stringify(level.rooms));
+    // Compare walkable masks, independent of decorations and sprite names.
+    layouts.add(JSON.stringify(level.tiles.map(row => row.map(isFloor))));
+    level.rooms.forEach(room => {
+      shapes.add(room.shape);
+      const cells = level.tiles.flatMap((row, y) => row.flatMap((tile, x) =>
+        x >= room.x && x < room.x + room.width && isFloor(tile) ? [{ x, y }] : []));
+      assert.deepEqual(room.cells, cells);
+    });
+    if (level.openings.some(opening => opening.y === 2)) middleConnections++;
+    if (new Set(level.openings.map(opening => opening.x)).size < level.openings.length) splitConnections++;
     roomCounts.add(level.rooms.length);
-    level.entities.filter(entity => entity.kind === 'enemy').forEach(entity => enemies.add(entity.sprite));
   }
   assert.ok(geometries.size >= 15);
+  assert.ok(layouts.size >= 180, 'At least 90% of the sampled floor plans should differ');
+  assert.deepEqual(shapes, new Set(['open', 'bend', 'notch', 'fork', 'stagger', 'island', 'split']));
+  assert.ok(middleConnections >= 10, 'Connections also use the middle row');
+  assert.ok(splitConnections >= 10, 'Some walls have alternate connections');
   assert.deepEqual(roomCounts, new Set([4, 5]));
-  assert.deepEqual(enemies, new Set(ENEMY_SPRITES));
+});
+
+test('medium and hard nodes use 80% matching enemies and 20% one tier lower', () => {
+  for (const [nodeType, primary, primaryType, lower, lowerType] of [
+    ['combat_medium', 'zombie', 'combat_medium', 'wolf', 'combat_easy'],
+    ['combat_hard', 'dark_wized', 'combat_hard', 'zombie', 'combat_medium'],
+  ]) {
+    let total = 0;
+    let lowerTotal = 0;
+    for (let seed = 0; seed < 500; seed++) {
+      const enemies = generateDungeon(seed, { nodeType }).entities
+        .filter(entity => entity.kind === 'enemy');
+      const primaryCount = enemies.filter(enemy => enemy.sprite === primary).length;
+      const lowerCount = enemies.filter(enemy => enemy.sprite === lower).length;
+      assert.equal(primaryCount + lowerCount, enemies.length);
+      assert.ok(primaryCount > lowerCount);
+      assert.ok(enemies.every(enemy => enemy.difficultyType === (
+        enemy.sprite === lower ? lowerType : primaryType
+      )));
+      total += enemies.length;
+      lowerTotal += lowerCount;
+    }
+    const lowerRatio = lowerTotal / total;
+    assert.ok(lowerRatio >= 0.18 && lowerRatio <= 0.22, `${nodeType}: ${lowerRatio}`);
+  }
 });
 
 test('torch light decreases smoothly with distance without wall-shaped beams', () => {
