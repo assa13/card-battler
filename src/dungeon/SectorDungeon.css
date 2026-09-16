@@ -1,0 +1,13 @@
+.sector-dungeon { height: 100%; display: flex; flex-direction: column; gap: 8px; padding: 14px 18px; box-sizing: border-box; color: #c5d0db; background: #15151ff2; border: 1px solid #55556b; border-radius: 18px; font: 12px/1.4 Georgia, serif; overflow: hidden; }
+.sector-dungeon.is-active { pointer-events: auto; }
+.sector-dungeon header { display: flex; align-items: center; gap: 20px; min-height: 22px; }
+.sector-dungeon header strong { color: #e3bd78; font-size: 16px; }
+.sector-dungeon-exit { margin-left: auto; color: #d3bf98; }
+.sector-dungeon-board { flex: 1; min-height: 0; display: flex; justify-content: center; align-items: center; background: #2d2d46; border: 1px solid #55556b; }
+.sector-dungeon canvas { display: block; max-width: none; image-rendering: auto; cursor: pointer; }
+.sector-dungeon canvas:focus-visible { outline: 1px solid #91d8ee; outline-offset: 1px; }
+.sector-dungeon footer { min-height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 12px; font: 11px/1.4 Arial, sans-serif; color: #a3b2c1; }
+.sector-dungeon-actions { display: flex; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
+.sector-dungeon button { cursor: pointer; border: 1px solid #ab914b; border-radius: 4px; color: #ffe39c; padding: 5px 8px; background: #302d27; }
+.sector-dungeon button:hover { background: #49412d; }
+.sector-dungeon button:disabled { pointer-events: none; opacity: .5; }

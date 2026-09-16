@@ -10,6 +10,8 @@ import TiltWrapper from './ui/TiltWrapper';
 import EnemyHpBar from './ui/EnemyHpBar';
 import { CardTiltContext } from './ui/cardTilt';
 import BattleScreen from './battle/BattleScreen';
+import SectorDungeon from './dungeon/SectorDungeon.jsx';
+import { atDungeonPortal, createSectorDungeon, getDungeonEncounter, sectorDungeonReducer, selectEncounterRoster } from './dungeon/sectorDungeonState.js';
 import { BattleViewContext } from './battle/battleView';
 import QteOverlay from './QteOverlay';
 import HorseHerdQte from './HorseHerdQte';
@@ -117,8 +119,6 @@ const CANVAS_BATTLE_DEFAULT = true;
 
 const MAX_MANA = 3;
 const ENEMY_POWER_MULT = 0.5; // глобальный нерф врагов: HP и урон ×0.5
-const NUM_STAGES = 15; 
-const STAGE_WIDTH = 160; 
 
 // HP больше НЕ зависит от статов: базовое значение + рост за уровень + события + предметы
 const INITIAL_PLAYERS_DATA = [
@@ -811,152 +811,6 @@ const getNodeInfo = (type) => NODE_INFO[type] || { label: 'Сектор', icon: 
 
 // --- ФУНКЦИИ ГЕНЕРАЦИИ КАРТЫ ---
 
-const MAP_Y_POSITIONS = {
-  1: [50],
-  2: [35, 65],
-  3: [20, 50, 80],
-  4: [15, 38, 62, 85],
-  5: [10, 30, 50, 70, 90],
-  6: [8, 25, 42, 58, 75, 92]
-};
-
-const LINE_COLORS = ['#1E88E5', '#D32F2F', '#36B373', '#FFAB00', '#A14EE3', '#00B8D9'];
-
-const getSubwayPath = (link) => {
-  const { source, target, midX, y1Offset, y2Offset } = link;
-  const x1 = source.x;
-  const y1 = source.y + y1Offset;
-  const x2 = target.x;
-  const y2 = target.y + y2Offset;
-
-  const yDiff = y2 - y1;
-  const absYDiff = Math.abs(yDiff);
-
-  const rx_base = 2; 
-  const ry_base = rx_base * 1.8; 
-
-  const scale = Math.min(1, absYDiff / (2 * ry_base), Math.abs(midX - x1) / rx_base, Math.abs(x2 - midX) / rx_base);
-  const rx = rx_base * scale;
-  const ry = ry_base * scale;
-
-  if (scale < 0.01) {
-    return `M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`;
-  }
-
-  const dirY = Math.sign(yDiff);
-  const sweep1 = dirY > 0 ? 1 : 0;
-  const sweep2 = dirY > 0 ? 0 : 1;
-
-  return `M ${x1} ${y1} 
-          L ${midX - rx} ${y1} 
-          A ${rx} ${ry} 0 0 ${sweep1} ${midX} ${y1 + ry * dirY} 
-          L ${midX} ${y2 - ry * dirY} 
-          A ${rx} ${ry} 0 0 ${sweep2} ${midX + rx} ${y2} 
-          L ${x2} ${y2}`;
-};
-
-const getConicGradient = (colors, innerBg) => {
-  if (!colors || colors.length === 0) return { background: innerBg, borderColor: '#44286E' };
-  if (colors.length === 1) return { background: innerBg, borderColor: colors[0] };
-  
-  const step = 100 / colors.length;
-  let stops = [];
-  colors.forEach((c, i) => {
-    stops.push(`${c} ${i * step}%`, `${c} ${(i + 1) * step}%`);
-  });
-  
-  return {
-    background: `linear-gradient(${innerBg}, ${innerBg}) padding-box, conic-gradient(${stops.join(', ')}) border-box`,
-    borderColor: 'transparent'
-  };
-};
-
-const generateMap = () => {
-  // Слой 1 ФИКСИРОВАННО 2 узла: у базы максимум 3 исходящих ребра — при 4+ узлах
-  // появлялись сироты без входа; плюс каждый узел слоя 1 = своя цветная «линия метро»,
-  // 2 узла = 2 цвета (больше — радужный хаос). Средние слои 2–6 узлов — широкий
-  // разброс, иначе детерминированный граф связей повторяется из раза в раз.
-  const counts = [
-    1,
-    2,
-    Math.floor(Math.random() * 5) + 2,
-    Math.floor(Math.random() * 5) + 2,
-    Math.floor(Math.random() * 5) + 2,
-    1
-  ];
-  const layers = [];
-  const runId = Math.random().toString(36).substring(2, 9);
-  let nextId = 0;
-
-  for (let i = 0; i < counts.length; i++) {
-    const layer = [];
-    const count = counts[i];
-    for (let j = 0; j < count; j++) {
-      let type = 'combat_easy';
-      if (i === 0) type = 'base';
-      else if (i === counts.length - 1) type = 'boss';
-      else {
-        const rand = Math.random();
-        if (rand > 0.85) type = 'event';
-        else if (rand > 0.6) type = 'combat_hard';
-        else if (rand > 0.3) type = 'combat_medium';
-        else type = 'combat_easy';
-      }
-
-      layer.push({
-        id: `node_${runId}_${nextId++}`, 
-        stage: i,
-        type,
-        x: 10 + i * 16, 
-        y: MAP_Y_POSITIONS[count][j],
-        next: [],
-        colors: [] 
-      });
-    }
-    layers.push(layer);
-  }
-
-  for (let i = 0; i < layers.length - 1; i++) {
-    const curr = layers[i];
-    const next = layers[i + 1];
-
-    next.forEach((nextNode, nIdx) => {
-      let bestSrc = -1;
-      let minDist = 999;
-      for(let c = 0; c < curr.length; c++) {
-        if (curr[c].next.length < 3) {
-          let dist = Math.abs(c / curr.length - nIdx / next.length);
-          if (dist < minDist) { minDist = dist; bestSrc = c; }
-        }
-      }
-      if (bestSrc !== -1) curr[bestSrc].next.push(nextNode.id);
-    });
-
-    curr.forEach((currNode, cIdx) => {
-      if (currNode.next.length === 0) {
-        let targetIdx = Math.floor((cIdx / curr.length) * next.length);
-        currNode.next.push(next[targetIdx].id);
-      }
-    });
-
-    curr.forEach((currNode, cIdx) => {
-      if (i === layers.length - 2) return;
-      const numBranches = Math.floor(Math.random() * 3) + 1;
-      let attempts = 0;
-      let centerTargetIdx = Math.floor((cIdx / curr.length) * next.length);
-      while (currNode.next.length < numBranches && attempts < 10) {
-        attempts++;
-        let offset = Math.floor(Math.random() * 3) - 1; 
-        let tIdx = centerTargetIdx + offset;
-        if (tIdx >= 0 && tIdx < next.length) {
-          if (!currNode.next.includes(next[tIdx].id)) currNode.next.push(next[tIdx].id);
-        }
-      }
-    });
-  }
-  return layers.flat();
-};
-
 const ENEMY_STAT_TEMPLATES = {
   'Зомби':      { baseHp: 70,  perStage: 18, icon: '🧟', xp: 90 },
   'Волк':       { baseHp: 40,  perStage: 11, icon: '🐺', xp: 50 },
@@ -1001,7 +855,7 @@ const pickEnemyNames = (pool, count) => {
   return Array.from({ length: count }, (_, index) => shuffled[index % shuffled.length]);
 };
 
-const spawnEnemies = (type, stage, sector = 1, enemyNames = null) => {
+const spawnEnemies = (type, stage, sector = 1, enemyNames = null, requiredEnemy = null) => {
   const s = (stage || 1) + (sector - 1) * 6;
   const mult = Math.pow(1.55, sector - 1);
   let counter = 0;
@@ -1031,11 +885,11 @@ const spawnEnemies = (type, stage, sector = 1, enemyNames = null) => {
   if (enemyNames) return enemyNames.map(name => ({ ...mk(name), isBoss: type === 'boss' }));
 
   if (type === 'boss') {
-    const bossName = sector <= 1
+    const bossName = requiredEnemy || (sector <= 1
       ? WORM_BOSS_NAME
       : sector === 2
         ? 'Глаз'
-        : SKELETON_BOSS_NAME;
+        : SKELETON_BOSS_NAME);
     const boss = mk(bossName, 1);
     if (bossName === 'Глаз') {
       // Глаз остаётся боссом второго сектора. Понерфлен: −30% HP, −25% к атаке.
@@ -1055,7 +909,8 @@ const spawnEnemies = (type, stage, sector = 1, enemyNames = null) => {
       ? 2
       : 1 + Math.floor(Math.random() * 2);
 
-  return shuffleArray(pickEnemyNames(pool, count).map(name => mk(name)));
+  const names = requiredEnemy ? selectEncounterRoster(pool, count, requiredEnemy) : pickEnemyNames(pool, count);
+  return shuffleArray(names.map(name => mk(name)));
 };
 
 const COMBAT_LAB_BOSSES = [
@@ -3156,84 +3011,16 @@ const MAP_DEAL_GATE_DELAY_MS = 200;
 // (MAP_PANEL в battleLayout).
 const MAP_TOP_PX = 360;
 
-const MapOverlay = ({ sector, nodes, links, completedNodes, currentNodeId, isNodeClickable, onNodeClick, hue = 210, sat = 30, phase = 'idle', topPx = MAP_TOP_PX, onEntered, onExited }) => {
-  const interactive = phase === 'idle';
-  // pointer-events-none на корне ОБЯЗАТЕЛЕН: панель остаётся смонтированной после
-  // turnState==='map' (доигрывает веил) и лежит z-[500] ровно над слотами карт.
-  // Без сквозного прохода кликов она молча блокирует руку, если onExited задержался
-  // (rAF-троттлинг Safari/Firefox). Кликабельность возвращают ТОЛЬКО сами узлы.
-  return (
+const MapOverlay = ({ run, sector, active, onAction, hue, sat, phase, topPx, onEntered, onExited }) => (
   <div className="absolute left-0 right-0 bottom-0 z-[500] pointer-events-none" style={{ top: topPx }}>
-    <div className="absolute top-3 left-8 z-10 text-amber-500 font-black uppercase italic tracking-widest text-lg drop-shadow-md pointer-events-none map-content-in">Карта сектора {String(sector)}</div>
-    <div className="absolute top-4 right-8 z-10 text-slate-400 font-black uppercase tracking-widest text-[9px] pointer-events-none map-content-in">Выберите следующий этап пути</div>
-    <div className="relative w-full h-full bg-slate-950/40 backdrop-blur-xl rounded-[28px] border border-slate-700 shadow-2xl overflow-hidden">
-     <div className="absolute inset-0 map-content-in">
-      <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-        {links.map(link => {
-          const isLinkActive = (completedNodes.includes(link.source.id) || currentNodeId === link.source.id) && (completedNodes.includes(link.target.id) || isNodeClickable(link.target));
-          if (isLinkActive) return null;
-          return (
-            <path key={`inact-${link.source.id}-${link.target.id}`} d={getSubwayPath(link)} fill="none" stroke={link.color} strokeWidth={3} opacity={0.3} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeDasharray="4, 4" className="transition-all duration-500" />
-          )
-        })}
-        {links.map(link => {
-          const isLinkActive = (completedNodes.includes(link.source.id) || currentNodeId === link.source.id) && (completedNodes.includes(link.target.id) || isNodeClickable(link.target));
-          if (!isLinkActive) return null;
-          return (
-            <path key={`act-${link.source.id}-${link.target.id}`} d={getSubwayPath(link)} fill="none" stroke={link.color} strokeWidth={6} vectorEffect="non-scaling-stroke" strokeLinecap="round" className="transition-all duration-500" />
-          )
-        })}
-      </svg>
-
-      {nodes.map(node => {
-         const isCompleted = completedNodes.includes(node.id);
-         const isCurrent = currentNodeId === node.id;
-         const isClickable = interactive && isNodeClickable(node);
-         let innerBg = '#0B0515';
-         let icon = '🗡️';
-         let sizeClasses = 'w-12 h-12 border-[6px] -ml-6 -mt-6 text-2xl';
-
-         if (node.type === 'base') { innerBg = '#ffffff'; icon = '🏰'; sizeClasses = 'w-16 h-16 border-[6px] -ml-8 -mt-8 text-4xl'; }
-         else if (node.type === 'boss') { innerBg = '#ffffff'; icon = '🐲'; sizeClasses = 'w-16 h-16 border-[6px] -ml-8 -mt-8 text-4xl'; }
-         else if (node.type === 'combat_hard') { icon = '☠️'; }
-         else if (node.type === 'combat_medium') { icon = '⚔️'; }
-         else if (node.type === 'event') { innerBg = '#1E1035'; icon = '✨'; }
-
-         const nodeColorStyle = getConicGradient(node.colors, innerBg);
-
-         return (
-           <div
-              key={node.id}
-              onClick={(e) => { e.stopPropagation(); if (isClickable) onNodeClick(node); }}
-              className={`absolute flex items-center justify-center rounded-full shadow-xl transition-all duration-300 ${sizeClasses} ${isClickable ? 'pointer-events-auto' : ''} ${isCompleted && node.type !== 'base' ? 'grayscale opacity-60' : isCurrent ? 'scale-125 drop-shadow-[0_0_20px_rgba(255,255,255,0.4)] z-20' : isClickable ? 'hover:scale-125 cursor-pointer animate-pulse z-10' : 'opacity-50' }`}
-              style={{ left: `${node.x}%`, top: `${node.y}%`, ...nodeColorStyle }}
-           >
-              {icon}
-              {isClickable && <div className="absolute -inset-2 border-[3px] rounded-full animate-ping opacity-40" style={{ borderColor: node.colors[0] || '#1E88E5' }}></div>}
-           </div>
-         );
-      })}
-
-     </div>
-
-     {phase !== 'idle' && (
-       <MapDissolveVeil
-         hue={hue}
-         sat={sat}
-         phase={phase}
-         duration={phase === 'exiting' ? MAP_DISSOLVE_EXIT_MS : MAP_DISSOLVE_ENTER_MS}
-         onDone={phase === 'exiting' ? onExited : onEntered}
-       />
-     )}
-    </div>
-
-    <style>{`
-      .map-content-in { animation: mapContentIn 0.25s ease-in-out both; }
-      @keyframes mapContentIn { from { opacity: 0; } to { opacity: 1; } }
-    `}</style>
+    <SectorDungeon run={run} sector={sector} active={active} onAction={onAction} />
+    {phase !== 'idle' && (
+      <MapDissolveVeil hue={hue} sat={sat} phase={phase}
+        duration={phase === 'exiting' ? MAP_DISSOLVE_EXIT_MS : MAP_DISSOLVE_ENTER_MS}
+        onDone={phase === 'exiting' ? onExited : onEntered} />
+    )}
   </div>
-  );
-};
+);
 
 // --- 3. ГЛАВНОЕ ПРИЛОЖЕНИЕ ---
 
@@ -3337,14 +3124,19 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
     }, 1400);
   }, []);
 
-  const initialMapRef = useRef(null);
-  if (!initialMapRef.current) {
-    initialMapRef.current = generateMap();
-  }
-
-  const [gameMap, setGameMap] = useState(initialMapRef.current);
-  const [currentMapNodeId, setCurrentMapNodeId] = useState(initialMapRef.current[0].id);
-  const [completedNodes, setCompletedNodes] = useState([initialMapRef.current[0].id]);
+  const [sectorDungeon, setSectorDungeon] = useState(() => createSectorDungeon());
+  const sectorDungeonRef = useRef(sectorDungeon);
+  const updateSectorDungeon = next => {
+    sectorDungeonRef.current = next;
+    setSectorDungeon(next);
+  };
+  const finishDungeonEncounter = victory => {
+    const run = sectorDungeonRef.current;
+    if (!run.encounter) return;
+    const next = sectorDungeonReducer(run, { type: 'battle-result', id: run.encounter.id, victory });
+    updateSectorDungeon(run.encounter.kind === 'chest' && victory ? { ...next, notice: 'Сундук открыт.' } : next);
+  };
+  const [currentMapNodeId, setCurrentMapNodeId] = useState('entrance');
   const [currentStage, setCurrentStage] = useState(combatLab ? 5 : dungeonEncounter ? 1 : 0);
   const [sector, setSector] = useState(1);
   const [sectorSplash, setSectorSplash] = useState(null);
@@ -3369,7 +3161,7 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
   // turnState происходит как обычно, веил просто донашивает визуал поверх.
   const [mapPanelMounted, setMapPanelMounted] = useState(isolatedBattle ? false : turnState === 'map');
   const [mapPanelPhase, setMapPanelPhase] = useState(isolatedBattle ? 'idle' : 'entering');
-  // Гейт раздачи: закрывается в момент клика по узлу (см. handleNodeClick),
+  // Гейт раздачи: закрывается в момент клика по узлу (см. handleDungeonAction),
   // открывается через MAP_DEAL_GATE_DELAY_MS ПОСЛЕ того, как веил карты
   // доиграет исчезание (onExited) — раздача не стартует, пока карта не ушла + пауза.
   const [dealGateOpen, setDealGateOpen] = useState(true);
@@ -3603,7 +3395,6 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
   const discardRef = useRef(null);
   const xpBarRef = useRef(null);
   const inventoryRef = useRef(null);
-  const mapScrollRef = useRef(null);
   const audioRef = useRef(null);
   const showLevelUpRef = useRef(false);
   const pendingTransitionRef = useRef(null);
@@ -3932,17 +3723,6 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
     }
   }, []);
 
-  useEffect(() => {
-    if (turnState === 'map' && mapScrollRef.current && currentMapNodeId) {
-      const currNode = gameMap.find(n => n.id === currentMapNodeId);
-      if (currNode) {
-        const containerWidth = mapScrollRef.current.clientWidth;
-        const scrollPos = currNode.x - containerWidth / 2 + 30; 
-        mapScrollRef.current.scrollTo({ left: Math.max(0, scrollPos), behavior: 'smooth' });
-      }
-    }
-  }, [turnState, currentMapNodeId, gameMap]);
-
   const setSlotRef = (id, el) => { if (el) slotRefs.current[id] = el; };
   const setEnemyRef = (id, el) => { if (el) enemyRefs.current[id] = el; };
   const setAvatarRef = (id, el) => { if (el) avatarRefs.current[id] = el; };
@@ -4010,17 +3790,19 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
     }
   };
 
-  const isNodeClickable = (node) => {
-    if (completedNodes.includes(node.id)) return false;
-    if (currentMapNodeId) {
-      const currNode = gameMap.find(n => n.id === currentMapNodeId);
-      if (currNode && currNode.next.includes(node.id)) return true;
-    }
-    return false;
-  };
+  const canExploreDungeon = !isolatedBattle && appReady && !showTavern && !showHeroInventory
+    && !showShop && !showTaskMaster && !showLevelUp && !cardReveal && !showReserve && !showCraft
+    && !sectorSplash && turnState === 'map' && mapPanelPhase === 'idle';
 
-  const handleNodeClick = (node) => {
-    if (!isNodeClickable(node)) return;
+  const handleDungeonAction = action => {
+    if (!canExploreDungeon) return;
+    const previous = sectorDungeonRef.current;
+    const next = sectorDungeonReducer(previous, action);
+    if (next === previous) return;
+    updateSectorDungeon(next);
+    if (next.exiting) { startNextSector(); return; }
+    if (!next.encounter || previous.encounter) return;
+    const node = getDungeonEncounter(next);
     playSound('./assets/sfx/map/node_click.wav');
     setCurrentMapNodeId(node.id);
     setCurrentStage(node.stage);
@@ -4031,12 +3813,12 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
 
     if (node.type === 'event') {
       playSound('./assets/sfx/events/event_start.wav');
-       const randomNarrative = EVENT_NARRATIVES[Math.floor(Math.random() * EVENT_NARRATIVES.length)];
+       const [randomNarrative] = shuffleArray(EVENT_NARRATIVES);
        const randomPowerups = shuffleArray([...POWERUPS]).slice(0, 3);
        setCurrentEvent({ narrative: randomNarrative, options: randomPowerups });
        setTurnState('event');
     } else {
-       const spawnedEnemies = spawnEnemies(node.type, node.stage, sector);
+       const spawnedEnemies = spawnEnemies(node.type, node.stage, sector, null, node.requiredEnemy);
        setEnemies(spawnedEnemies);
        // Новый бой: броня и бонус цепи обнуляются
        setPlayers(prev => prev.map(p => ({ ...p, armor: 0 })));
@@ -4045,7 +3827,7 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
        
        // Один случайный участник приветствует отряд репликой своего архетипа.
        if (spawnedEnemies.length > 0) {
-         const randEnemy = spawnedEnemies[Math.floor(Math.random() * spawnedEnemies.length)];
+         const [randEnemy] = shuffleArray(spawnedEnemies);
          if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
          setSpeakingEnemy({
            id: randEnemy.id,
@@ -4057,6 +3839,7 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
   };
 
   const handleEventChoice = (powerupId) => {
+     finishDungeonEncounter(true);
      if (powerupId === 'mana') {
         setMaxMana(m => m + 1);
      } else if (powerupId === 'stats') {
@@ -4072,7 +3855,6 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
         }));
      } else if (powerupId === 'cards') {
         playSound('./assets/sfx/events/powerup_select.wav');
-        setCompletedNodes(prev => [...prev, currentMapNodeId]);
         setTurnState('map');
         setCurrentEvent(null);
         // открываем тот же выбор из 3 карт, что и на level-up
@@ -4083,7 +3865,6 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
      }
 
      playSound('./assets/sfx/events/powerup_select.wav');
-     setCompletedNodes(prev => [...prev, currentMapNodeId]);
      setTurnState('map');
      setCurrentEvent(null);
   };
@@ -4195,9 +3976,9 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
     if (speakingTimeoutRef.current) clearTimeout(speakingTimeoutRef.current);
     setSpeakingEnemy(null);
 
-    const newMap = generateMap();
+    updateSectorDungeon(createSectorDungeon());
     questVictoryNodesRef.current.clear();
-    setGameMap(newMap); setCurrentMapNodeId(newMap[0].id); setCompletedNodes([newMap[0].id]); setCurrentStage(0);
+    setCurrentMapNodeId('entrance'); setCurrentStage(0);
     setBgLocation(pickBgLocation(nextSector, 0));
     setTurnState('map');
   };
@@ -5007,7 +4788,7 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
     return shuffleArray(candidates).slice(0, 3);
   };
 
-  // Босс повержен: сразу заставка следующего сектора (отдельного экрана победы нет)
+  // Лестница выхода: следующий сектор доступен без обязательной зачистки.
   const startNextSector = () => {
     playSound('./assets/sfx/game/victory.wav');
     setSectorSplash({ text: SECTOR_NARRATIVES[Math.floor(Math.random() * SECTOR_NARRATIVES.length)], sector: sector + 1 });
@@ -5031,8 +4812,8 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
   };
 
   // Пост-бой: смерть последнего врага → короткая пауза (анимация смерти доигрывает),
-  // затем очистка поля и дизолв карты поверх боя (MapOverlay). Босс — заставка
-  // нового сектора. Открытый level-up откладывает переход.
+  // затем очистка поля и возврат в подземелье. Даже победа над боссом не переносит
+  // в следующий сектор: переход доступен через лестницу. Level-up откладывает возврат.
   const triggerVictoryTransition = () => {
     if (dungeonEncounter) {
       if (!victoryPauseRef.current) {
@@ -5044,11 +4825,9 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
       questVictoryNodesRef.current.add(currentMapNodeId);
       recordTaskProgress(TASK_METRICS.BATTLES_WON, 1);
     }
-    setCompletedNodes(prev => prev.includes(currentMapNodeId) ? prev : [...prev, currentMapNodeId]);
-    const target = currentStage === 5 ? 'nextSector' : 'map';
-    if (showLevelUpRef.current) { pendingTransitionRef.current = target; return; }
-    if (target === 'nextSector') startNextSector();
-    else victoryPauseRef.current = setTimeout(enterMapPhase, 700);
+    finishDungeonEncounter(true);
+    if (showLevelUpRef.current) { pendingTransitionRef.current = 'map'; return; }
+    if (!victoryPauseRef.current) victoryPauseRef.current = setTimeout(enterMapPhase, 700);
   };
 
   // Выполняет отложенный переход (карта/новый сектор), назначенный во время диалога
@@ -5056,8 +4835,7 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
     const pending = pendingTransitionRef.current;
     if (pending) {
       pendingTransitionRef.current = null;
-      if (pending === 'nextSector') startNextSector();
-      else enterMapPhase();
+      enterMapPhase();
     }
   };
 
@@ -6975,7 +6753,7 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
   const liveDrawCount = drawPile.filter(aliveOwnsReal).length;
   const totalDeckSize = liveDrawCount + discardPile.filter(aliveOwnsReal).length + liveHandReal.length;
 
-  const currentNode = gameMap.find(n => n.id === currentMapNodeId);
+  const currentNode = getDungeonEncounter(sectorDungeon);
   const currentNodeInfo = getNodeInfo(currentNode?.type);
   const isActiveCombat = !showTavern
     && enemies.some(enemy => !enemy.isDead && enemy.hp > 0)
@@ -6984,8 +6762,8 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
     && turnState !== 'event';
   const isSelectingMapNode = !showTavern && turnState === 'map';
   const isAtSectorBase = isSelectingMapNode
-    && currentNode?.type === 'base'
-    && currentNode?.stage === 0
+    && !sectorDungeon.encounter
+    && atDungeonPortal(sectorDungeon, 'entrance')
     && enemies.length === 0;
   // Скорость движения шейдера растёт с продвижением по карте сектора (stage 0..5 → 0..1), плавно.
   const bgSpeed = Math.min(1, Math.max(0, currentStage / 5));
@@ -7205,69 +6983,15 @@ export default function App({ combatLab = false, onExitCombatLab, dungeonEncount
     },
   };
 
-  const mapLinks = useMemo(() => {
-    const links = [];
-    gameMap.forEach(n => n.colors = []);
-    const stage1 = gameMap.filter(n => n.stage === 1);
-    stage1.forEach((n, i) => { n.colors.push(LINE_COLORS[i % LINE_COLORS.length]); });
-
-    for (let i = 0; i <= 5; i++) {
-      const currLayer = gameMap.filter(n => n.stage === i);
-      const nextLayer = gameMap.filter(n => n.stage === i + 1);
-      const stageLinks = [];
-      
-      currLayer.forEach(node => {
-        node.next.forEach(tId => {
-          const target = nextLayer.find(n => n.id === tId);
-          if (target) {
-            let linkColor = node.colors.length > 0 ? node.colors[0] : '#ffffff';
-            if (node.type === 'base') { linkColor = target.colors.length > 0 ? target.colors[0] : LINE_COLORS[0]; }
-            stageLinks.push({ source: node, target, color: linkColor });
-            if (target.type !== 'base' && !target.colors.includes(linkColor)) { target.colors.push(linkColor); }
-          }
-        });
-      });
-
-      stageLinks.sort((a, b) => (a.source.y - b.source.y) || (a.target.y - b.target.y));
-      stageLinks.forEach((link, idx) => {
-        const fraction = stageLinks.length > 1 ? idx / (stageLinks.length - 1) : 0.5;
-        link.midX = link.source.x + (link.target.x - link.source.x) * (0.35 + 0.3 * fraction); 
-      });
-
-      currLayer.forEach(node => {
-        const outgoing = stageLinks.filter(l => l.source.id === node.id).sort((a, b) => a.target.y - b.target.y);
-        outgoing.forEach((link, idx) => {
-          const f = outgoing.length > 1 ? (idx / (outgoing.length - 1)) - 0.5 : 0; link.y1Offset = f * 3; 
-        });
-      });
-
-      nextLayer.forEach(node => {
-        const incoming = stageLinks.filter(l => l.target.id === node.id).sort((a, b) => a.source.y - b.source.y);
-        incoming.forEach((link, idx) => {
-          const f = incoming.length > 1 ? (idx / (incoming.length - 1)) - 0.5 : 0; link.y2Offset = f * 3;
-        });
-      });
-
-      links.push(...stageLinks);
-    }
-
-    const baseNode = gameMap.find(n => n.type === 'base');
-    if (baseNode) { baseNode.colors = stage1.map(n => n.colors[0]); }
-    return links;
-  }, [gameMap]);
-
   // Карта сектора и её дизолв-веил нужны обоим экранам боя: старый кладёт их в
   // свою колонку от вьюпорта, холст — в бокс сцены. Отличается только отступ
   // сверху: на холсте бокс сам задаёт геометрию, поэтому topPx там нулевой.
   const mapPanelNode = (topPx) => (
     <MapOverlay
       sector={sector}
-      nodes={gameMap}
-      links={mapLinks}
-      completedNodes={completedNodes}
-      currentNodeId={currentMapNodeId}
-      isNodeClickable={isNodeClickable}
-      onNodeClick={handleNodeClick}
+      run={sectorDungeon}
+      active={canExploreDungeon}
+      onAction={handleDungeonAction}
       hue={bgLocation.hue}
       sat={bgLocation.sat}
       phase={mapPanelPhase}
