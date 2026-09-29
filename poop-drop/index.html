@@ -31,8 +31,8 @@ let spawnTick=0;
 
 function addSegment(){
   const prev=rope[rope.length-1];
-  const y=prev ? prev.y-28 : -40;
-  rope.push({x:emitter.x+rand(-2,2),y,px:emitter.x,py:y,r:34});
+  const y=prev ? prev.y+42 : -10;
+  rope.push({x:emitter.x+rand(-2,2),y,px:emitter.x,py:y,r:42});
 }
 function splash(px,py,amount=18){
   for(let i=0;i<amount;i++){
@@ -43,7 +43,7 @@ function splash(px,py,amount=18){
 function step(){
   emitter.x=W*.5+Math.sin(performance.now()/1100)*W*.045;
   spawnTick++;
-  if(spawnTick>5 && rope.length<34){spawnTick=0;addSegment();}
+  if(spawnTick>7 && rope.length<26){spawnTick=0;addSegment();}
   const g=.38,damp=.995;
 
   for(let i=0;i<rope.length;i++){
@@ -51,9 +51,10 @@ function step(){
     const vx=(p.x-p.px)*damp, vy=(p.y-p.py)*damp;
     p.px=p.x;p.py=p.y;
     p.x+=vx;p.y+=vy+g;
-    if(i===0 && rope.length<34){
+    if(i===0 && rope.length<26){
       p.x=emitter.x;
-      p.y=Math.min(130, p.y+1.15);
+      p.y=-6;
+      p.px=p.x; p.py=p.y;
     }
   }
 
@@ -61,60 +62,11 @@ function step(){
     for(let i=1;i<rope.length;i++){
       const a=rope[i-1],b=rope[i];
       const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1;
-      const target=48;
+      const target=44;
       const diff=(d-target)/d;
       const cx=dx*diff*.5,cy=dy*diff*.5;
-      if(i-1!==0 || rope.length>=34){a.x+=cx;a.y+=cy;}
+      if(i-1!==0 || rope.length>=26){a.x+=cx;a.y+=cy;}
       b.x-=cx;b.y-=cy;
-    }
-    for(const p of rope){
-      if(p.y+p.r>floorY){
-        const hit=(p.py+p.r<=floorY);
-        p.y=floorY-p.r;
-        p.px=p.x-(p.x-p.px)*.35;
-        p.py=p.y+(p.y-p.py)*.2;
-        if(hit && Math.random()<.28)splash(p.x,floorY,14);
-      }
-      if(p.x-p.r<0)p.x=p.r;
-      if(p.x+p.r>W)p.x=W-p.r;
-    }
-  }
-
-  for(let i=splashes.length-1;i>=0;i--){
-    const p=splashes[i];p.vy+=.28;p.x+=p.vx;p.y+=p.vy;p.life--;
-    if(p.y>floorY){p.y=floorY;p.vy*=-.18;p.vx*=.7}
-    if(p.life<=0)splashes.splice(i,1);
-  }
-}
-function draw(){
-  x.clearRect(0,0,W,H);
-  const bg=x.createLinearGradient(0,0,0,H);bg.addColorStop(0,'#17120e');bg.addColorStop(1,'#0d0b09');x.fillStyle=bg;x.fillRect(0,0,W,H);
-  x.fillStyle='#28201a';x.fillRect(0,floorY,W,H-floorY);
-  x.fillStyle='#35291f';x.fillRect(0,floorY,W,5);
-
-  if(rope.length){
-    x.lineCap='round';x.lineJoin='round';
-    x.strokeStyle='#4a2815';
-    x.lineWidth=74;
-    x.beginPath();
-    x.moveTo(rope[0].x,rope[0].y);
-    for(let i=1;i<rope.length;i++)x.lineTo(rope[i].x,rope[i].y);
-    x.stroke();
-
-    x.strokeStyle='#754321';
-    x.lineWidth=58;
-    x.beginPath();
-    x.moveTo(rope[0].x-3,rope[0].y-4);
-    for(let i=1;i<rope.length;i++)x.lineTo(rope[i].x-3,rope[i].y-4);
-    x.stroke();
-
-    for(const p of rope){
-      const grd=x.createRadialGradient(p.x-10,p.y-12,3,p.x,p.y,p.r*1.25);
-      grd.addColorStop(0,'#a66a39');
-      grd.addColorStop(.45,'#6f3d1f');
-      grd.addColorStop(1,'#3c2113');
-      x.fillStyle=grd;
-      x.beginPath();x.arc(p.x,p.y,p.r,0,Math.PI*2);x.fill();
     }
   }
   for(const p of splashes){
@@ -135,5 +87,5 @@ function hit(px,py){
 }
 c.addEventListener('pointerdown',e=>hit(e.clientX,e.clientY));
 </script>
-<div id="ver" style="position:fixed;right:10px;bottom:8px;color:#ffffff88;font:12px monospace;z-index:10">v1ef6c50</div></body>
+<div id="ver" style="position:fixed;right:10px;bottom:8px;color:#ffffff88;font:12px monospace;z-index:10">v-sausage-3</div></body>
 </html>
