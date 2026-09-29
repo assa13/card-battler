@@ -3,116 +3,177 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Poop Drop</title>
+  <title>Poop Blocks</title>
   <style>
     html,body{margin:0;height:100%;overflow:hidden;background:#17120f;font-family:Arial,sans-serif}
     body{touch-action:none;user-select:none}
-    #game{display:block;width:100vw;height:100vh;background:linear-gradient(#211915 0%,#17120f 70%,#100d0b 100%)}
+    #game{display:block;width:100vw;height:100vh;background:linear-gradient(#241a15 0%,#17120f 68%,#100d0b 100%)}
     #hud{position:fixed;left:18px;top:16px;color:#fff;font-weight:700;font-size:20px;text-shadow:0 2px 4px #000;z-index:2}
-    #hint{position:fixed;left:50%;top:18px;transform:translateX(-50%);color:#f5d6b0;font-size:15px;opacity:.9;z-index:2;text-align:center}
+    #hint{position:fixed;left:50%;top:18px;transform:translateX(-50%);color:#f4d0aa;font-size:15px;opacity:.92;z-index:2;text-align:center}
     #floor{position:fixed;left:0;right:0;bottom:0;height:9vh;background:linear-gradient(#30241e,#1b1512);border-top:2px solid #4d382c;pointer-events:none}
   </style>
 </head>
 <body>
   <canvas id="game"></canvas>
-  <div id="hud">Убрано: <span id="score">0</span></div>
-  <div id="hint">Нажимай на упавшие какашки — они исчезают</div>
+  <div id="hud">Убрано блоков: <span id="score">0</span></div>
+  <div id="hint">Какашки связаны в физические блоки. Нажми на любой кусок — исчезнет весь блок.</div>
   <div id="floor"></div>
 <script>
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-const scoreEl = document.getElementById('score');
+const canvas=document.getElementById('game');
+const ctx=canvas.getContext('2d');
+const scoreEl=document.getElementById('score');
 let W=innerWidth,H=innerHeight,DPR=Math.min(devicePixelRatio||1,2);
-let score=0,last=performance.now(),spawnAcc=0;
-const blobs=[];
+let score=0,last=performance.now(),spawnAcc=0,nextId=1;
+const clusters=[];
+const rand=(a,b)=>a+Math.random()*(b-a);
+const floorY=()=>H-H*.09;
 
 function resize(){
-  W=innerWidth; H=innerHeight; DPR=Math.min(devicePixelRatio||1,2);
-  canvas.width=W*DPR; canvas.height=H*DPR; canvas.style.width=W+'px'; canvas.style.height=H+'px';
+  W=innerWidth;H=innerHeight;DPR=Math.min(devicePixelRatio||1,2);
+  canvas.width=W*DPR;canvas.height=H*DPR;
+  canvas.style.width=W+'px';canvas.style.height=H+'px';
   ctx.setTransform(DPR,0,0,DPR,0,0);
 }
-addEventListener('resize',resize); resize();
+addEventListener('resize',resize);resize();
 
-function rnd(a,b){return a+Math.random()*(b-a)}
-function spawn(){
-  const r=rnd(22,42);
-  blobs.push({
-    x:rnd(r,W-r), y:-r*2, vx:rnd(-25,25), vy:rnd(0,60),
-    r, rot:rnd(-.3,.3), vr:rnd(-1.2,1.2),
-    squash:1, resting:false, hue:rnd(22,32)
-  });
+function makeCluster(){
+  const count=Math.floor(rand(5,8));
+  const r=rand(18,26), spacing=r*1.55;
+  const cx=rand(90,Math.max(110,W-90));
+  const nodes=[];
+  for(let i=0;i<count;i++){
+    const row=Math.floor(i/3), col=i%3;
+    nodes.push({
+      x:cx+(col-1)*spacing+rand(-5,5),
+      y:-120-row*spacing+rand(-4,4),
+      vx:rand(-30,30),vy:rand(-10,25),
+      r, hue:rand(22,31), squash:1
+    });
+  }
+  const links=[];
+  for(let i=1;i<nodes.length;i++){
+    const parent=Math.max(0,i-1-(i%3===0?2:0));
+    links.push({a:parent,b:i,len:spacing*.96});
+  }
+  if(nodes.length>4) links.push({a:1,b:4,len:spacing*.96});
+  if(nodes.length>5) links.push({a:2,b:5,len:spacing*.96});
+  clusters.push({id:nextId++,nodes,links});
+  if(clusters.length>10) clusters.shift();
 }
 
-function floorY(){ return H-H*.09; }
+function solveLink(a,b,len){
+  const dx=b.x-a.x,dy=b.y-a.y;
+  const d=Math.hypot(dx,dy)||.001;
+  const diff=(d-len)/d;
+  const k=.46;
+  const ox=dx*diff*k*.5, oy=dy*diff*k*.5;
+  a.x+=ox;a.y+=oy;b.x-=ox;b.y-=oy;
+  const rvx=b.vx-a.vx,rvy=b.vy-a.vy;
+  const nx=dx/d,ny=dy/d;
+  const rel=rvx*nx+rvy*ny;
+  const damp=rel*.08;
+  a.vx+=nx*damp;a.vy+=ny*damp;
+  b.vx-=nx*damp;b.vy-=ny*damp;
+}
+
+function collide(a,b){
+  const dx=b.x-a.x,dy=b.y-a.y;
+  const min=a.r+b.r, d2=dx*dx+dy*dy;
+  if(d2<=0||d2>=min*min)return;
+  const d=Math.sqrt(d2),nx=dx/d,ny=dy/d,over=min-d;
+  a.x-=nx*over*.5;a.y-=ny*over*.5;
+  b.x+=nx*over*.5;b.y+=ny*over*.5;
+  const rvx=b.vx-a.vx,rvy=b.vy-a.vy;
+  const sep=rvx*nx+rvy*ny;
+  if(sep<0){
+    const imp=-sep*.42;
+    a.vx-=nx*imp;a.vy-=ny*imp;
+    b.vx+=nx*imp;b.vy+=ny*imp;
+  }
+}
 
 function update(dt){
   spawnAcc+=dt;
-  if(spawnAcc>.72){spawnAcc=0;spawn();}
+  if(spawnAcc>1.65){spawnAcc=0;makeCluster();}
   const fy=floorY();
-  for(const b of blobs){
-    if(!b.resting){
-      b.vy += 980*dt;
-      b.x += b.vx*dt; b.y += b.vy*dt; b.rot += b.vr*dt;
-      if(b.x-b.r<0){b.x=b.r;b.vx=Math.abs(b.vx)*.65}
-      if(b.x+b.r>W){b.x=W-b.r;b.vx=-Math.abs(b.vx)*.65}
-      if(b.y+b.r>=fy){
-        b.y=fy-b.r;
-        if(Math.abs(b.vy)>90){
-          b.vy*=-.28; b.vx*=.8; b.vr*=.6; b.squash=.72;
-        }else{
-          b.vy=0;b.vx*=.5;b.vr=0;b.resting=true;b.squash=.82;
-        }
+  const all=[];
+  for(const c of clusters){
+    for(const n of c.nodes){
+      n.vy+=1100*dt;
+      n.vx*=.999;n.vy*=.999;
+      n.x+=n.vx*dt;n.y+=n.vy*dt;
+      if(n.x-n.r<0){n.x=n.r;n.vx=Math.abs(n.vx)*.35}
+      if(n.x+n.r>W){n.x=W-n.r;n.vx=-Math.abs(n.vx)*.35}
+      if(n.y+n.r>fy){
+        n.y=fy-n.r;
+        if(n.vy>0)n.vy*=-.16;
+        n.vx*=.82;
+        n.squash=.78;
       }
+      n.squash+=(1-n.squash)*Math.min(1,dt*10);
+      all.push(n);
     }
-    b.squash += (1-b.squash)*Math.min(1,dt*8);
+  }
+  for(let s=0;s<5;s++){
+    for(const c of clusters) for(const l of c.links) solveLink(c.nodes[l.a],c.nodes[l.b],l.len);
+    for(let i=0;i<all.length;i++) for(let j=i+1;j<all.length;j++) collide(all[i],all[j]);
+    for(const n of all){
+      if(n.y+n.r>fy){n.y=fy-n.r;if(n.vy>0)n.vy=0}
+    }
   }
 }
 
 function poopPath(r){
   ctx.beginPath();
-  ctx.moveTo(0,-r*.85);
-  ctx.bezierCurveTo(r*.55,-r*.75,r*.72,-r*.25,r*.46,-r*.03);
-  ctx.bezierCurveTo(r*.95,r*.08,r*.9,r*.72,r*.38,r*.78);
-  ctx.bezierCurveTo(r*.15,r*.96,-r*.48,r*.9,-r*.6,r*.56);
-  ctx.bezierCurveTo(-r*.92,r*.32,-r*.75,-r*.16,-r*.42,-r*.27);
-  ctx.bezierCurveTo(-r*.55,-r*.58,-r*.3,-r*.78,0,-r*.85);
+  ctx.moveTo(0,-r*.84);
+  ctx.bezierCurveTo(r*.5,-r*.78,r*.72,-r*.3,r*.45,-r*.04);
+  ctx.bezierCurveTo(r*.93,r*.1,r*.84,r*.7,r*.36,r*.78);
+  ctx.bezierCurveTo(r*.1,r*.94,-r*.48,r*.9,-r*.6,r*.55);
+  ctx.bezierCurveTo(-r*.88,r*.3,-r*.73,-r*.15,-r*.4,-r*.28);
+  ctx.bezierCurveTo(-r*.53,-r*.58,-r*.28,-r*.78,0,-r*.84);
   ctx.closePath();
 }
 
-function drawPoop(b){
+function drawNode(n){
   ctx.save();
-  ctx.translate(b.x,b.y); ctx.rotate(b.rot); ctx.scale(1,b.squash);
-  ctx.shadowColor='rgba(0,0,0,.45)';ctx.shadowBlur=12;ctx.shadowOffsetY=7;
-  const g=ctx.createRadialGradient(-b.r*.25,-b.r*.4,b.r*.1,0,0,b.r);
-  g.addColorStop(0,'hsl('+b.hue+',55%,42%)');
-  g.addColorStop(1,'hsl('+b.hue+',58%,22%)');
-  ctx.fillStyle=g; poopPath(b.r); ctx.fill();
+  ctx.translate(n.x,n.y);ctx.scale(1,n.squash);
+  ctx.shadowColor='rgba(0,0,0,.45)';ctx.shadowBlur=10;ctx.shadowOffsetY=6;
+  const g=ctx.createRadialGradient(-n.r*.25,-n.r*.38,n.r*.1,0,0,n.r);
+  g.addColorStop(0,'hsl('+n.hue+',55%,43%)');
+  g.addColorStop(1,'hsl('+n.hue+',60%,21%)');
+  ctx.fillStyle=g;poopPath(n.r);ctx.fill();
   ctx.shadowColor='transparent';
   ctx.fillStyle='rgba(255,255,255,.10)';
-  ctx.beginPath();ctx.ellipse(-b.r*.22,-b.r*.42,b.r*.12,b.r*.2,-.5,0,Math.PI*2);ctx.fill();
+  ctx.beginPath();ctx.ellipse(-n.r*.22,-n.r*.4,n.r*.1,n.r*.16,-.5,0,Math.PI*2);ctx.fill();
   ctx.restore();
 }
 
 function draw(){
   ctx.clearRect(0,0,W,H);
   const fy=floorY();
-  ctx.fillStyle='rgba(0,0,0,.18)';ctx.fillRect(0,fy,W,H-fy);
-  for(const b of blobs){
+  ctx.fillStyle='rgba(0,0,0,.16)';ctx.fillRect(0,fy,W,H-fy);
+  for(const c of clusters){
     ctx.save();
-    ctx.globalAlpha=.18;
-    ctx.fillStyle='#000';
-    ctx.beginPath();ctx.ellipse(b.x,fy+4,b.r*.9,b.r*.22,0,0,Math.PI*2);ctx.fill();
+    ctx.lineWidth=8;ctx.lineCap='round';ctx.strokeStyle='rgba(83,45,23,.9)';
+    for(const l of c.links){
+      const a=c.nodes[l.a],b=c.nodes[l.b];
+      ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();
+    }
     ctx.restore();
-    drawPoop(b);
+    for(const n of c.nodes) drawNode(n);
   }
 }
 
 function hit(x,y){
-  for(let i=blobs.length-1;i>=0;i--){
-    const b=blobs[i];
-    const dx=x-b.x,dy=y-b.y;
-    if(dx*dx+dy*dy<(b.r*1.08)*(b.r*1.08)){
-      blobs.splice(i,1);score++;scoreEl.textContent=score;return;
+  for(let ci=clusters.length-1;ci>=0;ci--){
+    const c=clusters[ci];
+    for(const n of c.nodes){
+      const dx=x-n.x,dy=y-n.y;
+      if(dx*dx+dy*dy<(n.r*1.2)*(n.r*1.2)){
+        clusters.splice(ci,1);
+        score++;scoreEl.textContent=score;
+        return;
+      }
     }
   }
 }
@@ -122,10 +183,10 @@ canvas.addEventListener('pointerdown',e=>{
 });
 
 function loop(now){
-  const dt=Math.min(.033,(now-last)/1000);last=now;
+  const dt=Math.min(.025,(now-last)/1000);last=now;
   update(dt);draw();requestAnimationFrame(loop);
 }
-for(let i=0;i<4;i++) spawn();
+makeCluster();makeCluster();
 requestAnimationFrame(loop);
 </script>
 </body>
