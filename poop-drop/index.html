@@ -16,7 +16,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none}
 <script>
 const c=document.getElementById('c'),x=c.getContext('2d');
 let W=0,H=0,DPR=Math.min(devicePixelRatio||1,2),floorY=0;
-const chunks=[], splashes=[];
+const splashes=[];
 function resize(){
   W=innerWidth; H=innerHeight; floorY=H-70;
   c.width=W*DPR;c.height=H*DPR;c.style.width=W+'px';c.style.height=H+'px';
@@ -25,16 +25,14 @@ function resize(){
 addEventListener('resize',resize);resize();
 
 const rand=(a,b)=>a+Math.random()*(b-a);
-let emitter={x:W*.5,y:-35,phase:0,acc:0,active:null};
+let emitter={x:W*.5};
+const rope=[];
+let spawnTick=0;
 
-function newChunk(){
-  const segs=[];
-  const n=18+Math.floor(Math.random()*8);
-  for(let i=0;i<n;i++) segs.push({
-    x:emitter.x+rand(-3,3), y:-35-i*5, px:emitter.x, py:-35-i*5,
-    r:rand(30,42)
-  });
-  return {segs,rest:false,age:0};
+function addSegment(){
+  const prev=rope[rope.length-1];
+  const y=prev ? prev.y-28 : -40;
+  rope.push({x:emitter.x+rand(-2,2),y,px:emitter.x,py:y,r:34});
 }
 function splash(px,py,amount=18){
   for(let i=0;i<amount;i++){
@@ -43,43 +41,45 @@ function splash(px,py,amount=18){
   }
 }
 function step(){
-  emitter.x=W*.5+Math.sin(performance.now()/950)*W*.08;
-  emitter.acc++;
-  if(!emitter.active && emitter.acc>45){ emitter.acc=0; emitter.active=newChunk(); chunks.push(emitter.active); }
-  const g=.42, damp=.992;
-  for(const ch of chunks){
-    ch.age++;
-    const s=ch.segs;
-    for(let i=0;i<s.length;i++){
-      const p=s[i];
-      const vx=(p.x-p.px)*damp, vy=(p.y-p.py)*damp;
-      p.px=p.x;p.py=p.y;p.x+=vx;p.y+=vy+g;
-      if(i===0 && ch===emitter.active && ch.age<150){
-        p.x=emitter.x; p.y=Math.min(-10+ch.age*1.45,145);
-      }
+  emitter.x=W*.5+Math.sin(performance.now()/1100)*W*.045;
+  spawnTick++;
+  if(spawnTick>5 && rope.length<34){spawnTick=0;addSegment();}
+  const g=.38,damp=.995;
+
+  for(let i=0;i<rope.length;i++){
+    const p=rope[i];
+    const vx=(p.x-p.px)*damp, vy=(p.y-p.py)*damp;
+    p.px=p.x;p.py=p.y;
+    p.x+=vx;p.y+=vy+g;
+    if(i===0 && rope.length<34){
+      p.x=emitter.x;
+      p.y=Math.min(130, p.y+1.15);
     }
-    // constraints: makes one long soft "sausage"
-    for(let k=0;k<5;k++){
-      for(let i=1;i<s.length;i++){
-        const a=s[i-1],b=s[i], dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1,target=(a.r+b.r)*.66;
-        const corr=(d-target)/d*.5;
-        const cx=dx*corr,cy=dy*corr;
-        if(!(i-1===0 && ch===emitter.active && ch.age<150)){a.x+=cx;a.y+=cy}
-        b.x-=cx;b.y-=cy;
-      }
-      for(const p of s){
-        if(p.y+p.r>floorY){
-          const hit=(p.py+p.r<=floorY);
-          p.y=floorY-p.r;
-          p.py=p.y+(p.y-p.py)*.12;
-          if(hit && Math.random()<.22) splash(p.x,floorY,12);
-        }
-        if(p.x-p.r<0)p.x=p.r;
-        if(p.x+p.r>W)p.x=W-p.r;
-      }
-    }
-    if(ch===emitter.active && ch.age>170) emitter.active=null;
   }
+
+  for(let k=0;k<8;k++){
+    for(let i=1;i<rope.length;i++){
+      const a=rope[i-1],b=rope[i];
+      const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1;
+      const target=48;
+      const diff=(d-target)/d;
+      const cx=dx*diff*.5,cy=dy*diff*.5;
+      if(i-1!==0 || rope.length>=34){a.x+=cx;a.y+=cy;}
+      b.x-=cx;b.y-=cy;
+    }
+    for(const p of rope){
+      if(p.y+p.r>floorY){
+        const hit=(p.py+p.r<=floorY);
+        p.y=floorY-p.r;
+        p.px=p.x-(p.x-p.px)*.35;
+        p.py=p.y+(p.y-p.py)*.2;
+        if(hit && Math.random()<.28)splash(p.x,floorY,14);
+      }
+      if(p.x-p.r<0)p.x=p.r;
+      if(p.x+p.r>W)p.x=W-p.r;
+    }
+  }
+
   for(let i=splashes.length-1;i>=0;i--){
     const p=splashes[i];p.vy+=.28;p.x+=p.vx;p.y+=p.vy;p.life--;
     if(p.y>floorY){p.y=floorY;p.vy*=-.18;p.vx*=.7}
@@ -92,20 +92,29 @@ function draw(){
   x.fillStyle='#28201a';x.fillRect(0,floorY,W,H-floorY);
   x.fillStyle='#35291f';x.fillRect(0,floorY,W,5);
 
-  for(const ch of chunks){
-    const s=ch.segs;
+  if(rope.length){
     x.lineCap='round';x.lineJoin='round';
-    for(let i=1;i<s.length;i++){
-      const a=s[i-1],b=s[i];
-      x.strokeStyle='#5a3218';x.lineWidth=(a.r+b.r)*1.62;
-      x.beginPath();x.moveTo(a.x,a.y);x.lineTo(b.x,b.y);x.stroke();
-      x.strokeStyle='#7a4725';x.lineWidth=(a.r+b.r)*1.08;
-      x.beginPath();x.moveTo(a.x-2,a.y-3);x.lineTo(b.x-2,b.y-3);x.stroke();
-    }
-    for(const p of s){
-      const grd=x.createRadialGradient(p.x-6,p.y-8,2,p.x,p.y,p.r*1.3);
-      grd.addColorStop(0,'#9b6132');grd.addColorStop(.45,'#6f3f20');grd.addColorStop(1,'#3f2415');
-      x.fillStyle=grd;x.beginPath();x.arc(p.x,p.y,p.r,0,Math.PI*2);x.fill();
+    x.strokeStyle='#4a2815';
+    x.lineWidth=74;
+    x.beginPath();
+    x.moveTo(rope[0].x,rope[0].y);
+    for(let i=1;i<rope.length;i++)x.lineTo(rope[i].x,rope[i].y);
+    x.stroke();
+
+    x.strokeStyle='#754321';
+    x.lineWidth=58;
+    x.beginPath();
+    x.moveTo(rope[0].x-3,rope[0].y-4);
+    for(let i=1;i<rope.length;i++)x.lineTo(rope[i].x-3,rope[i].y-4);
+    x.stroke();
+
+    for(const p of rope){
+      const grd=x.createRadialGradient(p.x-10,p.y-12,3,p.x,p.y,p.r*1.25);
+      grd.addColorStop(0,'#a66a39');
+      grd.addColorStop(.45,'#6f3d1f');
+      grd.addColorStop(1,'#3c2113');
+      x.fillStyle=grd;
+      x.beginPath();x.arc(p.x,p.y,p.r,0,Math.PI*2);x.fill();
     }
   }
   for(const p of splashes){
@@ -118,12 +127,10 @@ function draw(){
 function loop(){step();draw();requestAnimationFrame(loop)}loop();
 
 function hit(px,py){
-  for(let i=chunks.length-1;i>=0;i--){
-    if(chunks[i].segs.some(p=>Math.hypot(px-p.x,py-p.y)<p.r*1.5)){
-      splash(px,Math.min(py,floorY),26);
-      if(chunks[i]===emitter.active) emitter.active=null;
-      chunks.splice(i,1);return;
-    }
+  if(rope.some(p=>Math.hypot(px-p.x,py-p.y)<p.r*1.6)){
+    splash(px,Math.min(py,floorY),28);
+    rope.length=0;
+    spawnTick=0;
   }
 }
 c.addEventListener('pointerdown',e=>hit(e.clientX,e.clientY));
