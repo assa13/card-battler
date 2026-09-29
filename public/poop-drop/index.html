@@ -7,16 +7,16 @@
   <style>
     html,body{margin:0;height:100%;overflow:hidden;background:#17120f;font-family:Arial,sans-serif}
     body{touch-action:none;user-select:none}
-    #game{display:block;width:100vw;height:100vh;background:linear-gradient(#241a15 0%,#17120f 68%,#100d0b 100%)}
+    #game{display:block;width:100vw;height:100vh;background:#1a1715}
     #hud{position:fixed;left:18px;top:16px;color:#fff;font-weight:700;font-size:20px;text-shadow:0 2px 4px #000;z-index:2}
     #hint{position:fixed;left:50%;top:18px;transform:translateX(-50%);color:#f4d0aa;font-size:15px;opacity:.92;z-index:2;text-align:center}
-    #floor{position:fixed;left:0;right:0;bottom:0;height:9vh;background:linear-gradient(#30241e,#1b1512);border-top:2px solid #4d382c;pointer-events:none}
+    #floor{position:fixed;left:0;right:0;bottom:0;height:9vh;background:#2a2420;border-top:2px solid #4a403a;pointer-events:none}
   </style>
 </head>
 <body>
   <canvas id="game"></canvas>
   <div id="hud">Убрано блоков: <span id="score">0</span></div>
-  <div id="hint">Какашки связаны в физические блоки. Нажми на любой кусок — исчезнет весь блок.</div>
+  <div id="hint">Какашки падают сверху на пол. Нажми на блок — он исчезнет.</div>
   <div id="floor"></div>
 <script>
 const canvas=document.getElementById('game');
