@@ -5,87 +5,245 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
 <title>Poop Drop</title>
 <style>
-html,body{margin:0;height:100%;overflow:hidden;background:#15110d;font-family:system-ui,sans-serif}
+html,body{margin:0;height:100%;overflow:hidden;background:#120e0b}
 canvas{display:block;width:100%;height:100%;touch-action:none}
-.hud{position:fixed;left:12px;top:10px;color:#f2e4c9aa;font-size:12px;user-select:none}
+#ver{position:fixed;right:10px;bottom:8px;color:#ffffff88;font:12px monospace;z-index:3}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
-<div class="hud">tap the poop to clear it</div>
+<div id="ver">v-rewrite-1</div>
 <script>
-const c=document.getElementById('c'),x=c.getContext('2d');
+const c=document.getElementById('c');
+const ctx=c.getContext('2d');
 let W=0,H=0,DPR=Math.min(devicePixelRatio||1,2),floorY=0;
-const splashes=[];
-function resize(){
-  W=innerWidth; H=innerHeight; floorY=H-70;
-  c.width=W*DPR;c.height=H*DPR;c.style.width=W+'px';c.style.height=H+'px';
-  x.setTransform(DPR,0,0,DPR,0,0);
-}
-addEventListener('resize',resize);resize();
-
 const rand=(a,b)=>a+Math.random()*(b-a);
-let emitter={x:W*.5};
-const rope=[];
-let spawnTick=0;
 
-function addSegment(){
-  const prev=rope[rope.length-1];
-  const y=prev ? prev.y+42 : -10;
-  rope.push({x:emitter.x+rand(-2,2),y,px:emitter.x,py:y,r:42});
+function resize(){
+  W=innerWidth; H=innerHeight; floorY=H-72;
+  c.width=W*DPR; c.height=H*DPR;
+  c.style.width=W+'px'; c.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
 }
-function splash(px,py,amount=18){
-  for(let i=0;i<amount;i++){
-    const a=rand(-Math.PI*.95,-Math.PI*.05), s=rand(2.5,8);
-    splashes.push({x:px,y:py,vx:Math.cos(a)*s,vy:Math.sin(a)*s,r:rand(2,6),life:rand(24,46)});
+addEventListener('resize',resize); resize();
+
+const rope=[];
+const splashes=[];
+let lastSpawn=0;
+let released=false;
+let releaseAt=0;
+
+function nozzleX(){
+  return W*0.5 + Math.sin(performance.now()/1300)*Math.min(42,W*0.045);
+}
+
+function addPoint(){
+  const x=nozzleX();
+  rope.unshift({
+    x, y:-12,
+    px:x+rand(-0.4,0.4), py:-12,
+    r:46
+  });
+}
+
+function urineSplash(x,y,n=20){
+  for(let i=0;i<n;i++){
+    const ang=rand(Math.PI*1.08,Math.PI*1.92);
+    const sp=rand(2.2,7.5);
+    splashes.push({
+      x,y,
+      vx:Math.cos(ang)*sp,
+      vy:Math.sin(ang)*sp-rand(0,2),
+      life:rand(26,48),
+      r:rand(2,5.5)
+    });
   }
 }
-function step(){
-  emitter.x=W*.5+Math.sin(performance.now()/1100)*W*.045;
-  spawnTick++;
-  if(spawnTick>7 && rope.length<26){spawnTick=0;addSegment();}
-  const g=.38,damp=.995;
+
+function solveRope(now){
+  if(!released && now-lastSpawn>78 && rope.length<72){
+    lastSpawn=now;
+    addPoint();
+  }
+  if(!released && rope.length>=72){
+    released=true;
+    releaseAt=now;
+  }
+
+  const g=.48, drag=.995;
 
   for(let i=0;i<rope.length;i++){
     const p=rope[i];
-    const vx=(p.x-p.px)*damp, vy=(p.y-p.py)*damp;
-    p.px=p.x;p.py=p.y;
-    p.x+=vx;p.y+=vy+g;
-    if(i===0 && rope.length<26){
-      p.x=emitter.x;
-      p.y=-6;
-      p.px=p.x; p.py=p.y;
+
+    if(!released && i===0){
+      const nx=nozzleX();
+      p.x=nx; p.y=-10;
+      p.px=nx; p.py=-10;
+      continue;
+    }
+
+    const vx=(p.x-p.px)*drag;
+    const vy=(p.y-p.py)*drag;
+    p.px=p.x; p.py=p.y;
+    p.x+=vx;
+    p.y+=vy+g;
+  }
+
+  const rest=30;
+  for(let iter=0;iter<10;iter++){
+    for(let i=0;i<rope.length-1;i++){
+      const a=rope[i], b=rope[i+1];
+      let dx=b.x-a.x, dy=b.y-a.y;
+      let d=Math.hypot(dx,dy)||0.001;
+      let diff=(d-rest)/d;
+      let cx=dx*diff*0.5, cy=dy*diff*0.5;
+
+      if(!released && i===0){
+        b.x-=cx*2; b.y-=cy*2;
+      } else {
+        a.x+=cx; a.y+=cy;
+        b.x-=cx; b.y-=cy;
+      }
+    }
+
+    for(const p of rope){
+      if(p.y+p.r>floorY){
+        const wasAbove=(p.py+p.r<=floorY);
+        p.y=floorY-p.r;
+        const vx=p.x-p.px;
+        const vy=p.y-p.py;
+        p.px=p.x-vx*0.55;
+        p.py=p.y+Math.abs(vy)*0.12;
+        if(wasAbove && Math.abs(vy)>2.2 && Math.random()<0.32){
+          urineSplash(p.x,floorY,14);
+        }
+      }
+      if(p.x-p.r<0){p.x=p.r;p.px=p.x;}
+      if(p.x+p.r>W){p.x=W-p.r;p.px=p.x;}
     }
   }
 
-  for(let k=0;k<8;k++){
-    for(let i=1;i<rope.length;i++){
-      const a=rope[i-1],b=rope[i];
-      const dx=b.x-a.x,dy=b.y-a.y,d=Math.hypot(dx,dy)||1;
-      const target=44;
-      const diff=(d-target)/d;
-      const cx=dx*diff*.5,cy=dy*diff*.5;
-      if(i-1!==0 || rope.length>=26){a.x+=cx;a.y+=cy;}
-      b.x-=cx;b.y-=cy;
-    }
-  }
-  for(const p of splashes){
-    x.globalAlpha=Math.max(0,p.life/46);
-    x.fillStyle='#d7b527';
-    x.beginPath();x.ellipse(p.x,p.y,p.r*1.7,p.r,.3,0,Math.PI*2);x.fill();
-  }
-  x.globalAlpha=1;
-}
-function loop(){step();draw();requestAnimationFrame(loop)}loop();
-
-function hit(px,py){
-  if(rope.some(p=>Math.hypot(px-p.x,py-p.y)<p.r*1.6)){
-    splash(px,Math.min(py,floorY),28);
+  if(released && now-releaseAt>5200){
     rope.length=0;
-    spawnTick=0;
+    released=false;
+    lastSpawn=now;
+  }
+
+  for(let i=splashes.length-1;i>=0;i--){
+    const s=splashes[i];
+    s.vy+=.24;
+    s.x+=s.vx; s.y+=s.vy;
+    s.life--;
+    if(s.y>floorY){
+      s.y=floorY;
+      s.vy*=-.16;
+      s.vx*=.72;
+    }
+    if(s.life<=0)splashes.splice(i,1);
   }
 }
-c.addEventListener('pointerdown',e=>hit(e.clientX,e.clientY));
+
+function smoothPath(points){
+  if(points.length<2)return;
+  ctx.beginPath();
+  ctx.moveTo(points[0].x,points[0].y);
+  for(let i=1;i<points.length-1;i++){
+    const mx=(points[i].x+points[i+1].x)/2;
+    const my=(points[i].y+points[i+1].y)/2;
+    ctx.quadraticCurveTo(points[i].x,points[i].y,mx,my);
+  }
+  const p=points[points.length-1];
+  ctx.lineTo(p.x,p.y);
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+
+  const bg=ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#17110d');
+  bg.addColorStop(1,'#090706');
+  ctx.fillStyle=bg;
+  ctx.fillRect(0,0,W,H);
+
+  ctx.fillStyle='#241b16';
+  ctx.fillRect(0,floorY,W,H-floorY);
+  ctx.fillStyle='#34261d';
+  ctx.fillRect(0,floorY,W,5);
+
+  // nozzle shadow/opening
+  const nx=nozzleX();
+  ctx.fillStyle='#080605';
+  ctx.beginPath();
+  ctx.ellipse(nx,-4,54,22,0,0,Math.PI*2);
+  ctx.fill();
+
+  if(rope.length>1){
+    ctx.lineCap='round';
+    ctx.lineJoin='round';
+
+    // deep outer body
+    smoothPath(rope);
+    ctx.strokeStyle='#3d2111';
+    ctx.lineWidth=104;
+    ctx.stroke();
+
+    // body
+    smoothPath(rope);
+    ctx.strokeStyle='#633619';
+    ctx.lineWidth=90;
+    ctx.stroke();
+
+    // soft warm center
+    smoothPath(rope);
+    ctx.strokeStyle='#7d4724';
+    ctx.lineWidth=66;
+    ctx.stroke();
+
+    // glossy highlight
+    const shifted=rope.map(p=>({x:p.x-10,y:p.y-10}));
+    smoothPath(shifted);
+    ctx.strokeStyle='rgba(177,112,61,.34)';
+    ctx.lineWidth=18;
+    ctx.stroke();
+
+    // small darker folds, procedural
+    for(let i=5;i<rope.length;i+=8){
+      const p=rope[i];
+      ctx.strokeStyle='rgba(48,25,12,.38)';
+      ctx.lineWidth=7;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,24,-0.8,0.8);
+      ctx.stroke();
+    }
+  }
+
+  for(const s of splashes){
+    ctx.globalAlpha=Math.max(0,s.life/48);
+    ctx.fillStyle='#d7b72d';
+    ctx.beginPath();
+    ctx.ellipse(s.x,s.y,s.r*1.7,s.r,.22,0,Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalAlpha=1;
+}
+
+function loop(now){
+  solveRope(now);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+c.addEventListener('pointerdown',e=>{
+  if(!rope.length)return;
+  const hit=rope.some(p=>Math.hypot(e.clientX-p.x,e.clientY-p.y)<58);
+  if(hit){
+    urineSplash(e.clientX,Math.min(e.clientY,floorY),28);
+    rope.length=0;
+    released=false;
+    lastSpawn=performance.now();
+  }
+});
 </script>
-<div id="ver" style="position:fixed;right:10px;bottom:8px;color:#ffffff88;font:12px monospace;z-index:10">v-sausage-3</div></body>
+</body>
 </html>
