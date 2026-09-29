@@ -1,3 +1,4 @@
+import SmallIconText from './ui/SmallIconText';
 import { useEffect, useRef, useState } from 'react';
 
 // Окна тайминга (мс) вокруг момента, когда сужающееся кольцо совпадает с мишенью.
@@ -215,7 +216,7 @@ export default function QteOverlay({
             style={{ top: -44, transform: 'translateX(-50%)', animation: 'qteCardIn 0.32s cubic-bezier(0.2, 1.4, 0.4, 1) both' }}
           >
             <div style={{ fontSize: 72, lineHeight: 1, filter: 'drop-shadow(0 0 18px rgba(251,191,36,0.55)) drop-shadow(0 6px 10px rgba(0,0,0,0.9))' }}>
-              {card.icon}
+              <SmallIconText>{card.icon}</SmallIconText>
             </div>
             <div
               className="mt-1 px-4 py-1 rounded-full font-black uppercase tracking-widest text-[13px] text-amber-300 bg-slate-950/85 border border-amber-500/50"

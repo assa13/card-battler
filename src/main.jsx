@@ -3,9 +3,9 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 
-// Dev-маршруты по хешу. В production объект пустой, ветка с import() мертва и
-// Rollup выбрасывает её целиком — ни витрина, ни новый боевой экран в бандл
-// игры не попадают.
+// Dev-маршруты по хешу. Основная dungeon-карта уже подключена внутри App;
+// #dungeon лишь пропускает прелоадер и таверну для быстрой проверки.
+// Остальные лабораторные экраны в production-бандл не попадают.
 const DEV_ROUTES = import.meta.env.DEV
   ? {
       '#uikit': lazy(() => import('./dev/UiKitGallery.jsx')),

@@ -1,3 +1,4 @@
+import LightLayers from './lighting/SpriteLightLayers';
 import React, { useEffect, useState } from 'react';
 import { spriteColorizeFilter } from './spriteColorize';
 
@@ -8,7 +9,13 @@ import { spriteColorizeFilter } from './spriteColorize';
 //
 // Рассинхрон массовки: каждый инстанс стартует со случайного кадра и со
 // случайной задержкой первого тика — иначе все копии двигаются в такт.
-const AtlasSprite = React.memo(({ sprite, assetUrl, alt = '', hue, sat }) => {
+//
+// light (опционально, см. lighting/lightModel.js): { filter, layers }.
+// Слои света рисуются поверх спрайта и обрезаются его альфой через mask-image
+// с тем же кадром атласа, поэтому свет ложится только на силуэт.
+const joinFilters = (...filters) => filters.filter(Boolean).join(' ') || undefined;
+
+const AtlasSprite = React.memo(({ sprite, assetUrl, alt = '', hue, sat, light }) => {
   const [frame, setFrame] = useState(() => Math.floor(Math.random() * (sprite?.frameCount ?? 1)));
   useEffect(() => {
     if (!sprite) return;
@@ -22,8 +29,10 @@ const AtlasSprite = React.memo(({ sprite, assetUrl, alt = '', hue, sat }) => {
     return () => { clearTimeout(phaseId); clearInterval(intervalId); };
   }, [sprite]);
 
+  const colorize = hue != null ? spriteColorizeFilter(hue, sat) : null;
+
   if (!sprite) {
-    return (
+    const img = (
       <img
         src={assetUrl}
         alt={alt}
@@ -31,18 +40,26 @@ const AtlasSprite = React.memo(({ sprite, assetUrl, alt = '', hue, sat }) => {
         className="w-auto h-full block select-none"
         style={{
           imageRendering: 'pixelated',
-          ...(hue != null ? { filter: spriteColorizeFilter(hue, sat) } : {}),
+          ...(!light && colorize ? { filter: colorize } : {}),
         }}
         onError={(e) => { e.currentTarget.style.opacity = 0; }}
       />
     );
+    if (!light) return img;
+    return (
+      <div className="relative inline-block align-top h-full" style={{ filter: joinFilters(colorize, light.filter) }}>
+        {img}
+        <LightLayers layers={light.layers} url={assetUrl} maskSize="100% 100%" maskPosition={[0, 0]} />
+      </div>
+    );
   }
   const col = frame % sprite.cols;
   const row = Math.floor(frame / sprite.cols);
+  const filter = joinFilters(colorize, light?.filter);
   return (
     <div
       className="h-full aspect-square overflow-hidden relative"
-      style={hue != null ? { filter: spriteColorizeFilter(hue, sat) } : undefined}
+      style={filter ? { filter } : undefined}
     >
       <img
         src={sprite.url}
@@ -57,6 +74,17 @@ const AtlasSprite = React.memo(({ sprite, assetUrl, alt = '', hue, sat }) => {
         }}
         onError={(e) => { e.currentTarget.style.opacity = 0; }}
       />
+      {light && (
+        <LightLayers
+          layers={light.layers}
+          url={sprite.url}
+          maskSize={`${sprite.cols * 100}% ${sprite.rows * 100}%`}
+          maskPosition={[
+            sprite.cols > 1 ? (col / (sprite.cols - 1)) * 100 : 0,
+            sprite.rows > 1 ? (row / (sprite.rows - 1)) * 100 : 0,
+          ]}
+        />
+      )}
     </div>
   );
 });

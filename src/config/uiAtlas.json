@@ -77,11 +77,27 @@
     },
     "button_red": {
       "label": "Красная кнопка",
-      "region": { "x": 570, "y": 1508, "width": 312, "height": 130 },
+      "region": { "x": 667, "y": 1508, "width": 312, "height": 130 },
       "borders": { "left": 150, "right": 150, "top": 48, "bottom": 59 },
       "edgeMode": "stretch",
       "centerMode": "stretch",
       "notes": "Растягиваемый центр 12×23 — под кнопки разной длины. В макете рисуется 312×130, один в один с регионом."
+    },
+    "button_default": {
+      "label": "Обычная кнопка",
+      "region": { "x": 666, "y": 1667, "width": 312, "height": 130 },
+      "borders": { "left": 150, "right": 150, "top": 48, "bottom": 59 },
+      "edgeMode": "stretch",
+      "centerMode": "stretch",
+      "notes": "Тот же силуэт, что у button_red, в нейтральной палитре: непрозрачность расходится на 0.9% пикселей, цвет — почти везде. Отсюда и границы разреза те же. В игре пока не используется."
+    },
+    "header": {
+      "label": "Заголовок модального окна",
+      "region": { "x": 666, "y": 1870, "width": 444, "height": 95 },
+      "borders": { "left": 214, "right": 214, "top": 46, "bottom": 46 },
+      "edgeMode": "stretch",
+      "centerMode": "stretch",
+      "notes": "Плашка с остриями по краям. Центр 16×3 — тянется только он. В макете модалки (517:5425) инстанс увеличен в 1.5625 раза: 95 → 148.44 по высоте, поэтому и границы там 334.375 вместо 214."
     }
   },
   "sprites": {
@@ -108,7 +124,7 @@
     "merge_button": {
       "label": "Кнопка слияния",
       "region": { "x": 244, "y": 1508, "width": 210, "height": 212 },
-      "notes": "Цельная картинка, в макете рисуется 210×212 — один в один с регионом."
+      "notes": "Цельная картинка, в макете рисуется 210×212 — один в один с регионом. В чаше кнопки горит огонёк: в макете это скрытый слот 102×98 на (54,-22) от левого верхнего угла кнопки, а кадры лежат отдельным листом merge_flame."
     },
     "item_slot": {
       "label": "Слот предмета",
@@ -124,6 +140,66 @@
       "label": "Стопка карт",
       "region": { "x": 363, "y": 1804, "width": 124, "height": 172 },
       "notes": "Рубашка карты, счётчик рисуется поверх живым текстом. Родной размер с поворотом ±2°. Габарит 130×176 в макете — это bbox повёрнутой картинки, а не растяжение."
+    },
+    "sector_map_header": {
+      "label": "sector_map_header",
+      "region": {
+        "x": 0,
+        "y": 0,
+        "width": 589,
+        "height": 95
+      },
+      "texture": {
+        "image": "./assets/sector-map/map-header.png",
+        "width": 589,
+        "height": 95
+      },
+      "notes": "Исходный UI-элемент Figma 511:5586; отдельная текстура, общий UiSprite."
+    },
+    "sector_map_back_button": {
+      "label": "sector_map_back_button",
+      "region": {
+        "x": 0,
+        "y": 0,
+        "width": 172,
+        "height": 172
+      },
+      "texture": {
+        "image": "./assets/sector-map/back-button.png",
+        "width": 172,
+        "height": 172
+      },
+      "notes": "Исходный UI-элемент Figma 511:5586; отдельная текстура, общий UiSprite."
+    },
+    "sector_map_back_icon": {
+      "label": "sector_map_back_icon",
+      "region": {
+        "x": 0,
+        "y": 0,
+        "width": 122,
+        "height": 122
+      },
+      "texture": {
+        "image": "./assets/sector-map/back-icon.png",
+        "width": 122,
+        "height": 122
+      },
+      "notes": "Исходный UI-элемент Figma 511:5586; отдельная текстура, общий UiSprite."
+    },
+    "sector_map_completed_bg": {
+      "label": "sector_map_completed_bg",
+      "region": {
+        "x": 0,
+        "y": 0,
+        "width": 80,
+        "height": 82
+      },
+      "texture": {
+        "image": "./assets/sector-map/completed-bg.png",
+        "width": 80,
+        "height": 82
+      },
+      "notes": "Исходный UI-элемент Figma 511:5586; отдельная текстура, общий UiSprite."
     }
   }
 }

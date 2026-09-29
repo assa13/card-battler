@@ -1,0 +1,10 @@
+Built-in image_gen tool; style reference: public/assets/ui/atlas/small-icons.png.
+
+Use case: stylized-concept. Asset type: one production UI sprite atlas for a dark gothic pixel-art dungeon game. Use the attached existing small-icon atlas ONLY as a style and palette reference, do not copy its layout. Create a single NEW atlas with exactly SIX separate sprites on a TRANSPARENT background, precisely 3 equal columns by 2 equal rows, with generous empty gutters, no text, no labels, no borders around cells.
+Row 1 left: WHITE aiming reticle, four angular pixel corner brackets and tiny cardinal ticks, simplified gothic iron styling. Large fully empty transparent square center occupying 55% of width to place a damage number in code. No skull or cross in the center.
+Row 1 center: identical reticle in muted blood RED with pale red highlight; same silhouette and empty center.
+Row 1 right: simple hollow circular QTE ring, octagonal/pixel stepped perimeter, gray iron with off-white highlights, only 2 logical pixels thick, wide transparent center. Tiny square studs at cardinal points, extremely restrained gothic feeling.
+Row 2 left: a small BED icon, side three-quarter view, wooden dark headboard, off-white pillow, slate blue blanket, dark iron-gray outline, instantly recognizable at small size.
+Row 2 center: two crossed medieval SWORDS icon, off-white blades and muted iron gray/dark brown grips.
+Row 2 right: a small UPWARD pointing arrow, matching the same blocky iron-gray and ivory palette. No background plate.
+All six centered in their equal square cells, occupied bounds 65-75% of cell width/height. Real coarse pixel art: each sprite visually built on a 32x32 logical grid, nearest-neighbor enlarged pixels, maximum 5 flat colors per sprite, hard-edged square pixel clusters, no smooth vector edges, NO glow, NO blur, NO gradients, NO elaborate ornament, NO fine texture. Readable functional gothic UI. Preserve real alpha transparency throughout, especially inside reticles and ring.

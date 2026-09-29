@@ -1,6 +1,8 @@
+import SmallIconText from '../ui/SmallIconText';
 import { useState } from 'react';
 import MagicCard from '../widgets/MagicCard';
 import HeroSlot from '../widgets/HeroSlot';
+import RarityWavesPanel from './RarityWavesPanel';
 import { UI_ATLAS } from '../ui/uiAtlas';
 import { CHECKER, GAME_DARK } from './backgrounds';
 
@@ -114,9 +116,13 @@ export const WidgetViewer = ({ selected }) => {
 
   return (
     <div className="space-y-6">
+      {/* Витрина — второе место, где живая карточка видна крупно, поэтому
+          крутилки её фона доступны и отсюда (F8). */}
+      <RarityWavesPanel />
+
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1">
         <h1 className="text-sm font-black text-amber-300">{widget.id}</h1>
-        <p className="text-[11px] text-slate-500">{widget.size} · масштаб 1:1</p>
+        <p className="text-[11px] text-slate-500">{widget.size}<SmallIconText> · масштаб 1:1</SmallIconText></p>
         <a className="text-[11px] text-slate-500 underline hover:text-amber-400" href={figmaUrl} target="_blank" rel="noreferrer">
           фрейм в Figma
         </a>

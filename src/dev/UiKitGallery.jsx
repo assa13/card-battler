@@ -1,3 +1,4 @@
+import SmallIconText from '../ui/SmallIconText';
 import { useState } from 'react';
 import { UI_ATLAS } from '../ui/uiAtlas';
 import ArenaPanel from './ArenaPanel';
@@ -30,7 +31,7 @@ const UiKitGallery = () => {
       <header className="flex shrink-0 flex-wrap items-baseline gap-x-4 gap-y-1 border-b border-slate-800 px-4 py-3">
         <h1 className="text-sm font-black uppercase tracking-widest text-amber-400">UI Kit</h1>
         <p className="text-[11px] text-slate-500">
-          {UI_ATLAS.image} · {UI_ATLAS.width}×{UI_ATLAS.height} · {UI_ATLAS.filtering}
+          {UI_ATLAS.image}<SmallIconText> · </SmallIconText>{UI_ATLAS.width}<SmallIconText>×</SmallIconText>{UI_ATLAS.height}<SmallIconText> · </SmallIconText>{UI_ATLAS.filtering}
         </p>
       </header>
 

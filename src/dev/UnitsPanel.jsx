@@ -1,3 +1,4 @@
+import SmallIconText from '../ui/SmallIconText';
 import { useState } from 'react';
 import SpineUnit from '../units/SpineUnit';
 import { SPINE_UNITS } from '../units/spineUnits';
@@ -42,8 +43,8 @@ const UnitViewerContent = ({ unit }) => {
       <div className="flex flex-wrap items-center gap-3">
         <div>
           <h1 className="text-sm font-black text-amber-300">{unit.name}</h1>
-          <p className="text-[11px] text-slate-500">
-            Spine 3.8 · {unit.retroFps} FPS · движение: {unit.movementBone}
+          <p className="text-[11px] text-slate-500"><SmallIconText>
+            Spine 3.8 · </SmallIconText>{unit.retroFps}<SmallIconText> FPS · движение: </SmallIconText>{unit.movementBone}
           </p>
         </div>
 

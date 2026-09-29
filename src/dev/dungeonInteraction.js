@@ -53,12 +53,10 @@ export function canWalkTo(run, cell) {
 
 function moveHero(run, hero, path = []) {
   const coin = visibleCoins(run).find(item => cellKey(item) === cellKey(hero));
-  const exit = run.level.portals.find(portal =>
-    portal.kind === 'exit' && cellKey(portal.access) === cellKey(hero)) || null;
   return {
     ...run,
     hero,
-    path: exit ? [] : path,
+    path,
     collectedCoins: coin ? [...run.collectedCoins, coin.id] : run.collectedCoins,
     goldCollected: run.goldCollected + (coin?.value || 0),
     popups: coin ? [...(run.popups || []), {
@@ -68,7 +66,7 @@ function moveHero(run, hero, path = []) {
       y: coin.y,
       value: coin.value,
     }] : run.popups,
-    exit,
+    exit: null,
     notice: coin ? `Монета: +${coin.value} золота.` : '',
   };
 }
@@ -104,7 +102,7 @@ export function dungeonRunReducer(run, action) {
       cleared: action.victory ? [...run.cleared, action.id] : run.cleared,
       notice: action.victory ? 'Победа. Можно продолжать путь.' : 'Ты вернулся на карту. Встреча остаётся на месте.' };
   }
-  if (run.encounter || run.chest) return run;
+  if (run.encounter || run.chest || run.exit) return run;
   if (action.type === 'step') {
     if (Math.abs(action.dx) + Math.abs(action.dy) !== 1) return run;
     const target = { x: run.hero.x + action.dx, y: run.hero.y + action.dy };
@@ -116,6 +114,14 @@ export function dungeonRunReducer(run, action) {
     return moveHero(run, next, run.path.slice(1));
   }
   if (action.type === 'click') {
+    // A doorway is an explicit action, never a side effect of pathfinding.
+    const exit = run.level.portals.find(portal => portal.kind === 'exit'
+      && cellKey(portal) === cellKey(action.cell));
+    if (exit) {
+      return isAdjacent(run.hero, exit)
+        ? { ...run, path: [], exit, notice: '' }
+        : { ...run, path: [], notice: 'Подойди к выходу на соседнюю клетку, затем нажми на сам выход.' };
+    }
     const entity = visibleEntities(run).find(item => item.kind !== 'hero' && cellKey(item) === cellKey(action.cell));
     if (entity && isEncounter(entity)) {
       if (!isAdjacent(run.hero, entity)) return { ...run, path: [], notice: 'Подойди к объекту на соседнюю клетку, затем нажми на него.' };

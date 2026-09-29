@@ -1,3 +1,7 @@
+import './TavernScreens.css';
+import SmallIconText from './ui/SmallIconText';
+import GameIcon from './ui/GameIcon';
+import useStageSpace from './ui/useStageSpace';
 import { useMemo, useState } from 'react';
 import ScreenStage from './ScreenStage';
 import StageBox from './ui/StageBox';
@@ -6,11 +10,13 @@ import NineSlice from './ui/NineSlice';
 import UiSprite from './ui/UiSprite';
 import RarityWash from './ui/RarityWash';
 import { BASE_ASPECT } from './screenScale';
+import { TAVERN_ENTITIES, TAVERN_STAGE_RATIO } from './TavernSceneConfig';
 import {
   EMBER_JUNK_THRESHOLD,
   ITEM_RARITIES,
   getItemBuyPrice,
   getItemIconUrl,
+  getItemJunkPoints,
   getItemSellPrice,
   sortItemsByRarity,
   sumJunkPoints,
@@ -45,11 +51,24 @@ const Counter = ({ children, style }) => (
 );
 
 // ─── Геометрия на холсте 3200×1800 ─────────────────────────────────────────
-// Бармен — та же поза, что npc_bartender в таверне, крупнее. Прилавок перед
-// ним: ширина — натуральная (w-auto по родному aspect картинки, без aspect-
-// гаданий в конфиге), высота 32% сцены, верхняя кромка режет торс бармена.
+// Бармен — та же поза, что npc_bartender в таверне, крупнее. Прилавок стоит
+// относительно него так же, как в таверне: размер и смещение берутся из
+// TAVERN_ENTITIES и умножаются на то, во сколько раз бармен здесь крупнее.
+// Смещение по X в таверне считается от её сцены 1024/529, здесь — от 16∶9.
 const BARKEEP = { left: '28%', top: '42%', scale: 0.74, zIndex: 10 };
-const COUNTER = { left: '24%', top: '68%', scale: 0.32, zIndex: 20 };
+const COUNTER = (() => {
+  const barman = TAVERN_ENTITIES.find((e) => e.id === 'npc_bartender');
+  const counter = TAVERN_ENTITIES.find((e) => e.id === 'bar_counter');
+  const k = BARKEEP.scale / barman.scale;
+  const dx = (parseFloat(counter.pos.left) - parseFloat(barman.pos.left)) * TAVERN_STAGE_RATIO * k;
+  const dy = (parseFloat(counter.pos.top) - parseFloat(barman.pos.top)) * k;
+  return {
+    left: `${parseFloat(BARKEEP.left) + dx / BASE_ASPECT}%`,
+    top: `${parseFloat(BARKEEP.top) + dy}%`,
+    scale: counter.scale * k,
+    zIndex: 20,
+  };
+})();
 
 // Панель: правые две пятых холста. Контент центрируется внутри панели:
 // боковые отступы симметричны (IN.left == IN.right), сетка — по центру
@@ -58,17 +77,15 @@ const COUNTER = { left: '24%', top: '68%', scale: 0.32, zIndex: 20 };
 const PANEL = { x: 1813, y: 198, width: 1235, height: 1404, zIndex: 30 };
 const IN = { left: 125, right: 125, top: 116 };
 const INNER_WIDTH = PANEL.width - IN.left - IN.right; // 985
-const HEADER = { top: 116, height: 90, titleSize: 76, walletSize: 40, closeSize: 44 };
-const TABS = { top: 226, height: 110, gap: 16 }; // высота >= минимума button_red 107
-const CAULDRON = { top: 402, height: 118 };
-// Сетка заполняет панель по ширине целиком: 5 × 184 с шагом 200 = 984 ≈ 985.
-const GRID = { cols: 5, rows: 3, top: 464, slotSize: 184, step: 200, iconInset: 14 };
-const FOOTER = { button: { width: 560, height: 113 } };
+const HEADER = { top: -47.5, height: 95, titleSize: 68, closeSize: 44 };
+const TABS = { top: 116, height: 166, gap: 16 };
+const CAULDRON = { top: 364, height: 74 };
+// 5 × 160 с шагом 192: место для крупных иконок, цены и воздуха между слотами.
+const GRID = { cols: 5, rows: 3, top: 408, slotSize: 160, step: 192, iconInset: 14 };
+const FOOTER = { button: { width: 560, height: 156 } };
 const PB_TRACK = { left: 18, right: 17 };
 
-// Свободное место между вкладками (низ 336) и низом (верх кнопки 1175):
-// 839px на сетку 584px — центрируем с полями ~128px. С котлом (118+6+584=708)
-// сетка едет вниз на его высоту, котёл — по центру оставшегося.
+// Котёл сдвигает сетку на 80px. Итог выбора всегда остаётся над кнопкой действия.
 const gridTopFor = (tab) => (tab === 'cauldron' ? GRID.top + CAULDRON.height + 6 : GRID.top);
 
 const PAGE_SIZE = GRID.cols * GRID.rows;
@@ -81,22 +98,24 @@ const BARTENDER_SPRITE = {
   fps: 4,
 };
 
-// Слот предмета: гнездо из атласа, иконка — cover во внутренней рамке
-// (заполняет плитку целиком, без letterbox-полей), заливка редкости под ней.
-// Рамку рисует сам атлас.
-const ItemCell = ({ item, selected, onClick, onHover, onLeave }) => (
+// Гнездо, заливка редкости, целая иконка с прозрачностью и постоянная цена.
+const ItemCell = ({ item, selected, caption, affordable, onClick, onHover, onLeave }) => (
   <button
     type="button"
     disabled={!item}
     onClick={onClick}
     onMouseEnter={onHover}
     onMouseLeave={onLeave}
+    onFocus={onHover}
+    onBlur={onLeave}
+    aria-label={item ? `${item.name}. ${caption}` : 'Пустой слот'}
+    aria-pressed={selected}
     className={`relative block transition-transform ${
       !item ? 'pointer-events-none' : ''
     } ${selected ? 'scale-105' : !item ? '' : 'hover:scale-105'}`}
     style={{
       filter: selected
-        ? 'brightness(1.5) drop-shadow(0 0 18px rgba(255,255,255,0.65))'
+        ? 'brightness(1.15) drop-shadow(0 0 6px #e9bf72)'
         : undefined,
     }}
   >
@@ -106,16 +125,17 @@ const ItemCell = ({ item, selected, onClick, onHover, onLeave }) => (
           <RarityWash color={(ITEM_RARITIES[item.rarity] || ITEM_RARITIES.COMMON).color} inset={10} radius={12} />
           <div
             className="absolute overflow-hidden"
-            style={{ left: GRID.iconInset, top: GRID.iconInset, right: GRID.iconInset, bottom: GRID.iconInset }}
+            style={{ left: GRID.iconInset, top: GRID.iconInset, right: GRID.iconInset, bottom: 34 }}
           >
             <img
               src={getItemIconUrl(item.icon)}
               alt={item.name || ''}
               draggable={false}
-              className="h-full w-full select-none object-cover"
+              className="h-full w-full select-none object-contain"
               style={{ imageRendering: 'pixelated' }}
             />
           </div>
+          <span className="shop-slot-caption" style={{ color: affordable === false ? '#de8979' : '#fffdcc' }}>{caption}</span>
         </>
       )}
     </UiSprite>
@@ -143,7 +163,6 @@ export default function ShopScreen({
   stock,
   inventory,
   gold,
-  soulEmbers,
   soulProgress,
   onBuy,
   onSell,
@@ -151,6 +170,8 @@ export default function ShopScreen({
   onClose,
   renderItemTooltip,
 }) {
+  const space = useStageSpace();
+  const headerTop = HEADER.top + space.canvasSize(10);
   const [tab, setTab] = useState('buy');
   const [page, setPage] = useState(0);
   const [selectedUid, setSelectedUid] = useState(null);
@@ -186,10 +207,12 @@ export default function ShopScreen({
   };
   const showTooltip = (item, event) => {
     if (!item) return;
-    setHovered({ item, x: event.clientX, y: event.clientY });
+    const rect = event.currentTarget.getBoundingClientRect();
+    setHovered({ item, x: event.clientX ?? rect.right, y: event.clientY ?? rect.top });
   };
 
   const gridTop = gridTopFor(tab);
+  const selectionTop = gridTop + (GRID.rows - 1) * GRID.step + GRID.slotSize + 24;
   // Сетка — по центру внутренней ширины; низ — по центру (баланс слева,
   // действие справа симметричны: IN.left/IN.right одинаковы с обеих сторон).
   const gridWidth = (GRID.cols - 1) * GRID.step + GRID.slotSize;
@@ -200,14 +223,9 @@ export default function ShopScreen({
   const fillWidth = totalProgress > 0
     ? Math.max(fillMin, Math.round((INNER_WIDTH - PB_TRACK.left - PB_TRACK.right) * Math.min(1, totalProgress / EMBER_JUNK_THRESHOLD)))
     : 0;
-  // Шапка: заголовок и кошелёк — симметрично от краёв контента: заголовок
-  // центрирован в левой половине, кошелёк — в правой, крестик в самом углу.
-  const closeLeft = PANEL.width - IN.right - HEADER.closeSize;
-  const titleCenter = IN.left + INNER_WIDTH / 4;
-  const walletCenter = IN.left + (INNER_WIDTH * 3) / 4 - HEADER.closeSize / 2;
 
   return (
-    <div className="fixed inset-0 z-[9450]" style={{ backgroundColor: '#000' }} onPointerDown={(event) => event.stopPropagation()}>
+    <div className="tavern-ui fixed inset-0 z-[9450]" style={{ backgroundColor: '#000' }} onPointerDown={(event) => event.stopPropagation()}>
       <ScreenStage aspectRatio={BASE_ASPECT} backgroundColor="#000">
         {/* Бармен за прилавком */}
         <div
@@ -246,23 +264,23 @@ export default function ShopScreen({
         {/* Панель: StageBox в пикселях макета, внутри — единый scale() */}
         <StageBox x={PANEL.x} y={PANEL.y} width={PANEL.width} height={PANEL.height} zIndex={PANEL.zIndex}>
           <div style={{ position: 'relative', width: PANEL.width, height: PANEL.height }}>
-            <NineSlice name="location_frame" width={PANEL.width} height={PANEL.height} />
+            {/* Отступы — как у окна арены в той же рамке: вровень с краем подложка вылезла бы за фигурные углы. */}
+            <div style={{ position: 'absolute', left: 43, top: 46, right: 42, bottom: 46, background: '#000' }} />
+            <NineSlice name="location_frame" width={PANEL.width} height={PANEL.height} style={{ position: 'absolute', inset: 0 }} />
 
-            {/* Заголовок слева, кошелёк справа, крестик в углу */}
-            <Counter style={{ left: titleCenter, top: HEADER.top + HEADER.height / 2, fontSize: HEADER.titleSize }}>
+            {/* Заголовок на верхней кромке; баланс — в глобальном кошельке. */}
+            <NineSlice name="header" width={INNER_WIDTH} height={HEADER.height} style={{ position: 'absolute', left: IN.left, top: headerTop }} />
+            <Counter style={{ left: PANEL.width / 2, top: headerTop + HEADER.height / 2, fontSize: HEADER.titleSize }}>
               Магазин
-            </Counter>
-            <Counter style={{ left: walletCenter, top: HEADER.top + HEADER.height / 2, fontSize: HEADER.walletSize }}>
-              {`🪙 ${gold}  🔥 ${soulEmbers}`}
             </Counter>
             <button
               type="button"
               onClick={onClose}
               className="absolute flex items-center justify-center transition-transform hover:scale-110 active:scale-95"
-              style={{ left: closeLeft, top: HEADER.top + (HEADER.height - HEADER.closeSize) / 2, width: HEADER.closeSize, height: HEADER.closeSize }}
+              style={{ left: PANEL.width - 106, top: 65, width: HEADER.closeSize, height: HEADER.closeSize }}
               aria-label="Закрыть магазин"
             >
-              <Counter style={{ left: '50%', top: '50%', fontSize: 44 }}>✕</Counter>
+              <Counter style={{ left: '50%', top: '50%', fontSize: 44 }}><SmallIconText>✕</SmallIconText></Counter>
             </button>
 
             {/* Вкладки */}
@@ -273,10 +291,11 @@ export default function ShopScreen({
                   key={id}
                   type="button"
                   onClick={() => switchTab(id)}
+                  aria-pressed={active}
                   className="absolute block transition-transform hover:scale-[1.03] active:scale-95"
                   style={{ left: IN.left + index * (tabWidth + TABS.gap), top: TABS.top, width: tabWidth, height: TABS.height }}
                 >
-                  <NineSlice name="button_red" width={tabWidth} height={TABS.height} style={active ? undefined : { filter: 'brightness(0.55)' }} />
+                  <NineSlice name={active ? "button_red" : "button_default"} width={tabWidth} height={TABS.height} style={active ? undefined : { filter: 'brightness(0.55)' }} />
                   <Counter style={{ left: tabWidth / 2, top: TABS.height / 2, fontSize: 40, opacity: active ? 1 : 0.7 }}>
                     {label}
                   </Counter>
@@ -284,6 +303,11 @@ export default function ShopScreen({
               );
             })}
 
+            <p className="tavern-muted" style={{ position: 'absolute', left: IN.left, top: 301, width: INNER_WIDTH, fontSize: 30, lineHeight: 1.25 }}>
+              {tab === 'buy' ? 'Снаряжение для следующего похода. Выберите предмет.'
+                : tab === 'sell' ? 'Освободите сумку и получите золото.'
+                  : 'Выберите ненужные вещи. Котёл превратит их в огоньки.'}
+            </p>
             {/* Котёл: дорожка PB_empty + живое заполнение PB */}
             {tab === 'cauldron' && (
               <div className="absolute" style={{ left: IN.left, top: CAULDRON.top }}>
@@ -292,7 +316,7 @@ export default function ShopScreen({
                     <NineSlice name="PB" width={fillWidth} height={16} style={{ position: 'absolute', left: PB_TRACK.left, top: 11 }} />
                   )}
                 </NineSlice>
-                <Counter style={{ left: INNER_WIDTH / 2, top: 62, fontSize: 32 }}>
+                <Counter style={{ left: INNER_WIDTH / 2, top: 57, fontSize: 26 }}>
                   {`${totalProgress} / ${EMBER_JUNK_THRESHOLD}`}
                 </Counter>
               </div>
@@ -314,6 +338,9 @@ export default function ShopScreen({
                   <ItemCell
                     item={item}
                     selected={selected}
+                    caption={item ? tab === 'cauldron' ? `+${getItemJunkPoints(item)} пыли`
+                      : `${tab === 'buy' ? getItemBuyPrice(item) : getItemSellPrice(item)} зол.` : ''}
+                    affordable={tab !== 'buy' || !item || gold >= getItemBuyPrice(item)}
                     onClick={() => {
                       if (!item) return;
                       if (tab === 'cauldron') toggleCauldron(item.uid);
@@ -326,6 +353,20 @@ export default function ShopScreen({
               );
             })}
 
+            {source.length === 0 && <p className="shop-empty">
+              {tab === 'buy' ? 'Всё раскуплено. Новые товары появятся после ночлега.' : 'В сумке пока нет предметов. Загляните в подземелье.'}
+            </p>}
+            <div className="shop-selection" style={{ top: selectionTop }} aria-live="polite">
+              {tab === 'cauldron' ? <>
+                <strong>{`Выбрано: ${cauldronItems.length} · Огоньков: +${Math.floor(totalProgress / EMBER_JUNK_THRESHOLD)}`}</strong>
+                <span className="tavern-muted">{cauldronItems.length ? 'Выбранные предметы будут потрачены.' : '11 пыли = 1 огонёк. Остаток сохраняется.'}</span>
+              </> : selectedItem ? <>
+                <strong style={{ color: (ITEM_RARITIES[selectedItem.rarity] || ITEM_RARITIES.COMMON).color }}>{selectedItem.name}</strong>
+                <span className="tavern-muted">{tab === 'buy' && gold < getItemBuyPrice(selectedItem)
+                  ? `Не хватает ${getItemBuyPrice(selectedItem) - gold} золота`
+                  : tab === 'buy' ? 'После покупки предмет появится в сумке.' : 'Продажа уберёт предмет из сумки.'}</span>
+              </> : <span className="tavern-muted">Выберите предмет в ячейке. Характеристики — при наведении.</span>}
+            </div>
             {/* Низ: пагинация слева, действие справа */}
             <div className="absolute" style={{ left: IN.left, top: footerTop + (FOOTER.button.height - 56) / 2, width: 300, height: 56 }}>
               <button
@@ -336,7 +377,7 @@ export default function ShopScreen({
                 style={{ left: 0, position: 'absolute', width: 56, height: 56 }}
                 aria-label="Назад"
               >
-                <Counter style={{ left: '50%', top: '50%', fontSize: 40 }}>◀</Counter>
+                <Counter style={{ left: '50%', top: '50%', fontSize: 40 }}><SmallIconText>◀</SmallIconText></Counter>
               </button>
               <Counter style={{ left: 150, top: 28, fontSize: 32 }}>{`${safePage + 1} / ${pageCount}`}</Counter>
               <button
@@ -347,7 +388,7 @@ export default function ShopScreen({
                 style={{ right: 0, position: 'absolute', width: 56, height: 56 }}
                 aria-label="Вперёд"
               >
-                <Counter style={{ left: '50%', top: '50%', fontSize: 40 }}>▶</Counter>
+                <Counter style={{ left: '50%', top: '50%', fontSize: 40 }}><SmallIconText>▶</SmallIconText></Counter>
               </button>
             </div>
             <div className="absolute" style={{ right: IN.right, top: footerTop }}>
@@ -356,7 +397,7 @@ export default function ShopScreen({
                   disabled={!selectedItem || gold < getItemBuyPrice(selectedItem)}
                   onClick={() => { if (onBuy(selectedItem)) setSelectedUid(null); }}
                 >
-                  {selectedItem ? `КУПИТЬ · ${getItemBuyPrice(selectedItem)} 🪙` : 'КУПИТЬ'}
+                  КУПИТЬ {selectedItem && <>· {getItemBuyPrice(selectedItem)} <GameIcon name="coin" /></>}
                 </ActionButton>
               )}
               {tab === 'sell' && (
@@ -364,7 +405,7 @@ export default function ShopScreen({
                   disabled={!selectedItem}
                   onClick={() => { if (onSell(selectedItem.uid)) setSelectedUid(null); }}
                 >
-                  {selectedItem ? `ПРОДАТЬ · ${getItemSellPrice(selectedItem)} 🪙` : 'ПРОДАТЬ'}
+                  ПРОДАТЬ {selectedItem && <>· {getItemSellPrice(selectedItem)} <GameIcon name="coin" /></>}
                 </ActionButton>
               )}
               {tab === 'cauldron' && (
@@ -372,7 +413,7 @@ export default function ShopScreen({
                   disabled={!canConvert}
                   onClick={() => { if (onConvert(cauldronUids)) setCauldronUids([]); }}
                 >
-                  ПРЕОБРАЗОВАТЬ
+                  {`ПЕРЕПЛАВИТЬ · +${Math.floor(totalProgress / EMBER_JUNK_THRESHOLD)}`}
                 </ActionButton>
               )}
             </div>

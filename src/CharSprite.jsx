@@ -1,3 +1,4 @@
+import SpriteLightLayers from './lighting/SpriteLightLayers';
 import React, { useEffect, useRef, useState } from 'react';
 import { qteSlowMo } from './qteTimeScale';
 import { spriteColorizeFilter } from './spriteColorize';
@@ -15,7 +16,7 @@ import { spriteColorizeFilter } from './spriteColorize';
 // При смене key компонент ремоунтится — кадр стартует с 0.
 // startFrame — с какого кадра начинается цикл. Нужен строю одинаковых врагов:
 // с общего нуля они шагают кадр в кадр и выглядят одним механизмом.
-const CharSprite = React.memo(({ atlas, size = 110, className = '', style = {}, hue, sat, gameTime = false, ignoreSlowMo = false, speed = 1, startFrame = 0, holdAtFrame = null, once = false, paused = false, onCycle }) => {
+const CharSprite = React.memo(({ atlas, size = 110, className = '', style = {}, hue, sat, light, gameTime = false, ignoreSlowMo = false, speed = 1, startFrame = 0, holdAtFrame = null, once = false, paused = false, onCycle }) => {
   const [frame, setFrame] = useState(() => (atlas?.frameCount ? startFrame % atlas.frameCount : 0));
   const onCycleRef = useRef(onCycle);
   useEffect(() => { onCycleRef.current = onCycle; }, [onCycle]);
@@ -73,23 +74,29 @@ const CharSprite = React.memo(({ atlas, size = 110, className = '', style = {}, 
         width: size,
         height: size,
         overflow: 'hidden',
-        ...(hue != null ? { filter: spriteColorizeFilter(hue, sat) } : {}),
+        position: 'relative',
         ...style,
+        filter: [light?.filter, style.filter].filter(Boolean).join(' ') || undefined,
       }}
     >
-      <img
-        src={atlas.url}
-        alt=""
-        draggable={false}
-        className="block max-w-none select-none"
+      <div
+        aria-hidden="true"
+        className="select-none"
         style={{
-          width: sheetW,
-          height: sheetH,
-          marginLeft: -col * size,
-          marginTop: -row * size,
+          width: size,
+          height: size,
+          backgroundImage: `url("${atlas.url}")`,
+          backgroundSize: `${sheetW}px ${sheetH}px`,
+          backgroundPosition: `${-col * size}px ${-row * size}px`,
+          backgroundRepeat: 'no-repeat',
           imageRendering: 'pixelated',
+          // Recolor the character before lighting; fire must retain its warm hue.
+          filter: hue != null ? spriteColorizeFilter(hue, sat) : undefined,
         }}
       />
+      {light && <SpriteLightLayers layers={light.layers} url={atlas.url}
+        maskSize={`${atlas.cols * 100}% ${atlas.rows * 100}%`}
+        maskPosition={[atlas.cols > 1 ? col / (atlas.cols - 1) * 100 : 0, atlas.rows > 1 ? row / (atlas.rows - 1) * 100 : 0]} />}
     </div>
   );
 });

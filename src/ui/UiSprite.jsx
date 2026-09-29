@@ -11,6 +11,7 @@ const UiSprite = ({ name, width, height, className = '', style, children }) => {
   }
 
   const { region } = sprite;
+  const texture = sprite.texture ?? UI_ATLAS;
   const boxWidth = width ?? region.width;
   const boxHeight = height ?? region.height;
   const scaleX = boxWidth / region.width;
@@ -25,8 +26,8 @@ const UiSprite = ({ name, width, height, className = '', style, children }) => {
       <div
         className="pointer-events-none absolute inset-0"
         style={{
-          backgroundImage: `url(${UI_ATLAS.image})`,
-          backgroundSize: `${UI_ATLAS.width * scaleX}px ${UI_ATLAS.height * scaleY}px`,
+          backgroundImage: `url(${texture.image})`,
+          backgroundSize: `${texture.width * scaleX}px ${texture.height * scaleY}px`,
           backgroundPosition: `${-region.x * scaleX}px ${-region.y * scaleY}px`,
           imageRendering: UI_ATLAS.filtering === 'pixelated' ? 'pixelated' : 'auto',
         }}

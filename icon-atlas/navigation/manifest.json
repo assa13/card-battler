@@ -1,0 +1,45 @@
+{
+  "image": "atlas.png",
+  "source": "generated-source.png",
+  "cellSize": 32,
+  "cols": 3,
+  "rows": 3,
+  "icons": {
+    "base": {
+      "slot": 0,
+      "path": "public/assets/ui/navigation/base.png"
+    },
+    "boss": {
+      "slot": 1,
+      "path": "public/assets/ui/navigation/boss.png"
+    },
+    "combat_hard": {
+      "slot": 2,
+      "path": "public/assets/ui/navigation/combat_hard.png"
+    },
+    "combat_medium": {
+      "slot": 3,
+      "path": "public/assets/ui/navigation/combat_medium.png"
+    },
+    "combat_easy": {
+      "slot": 4,
+      "path": "public/assets/ui/navigation/combat_easy.png"
+    },
+    "event": {
+      "slot": 5,
+      "path": "public/assets/ui/navigation/event.png"
+    },
+    "exit": {
+      "slot": 6,
+      "path": "public/assets/ui/navigation/exit.png"
+    },
+    "coin": {
+      "slot": 7,
+      "path": "public/assets/ui/navigation/coin.png"
+    },
+    "ember": {
+      "slot": 8,
+      "path": "public/assets/ui/navigation/ember.png"
+    }
+  }
+}

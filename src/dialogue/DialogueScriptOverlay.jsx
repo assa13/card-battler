@@ -1,3 +1,4 @@
+import SmallIconText from '../ui/SmallIconText';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import SpeechBubble from '../SpeechBubble';
 import { createRunState, getVisibleChoices, runCommands } from './scriptRunner';
@@ -391,7 +392,7 @@ const DialogueScriptOverlay = ({ script, onCommand, onComplete, variant = 'bubbl
               onClick={(e) => { e.stopPropagation(); handleChoice(choice); }}
               className="text-left transition-transform hover:scale-[1.03] active:scale-95"
               style={{
-                fontFamily: '"Courier New", monospace',
+                fontFamily: '"Greybeard", sans-serif',
                 fontWeight: 700,
                 fontSize: 14,
                 color: INK,
@@ -403,7 +404,7 @@ const DialogueScriptOverlay = ({ script, onCommand, onComplete, variant = 'bubbl
                 cursor: 'pointer',
               }}
             >
-              <span style={{ color: '#8a6d3b', marginRight: PX * 2 }}>▸</span>
+              <span style={{ color: '#8a6d3b', marginRight: PX * 2 }}><SmallIconText>▸</SmallIconText></span>
               {choice.text}
             </button>
           ))}

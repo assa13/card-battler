@@ -1,8 +1,10 @@
+import SmallIconText from './ui/SmallIconText';
 import { useEffect, useMemo, useState } from 'react';
 import HeroCarousel from './HeroCarousel';
 import EquipmentTooltip from './EquipmentTooltip';
 import UpgradePopup from './UpgradePopup';
 import PreparationCardSlot from './PreparationCardSlot';
+import GameIcon from './ui/GameIcon';
 import {
   DEFAULT_UNLOCKED_SLOTS,
   getCardLevel,
@@ -14,47 +16,62 @@ import {
 
 const RARITY_ORDER = { LEGENDARY: 0, EPIC: 1, RARE: 2, COMMON: 3 };
 const EMPTY_IDS = Object.freeze([]);
+// Native MagicCard dimensions. Scale the complete battle component uniformly.
+const CARD_ART = { width: 374, height: 434 };
+
+const ScaledCard = ({ card, level, heroId, renderCardPreview, width, animated = false }) => (
+  <div style={{ width, height: CARD_ART.height * width / CARD_ART.width, pointerEvents: 'none' }}>
+    <div style={{ ...CARD_ART, transformOrigin: 'top left', transform: `scale(${width / CARD_ART.width})` }}>
+      {renderCardPreview?.({ ...card, level }, heroId, { animated })}
+    </div>
+  </div>
+);
 
 const CardInspection = ({ tooltip, heroId, renderCardPreview }) => {
   if (!tooltip || !renderCardPreview) return null;
-  const TIP_W = 192;
-  const TIP_H = 270;
+  const TIP_W = 232;
+  const TIP_H = CARD_ART.height * TIP_W / CARD_ART.width;
   const PAD = 8;
   const placeAbove = tooltip.top - TIP_H - PAD >= 0;
-  const top = placeAbove ? tooltip.top - TIP_H - PAD : tooltip.bottom + PAD;
-  const left = Math.min(Math.max(tooltip.x - TIP_W / 2, PAD), window.innerWidth - TIP_W - PAD);
+  const top = Math.max(PAD, Math.min(placeAbove ? tooltip.top - TIP_H - PAD : tooltip.bottom + PAD, window.innerHeight - TIP_H - PAD));
+  const left = Math.max(PAD, Math.min(tooltip.x - TIP_W / 2, window.innerWidth - TIP_W - PAD));
   return (
     <div className="fixed z-[9500] pointer-events-none animate-in fade-in zoom-in-95 duration-150" style={{ left, top, width: TIP_W, height: TIP_H }}>
-      {renderCardPreview({ ...tooltip.card, level: tooltip.level }, heroId)}
+      <ScaledCard card={tooltip.card} level={tooltip.level} heroId={heroId}
+        renderCardPreview={renderCardPreview} width={TIP_W} animated />
     </div>
   );
 };
 
-const InventoryCardSlot = ({ className = '', children, ...props }) => (
+const InventoryCardSlot = ({ card, level = 1, locked = false, isHover = false, heroId, renderCardPreview, className = '', children }) => (
   <div className={`relative h-[104px] w-20 shrink-0 ${className}`}>
-    <PreparationCardSlot {...props} className="origin-top-left scale-125">
+    {card ? <>
+      <div className={`transition-transform ${isHover ? 'scale-105' : ''} ${locked ? 'opacity-50 grayscale' : ''}`}>
+        <ScaledCard card={card} level={level} heroId={heroId} renderCardPreview={renderCardPreview} width={80} />
+      </div>
+      {locked && <span className="absolute left-1 top-1 text-[10px] pointer-events-none"><SmallIconText>🔒</SmallIconText></span>}
       {children}
-    </PreparationCardSlot>
+    </> : <PreparationCardSlot locked={locked} className="origin-top-left scale-125">{children}</PreparationCardSlot>}
   </div>
 );
 
 // Кнопка разблокировки слота за огоньки — тот же bbox, что у InventoryCardSlot / prep-экран.
-const EmberUnlockSlot = ({ cost, canBuy, onClick, title }) => (
+const EmberUnlockSlot = ({ cost, balance, canBuy, onClick, title }) => (
   <div className="relative h-[104px] w-20 shrink-0">
     <button
       type="button"
       onClick={onClick}
       disabled={!canBuy}
       title={title}
-      className={`origin-top-left scale-125 relative w-16 h-20 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all ${
+      className={`kit-card-slot origin-top-left scale-125 relative w-16 h-20 flex flex-col items-center justify-center gap-1 transition-transform ${
         canBuy
-          ? 'border-sky-400 bg-sky-950/40 hover:scale-110 hover:shadow-[0_0_20px_rgba(56,189,248,0.5)] cursor-pointer'
-          : 'border-slate-700 bg-slate-800/30 opacity-50 cursor-not-allowed'
+          ? 'hover:brightness-125 cursor-pointer'
+          : 'cursor-not-allowed'
       }`}
     >
-      <span className="text-xl">🔥</span>
-      <span className={`text-[10px] font-black uppercase ${canBuy ? 'text-sky-300' : 'text-slate-500'}`}>
-        {String(cost)}
+      <GameIcon name="ember" size={30} />
+      <span className={`text-[12px] font-black ${canBuy ? 'text-green-400' : 'text-red-400'}`}>
+        {String(balance)}/{String(cost)}
       </span>
     </button>
   </div>
@@ -186,14 +203,14 @@ const HeroInventoryScreen = ({
       <div className="relative h-full w-full">
         <HeroCarousel heroes={heroes} selectedHeroId={selectedHero.id} onSelect={setSelectedHeroId} />
         <button type="button" onClick={onClose} className="absolute left-[2.06%] top-[2.55%] z-40 flex h-[8%] w-[5%] items-center justify-center" aria-label="Назад">
-          <span className="text-4xl text-white drop-shadow-[0_0_8px_rgba(0,0,0,0.95)]">◀</span>
+          <span className="text-4xl text-white drop-shadow-[0_0_8px_rgba(0,0,0,0.95)]"><SmallIconText>◀</SmallIconText></span>
         </button>
         <h1 className="absolute left-[8.31%] top-[2.65%] z-20 text-white" style={{ fontFamily: "'Greybeard', sans-serif", fontSize: 'clamp(21px, 3.75vw, 66px)' }}>Герои</h1>
         {/* Баланс — глобальный WalletHUD в App (правый верхний угол) */}
         <main className="absolute left-[30.6875%] top-[4.65%] z-20 flex h-[75%] w-[69.3125%] flex-col items-center justify-center text-white" style={{ fontFamily: "'Greybeard', sans-serif" }}>
           {selectedHero.locked ? (
             <section className="flex flex-col items-center gap-5 text-center max-w-lg">
-              <span className="text-8xl drop-shadow-[0_0_20px_rgba(0,0,0,0.9)]">{hireReady ? '⚔' : '🔒'}</span>
+              <span className="text-8xl drop-shadow-[0_0_20px_rgba(0,0,0,0.9)]"><SmallIconText>{hireReady ? '⚔' : '🔒'}</SmallIconText></span>
               <h2 style={{ fontSize: 'clamp(21px, 3vw, 54px)' }}>{selectedHero.name}</h2>
               <p className="text-amber-300/90" style={{ fontSize: 'clamp(13px, 1.3vw, 24px)' }}>
                 {selectedHero.lockHint || 'Заблокировано'}
@@ -201,7 +218,7 @@ const HeroInventoryScreen = ({
               {hireReady ? (
                 <>
                   <p className={`font-black ${gold >= (hireInfo.cost ?? 0) ? 'text-amber-200' : 'text-red-400'}`} style={{ fontSize: 'clamp(18px, 2vw, 36px)' }}>
-                    🪙 {String(hireInfo.cost)}
+                    <GameIcon name="coin" /> {String(hireInfo.cost)}
                   </p>
                   <p className="opacity-60" style={{ fontSize: 'clamp(11px, 1vw, 18px)' }}>
                     Заменит одного из героев в отряде. Класс и карты останутся у выбранного слота.
@@ -212,8 +229,7 @@ const HeroInventoryScreen = ({
                         key={option.id}
                         type="button"
                         onClick={() => tryHire(option.id)}
-                        className="rounded-lg border border-amber-500/60 bg-amber-950/80 px-4 py-2 font-black uppercase tracking-wide text-amber-100 transition hover:brightness-125 active:scale-95"
-                        style={{ fontSize: '11px' }}
+                        className="kit-button"
                       >
                         Заменить {option.name}
                       </button>
@@ -240,6 +256,8 @@ const HeroInventoryScreen = ({
               >
                 <InventoryCardSlot
                   card={heroAbilities.basic}
+                  heroId={selectedHero.id}
+                  renderCardPreview={renderCardPreview}
                   level={getLevel(heroAbilities.basic)}
                   isHover={isCardHovered(heroAbilities.basic)}
                 />
@@ -271,6 +289,8 @@ const HeroInventoryScreen = ({
                     >
                       <InventoryCardSlot
                         card={card}
+                        heroId={selectedHero.id}
+                        renderCardPreview={renderCardPreview}
                         level={getLevel(card)}
                         isHover={isCardHovered(card)}
                       />
@@ -297,6 +317,7 @@ const HeroInventoryScreen = ({
                     <EmberUnlockSlot
                       key={`unlock-slot-${visualIndex}`}
                       cost={slotUnlockCost}
+                      balance={soulEmbers}
                       canBuy={canBuy}
                       onClick={tryUnlockSlot}
                       title={emberTitle}
@@ -352,13 +373,15 @@ const HeroInventoryScreen = ({
                   >
                     <InventoryCardSlot
                       card={card}
+                      heroId={selectedHero.id}
+                      renderCardPreview={renderCardPreview}
                       level={getLevel(card)}
                       locked={!isUnlocked}
                       isHover={isCardHovered(card)}
                     >
                       {!isUnlocked && (
                         <span className="pointer-events-none absolute bottom-1 rounded bg-black/75 px-1 text-[9px] font-black text-amber-300">
-                          🪙 {String(cardGoldCost)}
+                          <GameIcon name="coin" /> {String(cardGoldCost)}
                         </span>
                       )}
                     </InventoryCardSlot>

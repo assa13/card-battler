@@ -1,4 +1,8 @@
-import { useEffect } from 'react';
+import SceneLighting from '../lighting/SceneLighting';
+import { characterShadowBox, GROUND_SHADOW_BACKGROUND } from '../lighting/groundShadow';
+import { BATTLE_LIGHT_SCENE, computeBattleSpriteLight } from './battleLight';
+import SmallIconText from '../ui/SmallIconText';
+import { useEffect, useState } from 'react';
 import ScreenStage from '../ScreenStage';
 import StageBox from '../ui/StageBox';
 import NineSlice from '../ui/NineSlice';
@@ -13,6 +17,7 @@ import { BASE_HEIGHT, BASE_WIDTH } from '../screenScale';
 import HeroSlot from '../widgets/HeroSlot';
 import { HERO_SLOT_ARTEFACT } from '../widgets/heroSlotLayout';
 import MagicCard from '../widgets/MagicCard';
+import RarityWavesPanel from '../dev/RarityWavesPanel';
 import { spriteColorizeFilter } from '../spriteColorize';
 import SpineUnit from '../units/SpineUnit';
 import { getSpineUnit } from '../units/spineUnits';
@@ -31,6 +36,7 @@ import {
   MAP_PANEL_DESIGN,
   MERGE_PANEL,
   MERGE_PANEL_CLIP,
+  MERGE_FLAME,
   MERGE_PANEL_HIDDEN_Y,
   MERGE_PANEL_OFFSET_Y,
   getDecorSprite,
@@ -170,7 +176,7 @@ const FieldBadges = ({ badges, column, onTipShow, onTipHide }) => {
               boxShadow: `0 0 44px ${tone.glow}`,
             }}
           >
-            <span style={{ fontSize: 52, lineHeight: 1 }}>{badge.icon}</span>
+            <span style={{ fontSize: 52, lineHeight: 1 }}><SmallIconText>{badge.icon}</SmallIconText></span>
             {badge.text && (
               <span style={{ fontSize: 44, lineHeight: 1, fontWeight: 900, color: tone.text }}>{badge.text}</span>
             )}
@@ -183,6 +189,53 @@ const FieldBadges = ({ badges, column, onTipShow, onTipHide }) => {
 
 /** Сколько панель слияния уезжает. Столько же держится поднятый инвентарь. */
 const MERGE_HIDE_MS = 240;
+
+// Огонёк в чаше кнопки слияния: загорается, когда в инвентаре набралась тройка,
+// которую есть смысл слить.
+//
+// Кадры не листаются по кругу: каждый раз выдаётся случайный из двух оставшихся.
+// Трёх кадров по кругу хватает, чтобы глаз поймал короткую петлю и пламя стало
+// читаться механизмом, а вразнобой оно живёт.
+const MergeFlame = ({ lit }) => {
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    if (!lit) return undefined;
+    const id = setInterval(() => {
+      setFrame((current) => {
+        const next = Math.floor(Math.random() * (MERGE_FLAME.frames - 1));
+        return next < current ? next : next + 1;
+      });
+    }, 1000 / MERGE_FLAME.fps);
+    return () => clearInterval(id);
+  }, [lit]);
+
+  return (
+    <div
+      className="pointer-events-none absolute overflow-hidden transition-opacity duration-300"
+      style={{
+        left: MERGE_FLAME.x,
+        top: MERGE_FLAME.y,
+        width: MERGE_FLAME.width,
+        height: MERGE_FLAME.height,
+        opacity: lit ? 1 : 0,
+      }}
+    >
+      <img
+        src={MERGE_FLAME.url}
+        alt=""
+        draggable={false}
+        className="block max-w-none select-none"
+        style={{
+          width: MERGE_FLAME.width * MERGE_FLAME.frames,
+          height: MERGE_FLAME.height,
+          marginLeft: -frame * MERGE_FLAME.width,
+          imageRendering: 'pixelated',
+        }}
+      />
+    </div>
+  );
+};
 
 // Панель слияния артефактов.
 //
@@ -266,13 +319,11 @@ const MergePanel = ({ open, slots = [], warning, onSlotClick, onConfirm, onTipSh
                       className="absolute -translate-x-1/2 -translate-y-1/2 select-none object-cover"
                       style={{ left: '50%', top: '50%', width: size, height: size, borderRadius: radius, imageRendering: 'pixelated' }}
                     />
-                    {/* Отметка «предмет на месте». В атласе своей картинки под неё
-                        пока нет, поэтому знак набран тем же шрифтом, что и плюс в
-                        пустом гнезде. */}
-                    <Counter style={{ left: '50%', top: '84%', fontSize: 64 }}>✓</Counter>
+                    {/* Отметка и пустой слот используют общий атлас маленьких иконок. */}
+                    <Counter style={{ left: '50%', top: '84%', fontSize: 64 }}><SmallIconText>✓</SmallIconText></Counter>
                   </>
                 ) : (
-                  <Counter style={{ left: '50%', top: '50%', fontSize: 119.842, opacity: 0.4, textShadow: '0px 4.993px 0px black' }}>+</Counter>
+                  <Counter style={{ left: '50%', top: '50%', fontSize: 119.842, opacity: 0.4, textShadow: '0px 4.993px 0px black' }}><SmallIconText>+</SmallIconText></Counter>
                 )}
               </UiSprite>
             </div>
@@ -337,8 +388,15 @@ const MergePanel = ({ open, slots = [], warning, onSlotClick, onConfirm, onTipSh
 // масштаба ужимаются ещё раз: оверлей выходит меньше бойца и уезжает влево.
 // Трансформ движения такой якорь создаёт сам, поэтому в покое и в прыжке
 // раскладка была разной.
-const FieldUnit = ({ unit, moveTransform, transitionClass, transitionStyle, outerClass, innerClass, innerStyle, mirrored, nodeRef, dataAttrs, badges, overlay, overlayScale = 1, screenClip, children }) => {
+const FieldUnit = ({ unit, moveTransform, transitionClass, transitionStyle, outerClass, innerClass, innerStyle, mirrored, nodeRef, dataAttrs, badges, overlay, reticle, overlayScale = 1, screenClip, light, dead = false, children }) => {
+  const shadow = characterShadowBox(unit, light);
   const node = (
+    <>
+    <StageBox x={shadow.x - shadow.width / 2} y={shadow.y - shadow.height / 2}
+      width={shadow.width} height={shadow.height} zIndex={18} style={{ pointerEvents: 'none', opacity: dead ? 0.25 : 1 }}>
+      <div className={transitionClass} style={{ width: '100%', height: '100%', background: GROUND_SHADOW_BACKGROUND,
+        transform: moveTransform, ...transitionStyle }} />
+    </StageBox>
     <StageBox x={unit.x} y={unit.y} width={unit.size} height={unit.size} zIndex={26} style={{ overflow: 'visible' }}>
     <div
       ref={nodeRef}
@@ -366,8 +424,13 @@ const FieldUnit = ({ unit, moveTransform, transitionClass, transitionStyle, oute
         </div>
       )}
       {badges}
+      {reticle && <div className="absolute pointer-events-none" style={{ left: '50%', top: '44%',
+        width: 176, height: 176, fontSize: 176, transform: 'translate(-50%, -50%)', zIndex: 70 }}>
+        {reticle}
+      </div>}
     </div>
     </StageBox>
+    </>
   );
   if (!screenClip) return node;
   return (
@@ -518,6 +581,7 @@ const BattleScreen = ({ zIndex }) => {
     enemyAttackTranslate = { dx: 0, dy: 0 },
     turnState,
     background,
+    onboardingHint,
     mana,
     drawCount,
     discardCount,
@@ -573,6 +637,7 @@ const BattleScreen = ({ zIndex }) => {
 
   const hidden = turnState === 'map';
   const mergeOpen = Boolean(merge.open);
+  const mergeReady = Boolean(merge.ready);
   const enemyFormation = ENEMY_FORMATIONS[enemies.length] || ENEMY_FORMATIONS[3];
 
   // Клик мимо панели слияния её закрывает. Ловим его на документе, а не
@@ -623,8 +688,12 @@ const BattleScreen = ({ zIndex }) => {
   // холста при этом выключается: на прозрачной сцене она читается градиентной
   // рамкой вокруг всего окна.
   return (
+    <>
     <ScreenStage zIndex={zIndex} backgroundColor="transparent" shadow={false} stageStyle={{ backgroundColor: 'transparent' }}>
-      <StageBox {...fieldBackground} zIndex={10} style={{ overflow: 'hidden' }}>
+      {onboardingHint && <StageBox x={865} y={1680} width={1470} height={100} zIndex={66}>
+        <p role="status" style={{ color: '#c6bd9d', fontSize: 30, lineHeight: 1.25, textAlign: 'center', padding: '12px 20px', background: '#101019e8' }}>{onboardingHint}</p>
+      </StageBox>}
+      <StageBox {...fieldBackground} zIndex={10} style={{ overflow: 'hidden', isolation: 'isolate' }}>
         <img
           src={fieldArt.url}
           alt=""
@@ -636,15 +705,15 @@ const BattleScreen = ({ zIndex }) => {
             width: fieldArt.size,
             height: fieldArt.size,
             imageRendering: 'pixelated',
-            filter: background?.hue != null
-              ? spriteColorizeFilter(background.hue, background.sat)
-              : undefined,
+            filter: `${background?.hue != null ? spriteColorizeFilter(background.hue, background.sat) : ''} brightness(${BATTLE_LIGHT_SCENE.backgroundBrightness})`,
           }}
         />
+        <SceneLighting scene={BATTLE_LIGHT_SCENE} zBase={1} />
       </StageBox>
 
       {heroes.map((hero, index) => {
-        const unit = HERO_UNITS[index];
+        const slot = HERO_UNITS[index];
+        const unit = slot && { ...slot, x: slot.x + 20 };
         if (!unit) return null;
         const isAttacking = animatingPlayerId === hero.id;
         const isHovered = hoveredPlayerId === hero.id;
@@ -652,6 +721,7 @@ const BattleScreen = ({ zIndex }) => {
         const isQteHero = qteHeroId === hero.id;
         const isDefenseFlash = defenseWindowFlashIds.includes(hero.id) || heroHitStopIds.includes(hero.id);
         const anim = attackAnims[hero.id];
+        const light = computeBattleSpriteLight(unit, isAttacking ? heroLeap : {});
 
         let moveTransform = '';
         let transitionClass = 'transition-all duration-600 ease-out';
@@ -672,6 +742,8 @@ const BattleScreen = ({ zIndex }) => {
           <FieldUnit
             key={`hero-${hero.id}`}
             unit={unit}
+            light={light}
+            dead={hero.isDead}
             nodeRef={(el) => setAvatarRef?.(hero.id, el)}
             badges={<FieldBadges badges={hero.badges} column onTipShow={onEffectTipShow} onTipHide={onEffectTipHide} />}
             moveTransform={moveTransform}
@@ -682,9 +754,9 @@ const BattleScreen = ({ zIndex }) => {
               isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : '',
             ].join(' ')}
             innerClass={[
-              isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : '',
-              flashingTargets.includes(hero.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : '',
-              isDefenseFlash ? 'brightness-0 invert scale-150 z-[2000]' : '',
+              isHovered && !isAnimating ? 'brightness-110' : '',
+              flashingTargets.includes(hero.id) ? 'brightness-0 invert z-[2000]' : '',
+              isDefenseFlash ? 'brightness-0 invert z-[2000]' : '',
             ].join(' ')}
             innerStyle={{
               transition: isDefenseFlash
@@ -706,6 +778,7 @@ const BattleScreen = ({ zIndex }) => {
                   <CharSprite
                     key={`attack-${anim.play}`}
                     atlas={hero.attackAtlas}
+                    light={light}
                     size={unit.size}
                     gameTime
                     once
@@ -716,9 +789,9 @@ const BattleScreen = ({ zIndex }) => {
                     {...hero.colorize}
                   />
                 )
-                : <CharSprite key="idle" atlas={hero.atlas} size={unit.size} {...hero.colorize} />
+                : <CharSprite key="idle" atlas={hero.atlas} size={unit.size} light={light} {...hero.colorize} />
             ) : (
-              <span style={{ fontSize: unit.size * 0.4 }}>{hero.icon}</span>
+              <span style={{ fontSize: unit.size * 0.4 }}><SmallIconText>{hero.icon}</SmallIconText></span>
             )}
           </FieldUnit>
         );
@@ -747,7 +820,7 @@ const BattleScreen = ({ zIndex }) => {
         // Босс крупнее и оттого сидит ниже — приподнимаем, как на старом экране,
         // но не так высоко: на холсте он отрывался от линии строя.
         const unit = {
-          x: slot.x - (size - slot.size) / 2,
+          x: slot.x - (size - slot.size) / 2 - 20,
           y: slot.y - (size - slot.size) + (enemy.isBoss ? BOSS_DROP : 0),
           size,
         };
@@ -760,6 +833,10 @@ const BattleScreen = ({ zIndex }) => {
         const lowHp = !enemy.isDead && enemy.hp / enemy.maxHp < 0.3;
         const spineUnit = getSpineUnit(enemy.spineUnitId);
         const spineAction = enemy.spineAction;
+        const light = computeBattleSpriteLight(unit, {
+          flipX: !spineUnit,
+          ...(isAttacking && !spineUnit && (enemy.attackStyle === 'melee' || !enemy.attackStyle) ? enemyLeap : {}),
+        });
         const spineTopOverflow = spineUnit?.clipToArena ? (spineUnit.arenaTopOverflow || 0) : 0;
         const spineCanvasWidth = spineUnit?.clipToArena
           ? fieldBackground.width
@@ -802,6 +879,8 @@ const BattleScreen = ({ zIndex }) => {
           <FieldUnit
             key={`enemy-${enemy.id}`}
             unit={unit}
+            light={light}
+            dead={enemy.isDead}
             mirrored={!spineUnit}
             screenClip={spineUnit?.clipToArena
               ? `polygon(${(fieldBackground.x / BASE_WIDTH) * 100}% 0%, ${((fieldBackground.x + fieldBackground.width) / BASE_WIDTH) * 100}% 0%, ${((fieldBackground.x + fieldBackground.width) / BASE_WIDTH) * 100}% ${((fieldBackground.y + fieldBackground.height) / BASE_HEIGHT) * 100}%, ${(fieldBackground.x / BASE_WIDTH) * 100}% ${((fieldBackground.y + fieldBackground.height) / BASE_HEIGHT) * 100}%)`
@@ -813,23 +892,26 @@ const BattleScreen = ({ zIndex }) => {
               </>
             )}
             overlay={render.enemyOverlay?.(enemy, { isHoveredTarget, isBeingAttacked })}
+            reticle={render.enemyReticle?.(enemy, { isHoveredTarget })}
             overlayScale={1 / stageScale}
             nodeRef={(el) => setEnemyRef?.(enemy.id, el)}
             dataAttrs={{
+              tabIndex: enemy.isDead ? undefined : 0,
+              'aria-label': `${enemy.name}: ${enemy.hp} / ${enemy.maxHp} HP`,
               'data-qte-realtime': isAttacking && (enemy.attackStyle === 'melee' || !enemy.attackStyle) ? 'true' : undefined,
             }}
             moveTransform={moveTransform}
             transitionClass={transitionClass}
             transitionStyle={transitionStyle}
             outerClass={[
-              enemy.isDead ? 'opacity-20 grayscale scale-75' : '',
-              isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)]' : '',
+              enemy.isDead ? 'opacity-20 grayscale scale-75' : 'enemy-hover-target',
+              isAttacking ? 'z-50' : '',
               isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : '',
             ].join(' ')}
             innerClass={[
-              isHoveredTarget || isBeingAttacked ? 'drop-shadow-[0_0_25px_rgba(239,68,68,0.4)]' : '',
-              flashingTargets.includes(enemy.id) && !isHitStopped ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : '',
-              isHitStopped ? 'brightness-0 invert drop-shadow-[0_0_70px_white] scale-[1.4] z-[2000]' : '',
+              isHoveredTarget || isBeingAttacked ? 'brightness-110' : '',
+              flashingTargets.includes(enemy.id) && !isHitStopped ? 'brightness-0 invert z-[2000]' : '',
+              isHitStopped ? 'brightness-0 invert z-[2000]' : '',
             ].join(' ')}
             innerStyle={{
               animation: isHitStopped
@@ -839,7 +921,7 @@ const BattleScreen = ({ zIndex }) => {
                   : lowHp && !isBeingAttacked && !isAttacking && !flashingTargets.includes(enemy.id)
                     ? 'lowHpPulse 0.9s ease-in-out infinite'
                     : 'none',
-              transition: isHitStopped ? 'none' : 'all 0.15s ease-out',
+              transition: 'transform 0.15s ease-out',
               transformOrigin: 'center',
             }}
           >
@@ -847,6 +929,7 @@ const BattleScreen = ({ zIndex }) => {
               ? (
                 <SpineUnit
                   unitId={spineUnit.id}
+                  light={light}
                   animation={spineAction?.animation || spineUnit.defaultAnimation}
                   animationKey={spineAction?.key}
                   animationSpeed={spineAction?.speed || 1}
@@ -857,7 +940,7 @@ const BattleScreen = ({ zIndex }) => {
                   paused={isHitStopped}
                   movement={spineAction?.movement}
                   contentScale={spineUnit.battleContentScale || 1}
-                  contentOffsetXRatio={spineUnit.battleContentOffsetXRatio || 0}
+                  contentOffsetXRatio={(spineUnit.battleContentOffsetXRatio || 0) - (spineUnit.clipToArena ? 20 / spineCanvasWidth : 0)}
                   contentOffsetYRatio={spineUnit.battleContentOffsetYRatio || 0}
                   onAnimationMetaChange={(animations) => onEnemySpineMetaChange?.(enemy.id, animations)}
                   onMovementPositionChange={(position) => onEnemySpinePositionChange?.(enemy.id, position)}
@@ -875,13 +958,14 @@ const BattleScreen = ({ zIndex }) => {
               ? (
                 <CharSprite
                   atlas={enemy.atlas}
+                  light={light}
                   size={size}
                   speed={ENEMY_IDLE_SPEED}
                   startFrame={idleStartFrame(enemy.id)}
                   paused={isHitStopped}
                 />
               )
-              : <span style={{ fontSize: size * 0.4 }}>{enemy.icon}</span>}
+              : <span style={{ fontSize: size * 0.4 }}><SmallIconText>{enemy.icon}</SmallIconText></span>}
           </FieldUnit>
         );
       })}
@@ -895,7 +979,11 @@ const BattleScreen = ({ zIndex }) => {
 
           Горгульи сидят в бутерброде между инвентарём и органами управления:
           верхней частью они перекрывают полосу инвентаря, а нижней заходят под
-          счётчик маны и кнопку хода — те остаются читаемыми поверх крыльев. */}
+          счётчик маны и кнопку хода — те остаются читаемыми поверх крыльев.
+
+          На карте сектора они уходят вместе со всем нижним этажом (hudOpacity):
+          карта занимает их полосу целиком. Анимация на это время встаёт — крутить
+          кадры невидимого спрайта незачем. */}
       {DECOR.map((decor) => (
         <StageBox
           key={decor.id}
@@ -905,10 +993,10 @@ const BattleScreen = ({ zIndex }) => {
           height={decor.size}
           zIndex={62}
           className="transition-opacity duration-200"
-          style={{ opacity: mergeOpen ? 0.4 : 1, pointerEvents: 'none' }}
+          style={{ opacity: hudOpacity, pointerEvents: 'none' }}
         >
           <div style={{ width: decor.size, height: decor.size, transform: decor.flip ? 'scaleX(-1)' : undefined }}>
-            <CharSprite atlas={decorAtlas} size={decor.size} startFrame={idleStartFrame(decor.id)} />
+            <CharSprite atlas={decorAtlas} size={decor.size} startFrame={idleStartFrame(decor.id)} paused={hidden} />
           </div>
         </StageBox>
       ))}
@@ -972,7 +1060,10 @@ const BattleScreen = ({ zIndex }) => {
       })}
 
       <StageBox {...mergeButton} zIndex={35} style={{ pointerEvents: inventoryPointer }}>
-        <button data-merge-keep="" type="button" onClick={onOpenCraft ?? noop} title="Крафт" className="block transition-transform hover:scale-105 active:scale-95">
+        {/* Огонёк рисуется перед кнопкой и потому лежит за ней: пламя горит в
+            чаше, из-за кромки видна только верхушка. */}
+        <button data-merge-keep="" type="button" onClick={onOpenCraft ?? noop} title="Крафт" className="relative block transition-transform hover:scale-105 active:scale-95">
+          <MergeFlame lit={mergeReady} />
           <UiSprite name="merge_button" />
         </button>
       </StageBox>
@@ -1123,8 +1214,16 @@ const BattleScreen = ({ zIndex }) => {
         onTipHide={onItemTipHide}
       />
 
-      {render.combo?.()}
+      <StageBox x={fieldBackground.x + fieldBackground.width - 106} y={fieldBackground.y + fieldBackground.height / 2 - 106}
+        width={212} height={212} zIndex={60} style={{ pointerEvents: 'none' }}>
+        {render.combo?.()}
+      </StageBox>
     </ScreenStage>
+
+    {/* Панель крутилок фона карточек (F8). Стоит вне сцены: внутри её position
+        fixed считался бы от масштабированного холста, а не от окна. */}
+    {import.meta.env.DEV && <RarityWavesPanel />}
+    </>
   );
 };
 

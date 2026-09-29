@@ -1,12 +1,14 @@
+import SmallIconText from './ui/SmallIconText';
 import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ITEM_RARITIES, sortItemsByRarity } from './itemSystem';
+import { ITEM_RARITIES, sortItemsByRarity, getItemIconUrl } from './itemSystem';
+import './ui/kitControls.css';
 
 const PAGE_SIZE = 12;
 
 const ItemIcon = ({ item }) => item ? (
-  <img src={`./icons/${item.icon}`} alt={item.name} draggable={false} className="h-full w-full object-cover" />
-) : <span className="text-lg text-slate-600">+</span>;
+  <img src={getItemIconUrl(item.icon)} alt={item.name} draggable={false} className="h-full w-full object-contain" style={{ imageRendering: 'pixelated' }} />
+) : <span className="text-lg text-slate-600"><SmallIconText>+</SmallIconText></span>;
 
 const EquipmentTooltip = ({ item, inventory, onSwap, onUnequip, onItemHover, onItemLeave, className = '' }) => {
   const [isOpen, setIsOpen] = useState(false);
@@ -26,7 +28,7 @@ const EquipmentTooltip = ({ item, inventory, onSwap, onUnequip, onItemHover, onI
         onClick={() => setIsOpen((value) => !value)}
         onMouseEnter={(event) => item && onItemHover?.(item, event)}
         onMouseLeave={() => onItemLeave?.()}
-        className={`group relative flex h-7 w-7 items-center justify-center overflow-hidden rounded-lg border-2 bg-slate-950/90 transition hover:brightness-125 ${item ? ITEM_RARITIES[item.rarity]?.border || 'border-slate-500' : 'border-dashed border-slate-600'}`}
+        className="kit-item-slot group relative flex h-7 w-7 items-center justify-center p-1 transition hover:brightness-125"
         title="Сменить экипировку героя"
       >
         <ItemIcon item={item} />
@@ -34,7 +36,7 @@ const EquipmentTooltip = ({ item, inventory, onSwap, onUnequip, onItemHover, onI
 
       {isOpen && createPortal(
         <div className="fixed inset-0 z-[9600] flex items-center justify-center bg-black/80 backdrop-blur-sm" onClick={() => setIsOpen(false)}>
-          <div className="relative flex flex-col items-center" onClick={(event) => event.stopPropagation()}>
+          <div className="kit-panel relative flex flex-col items-center" onClick={(event) => event.stopPropagation()}>
             <p className="mb-6 font-black uppercase tracking-[0.3em] text-slate-300">Общак</p>
             <div className="grid grid-cols-4 gap-2">
             {slots.map((available, index) => (
@@ -45,19 +47,20 @@ const EquipmentTooltip = ({ item, inventory, onSwap, onUnequip, onItemHover, onI
                 onClick={() => { if (available) onSwap?.(available.uid); setIsOpen(false); }}
                 onMouseEnter={(event) => available && onItemHover?.(available, event)}
                 onMouseLeave={() => onItemLeave?.()}
-                className={`h-12 w-12 rounded-xl border-2 flex items-center justify-center overflow-hidden transition-all ${available ? `${ITEM_RARITIES[available.rarity]?.border || 'border-slate-500'} bg-slate-950 cursor-pointer hover:brightness-125` : 'border-slate-500 border-dashed bg-slate-950/60'}`}
+                className={`kit-item-slot h-12 w-12 p-1.5 flex items-center justify-center transition-all ${available ? 'cursor-pointer hover:brightness-125' : 'opacity-50'}`}
+                style={{ outline: available ? `1px solid ${ITEM_RARITIES[available.rarity]?.color || '#777'}` : undefined }}
               >
-                {available ? <ItemIcon item={available} /> : <span className="text-slate-600 text-2xl font-black">+</span>}
+                {available ? <ItemIcon item={available} /> : <span className="text-slate-600 text-2xl font-black"><SmallIconText>+</SmallIconText></span>}
               </button>
             ))}
             </div>
             <div className="mt-4 flex items-center gap-4 text-slate-300">
-              <button type="button" disabled={safePage <= 0} onClick={() => setPage(value => Math.max(0, value - 1))} className="disabled:opacity-25">◀</button>
+              <button type="button" disabled={safePage <= 0} onClick={() => setPage(value => Math.max(0, value - 1))} className="disabled:opacity-25"><SmallIconText>◀</SmallIconText></button>
               <span>{String(safePage + 1)} / {String(pageCount)}</span>
-              <button type="button" disabled={safePage >= pageCount - 1} onClick={() => setPage(value => Math.min(pageCount - 1, value + 1))} className="disabled:opacity-25">▶</button>
+              <button type="button" disabled={safePage >= pageCount - 1} onClick={() => setPage(value => Math.min(pageCount - 1, value + 1))} className="disabled:opacity-25"><SmallIconText>▶</SmallIconText></button>
             </div>
             {item && (
-              <button type="button" onClick={() => { onUnequip?.(); setIsOpen(false); }} className="mt-4 rounded-lg border border-slate-500 bg-slate-800 px-4 py-2 text-xs font-black uppercase">
+              <button type="button" onClick={() => { onUnequip?.(); setIsOpen(false); }} className="kit-button mt-4">
                 Снять в общак
               </button>
             )}

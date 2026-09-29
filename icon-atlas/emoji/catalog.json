@@ -1,0 +1,743 @@
+{
+  "version": 2,
+  "sourceCellSize": 128,
+  "atlases": {
+    "small": {
+      "cellSize": 32,
+      "cols": 8,
+      "nextSlot": 26
+    },
+    "medium": {
+      "cellSize": 64,
+      "cols": 8,
+      "nextSlot": 15
+    },
+    "large": {
+      "cellSize": 128,
+      "cols": 8,
+      "nextSlot": 31
+    }
+  },
+  "icons": [
+    {
+      "id": "u-1f0cf",
+      "slot": 0,
+      "glyph": "🃏",
+      "label": "Карта",
+      "category": "Валюты и ресурсы",
+      "file": "icons/card.png",
+      "sizeClass": "medium",
+      "atlasSlot": 0
+    },
+    {
+      "id": "u-1f525",
+      "slot": 1,
+      "glyph": "🔥",
+      "label": "Огоньки души / огонь",
+      "category": "Валюты и ресурсы",
+      "file": "icons/embers.png",
+      "sizeClass": "medium",
+      "atlasSlot": 1
+    },
+    {
+      "id": "u-1fa99",
+      "slot": 2,
+      "glyph": "🪙",
+      "label": "Золото",
+      "category": "Валюты и ресурсы",
+      "file": "icons/gold.png",
+      "sizeClass": "medium",
+      "atlasSlot": 2
+    },
+    {
+      "id": "u-2764",
+      "slot": 3,
+      "glyph": "❤️",
+      "label": "Здоровье",
+      "category": "Валюты и ресурсы",
+      "file": "icons/health.png",
+      "sizeClass": "medium",
+      "atlasSlot": 3
+    },
+    {
+      "id": "u-1f535",
+      "slot": 4,
+      "glyph": "🔵",
+      "label": "Мана / эфир",
+      "category": "Валюты и ресурсы",
+      "file": "icons/mana.png",
+      "sizeClass": "medium",
+      "atlasSlot": 4
+    },
+    {
+      "id": "u-1f4aa",
+      "slot": 5,
+      "glyph": "💪",
+      "label": "Сила",
+      "category": "Валюты и ресурсы",
+      "file": "icons/power.png",
+      "sizeClass": "medium",
+      "atlasSlot": 5
+    },
+    {
+      "id": "u-1f381",
+      "slot": 6,
+      "glyph": "🎁",
+      "label": "Награда",
+      "category": "Валюты и ресурсы",
+      "file": "icons/reward.png",
+      "sizeClass": "medium",
+      "atlasSlot": 6
+    },
+    {
+      "id": "u-1f4dc",
+      "slot": 7,
+      "glyph": "📜",
+      "label": "Свиток / фолиант",
+      "category": "Валюты и ресурсы",
+      "file": "icons/scroll.png",
+      "sizeClass": "medium",
+      "atlasSlot": 7
+    },
+    {
+      "id": "u-2194",
+      "slot": 8,
+      "glyph": "↔",
+      "label": "Стрелка в обе стороны",
+      "category": "Управление",
+      "file": "icons/arrow-both.png",
+      "sizeClass": "small",
+      "atlasSlot": 0
+    },
+    {
+      "id": "u-2b07",
+      "slot": 9,
+      "glyph": "⬇️",
+      "label": "Стрелка вниз",
+      "category": "Управление",
+      "file": "icons/arrow-down.png",
+      "sizeClass": "small",
+      "atlasSlot": 1
+    },
+    {
+      "id": "u-2192",
+      "slot": 10,
+      "glyph": "→",
+      "label": "Стрелка вправо",
+      "category": "Управление",
+      "file": "icons/arrow-right.png",
+      "sizeClass": "small",
+      "atlasSlot": 2
+    },
+    {
+      "id": "u-25b8",
+      "slot": 11,
+      "glyph": "▸",
+      "label": "Малая стрелка вправо",
+      "category": "Управление",
+      "file": "icons/caret-right.png",
+      "sizeClass": "small",
+      "atlasSlot": 3
+    },
+    {
+      "id": "u-2713",
+      "slot": 12,
+      "glyph": "✓",
+      "label": "Галочка",
+      "category": "Управление",
+      "file": "icons/check.png",
+      "sizeClass": "small",
+      "atlasSlot": 4
+    },
+    {
+      "id": "u-2715",
+      "slot": 13,
+      "glyph": "✕",
+      "label": "Закрыть",
+      "category": "Управление",
+      "file": "icons/close.png",
+      "sizeClass": "small",
+      "atlasSlot": 5
+    },
+    {
+      "id": "u-21",
+      "slot": 14,
+      "glyph": "!",
+      "label": "Внимание",
+      "category": "Управление",
+      "file": "icons/exclamation.png",
+      "sizeClass": "small",
+      "atlasSlot": 6
+    },
+    {
+      "id": "u-23f3",
+      "slot": 15,
+      "glyph": "⏳",
+      "label": "Ожидание",
+      "category": "Управление",
+      "file": "icons/hourglass.png",
+      "sizeClass": "small",
+      "atlasSlot": 7
+    },
+    {
+      "id": "u-2d",
+      "slot": 16,
+      "glyph": "-",
+      "label": "Короткий минус",
+      "category": "Управление",
+      "file": "icons/hyphen.png",
+      "sizeClass": "small",
+      "atlasSlot": 8
+    },
+    {
+      "id": "u-1f512",
+      "slot": 17,
+      "glyph": "🔒",
+      "label": "Замок",
+      "category": "Управление",
+      "file": "icons/lock.png",
+      "sizeClass": "small",
+      "atlasSlot": 9
+    },
+    {
+      "id": "u-2212",
+      "slot": 18,
+      "glyph": "−",
+      "label": "Минус",
+      "category": "Управление",
+      "file": "icons/minus.png",
+      "sizeClass": "small",
+      "atlasSlot": 10
+    },
+    {
+      "id": "u-d7",
+      "slot": 19,
+      "glyph": "×",
+      "label": "Крестик / умножение",
+      "category": "Управление",
+      "file": "icons/multiply.png",
+      "sizeClass": "small",
+      "atlasSlot": 11
+    },
+    {
+      "id": "u-2b",
+      "slot": 20,
+      "glyph": "+",
+      "label": "Плюс / свободный слот",
+      "category": "Управление",
+      "file": "icons/plus.png",
+      "sizeClass": "small",
+      "atlasSlot": 12
+    },
+    {
+      "id": "u-3f",
+      "slot": 21,
+      "glyph": "?",
+      "label": "Неизвестно",
+      "category": "Управление",
+      "file": "icons/question.png",
+      "sizeClass": "small",
+      "atlasSlot": 13
+    },
+    {
+      "id": "u-21a9",
+      "slot": 22,
+      "glyph": "↩",
+      "label": "Возврат",
+      "category": "Управление",
+      "file": "icons/return.png",
+      "sizeClass": "small",
+      "atlasSlot": 14
+    },
+    {
+      "id": "u-1f509",
+      "slot": 23,
+      "glyph": "🔉",
+      "label": "Тихий звук",
+      "category": "Управление",
+      "file": "icons/sound-low.png",
+      "sizeClass": "small",
+      "atlasSlot": 15
+    },
+    {
+      "id": "u-1f507",
+      "slot": 24,
+      "glyph": "🔇",
+      "label": "Звук выключен",
+      "category": "Управление",
+      "file": "icons/sound-off.png",
+      "sizeClass": "small",
+      "atlasSlot": 16
+    },
+    {
+      "id": "u-1f50a",
+      "slot": 25,
+      "glyph": "🔊",
+      "label": "Громкий звук",
+      "category": "Управление",
+      "file": "icons/sound-on.png",
+      "sizeClass": "small",
+      "atlasSlot": 17
+    },
+    {
+      "id": "u-25bc",
+      "slot": 26,
+      "glyph": "▼",
+      "label": "Треугольник вниз",
+      "category": "Управление",
+      "file": "icons/triangle-down.png",
+      "sizeClass": "small",
+      "atlasSlot": 18
+    },
+    {
+      "id": "u-25c0",
+      "slot": 27,
+      "glyph": "◀",
+      "label": "Треугольник влево",
+      "category": "Управление",
+      "file": "icons/triangle-left.png",
+      "sizeClass": "small",
+      "atlasSlot": 19
+    },
+    {
+      "id": "u-25b6",
+      "slot": 28,
+      "glyph": "▶",
+      "label": "Треугольник вправо",
+      "category": "Управление",
+      "file": "icons/triangle-right.png",
+      "sizeClass": "small",
+      "atlasSlot": 20
+    },
+    {
+      "id": "u-25b2",
+      "slot": 29,
+      "glyph": "▲",
+      "label": "Треугольник вверх",
+      "category": "Управление",
+      "file": "icons/triangle-up.png",
+      "sizeClass": "small",
+      "atlasSlot": 21
+    },
+    {
+      "id": "u-1fa78",
+      "slot": 30,
+      "glyph": "🩸",
+      "label": "Кровотечение",
+      "category": "Статусы",
+      "file": "icons/bleed.png",
+      "sizeClass": "medium",
+      "atlasSlot": 8
+    },
+    {
+      "id": "u-1f300",
+      "slot": 31,
+      "glyph": "🌀",
+      "label": "Ослепление / вихрь",
+      "category": "Статусы",
+      "file": "icons/blind.png",
+      "sizeClass": "medium",
+      "atlasSlot": 9
+    },
+    {
+      "id": "u-1f517",
+      "slot": 32,
+      "glyph": "🔗",
+      "label": "Цепь / комбо",
+      "category": "Статусы",
+      "file": "icons/chain.png",
+      "sizeClass": "medium",
+      "atlasSlot": 10
+    },
+    {
+      "id": "u-1f7e2",
+      "slot": 33,
+      "glyph": "🟢",
+      "label": "Зелёная сфера / слизень",
+      "category": "Статусы",
+      "file": "icons/green-orb.png",
+      "sizeClass": "medium",
+      "atlasSlot": 11
+    },
+    {
+      "id": "u-1f3af",
+      "slot": 34,
+      "glyph": "🎯",
+      "label": "Метка / цель",
+      "category": "Статусы",
+      "file": "icons/mark.png",
+      "sizeClass": "medium",
+      "atlasSlot": 12
+    },
+    {
+      "id": "u-1f6e1",
+      "slot": 35,
+      "glyph": "🛡️",
+      "label": "Броня / щит",
+      "category": "Статусы",
+      "file": "icons/shield.png",
+      "sizeClass": "medium",
+      "atlasSlot": 13
+    },
+    {
+      "id": "u-1f4ab",
+      "slot": 36,
+      "glyph": "💫",
+      "label": "Оглушение",
+      "category": "Статусы",
+      "file": "icons/stun.png",
+      "sizeClass": "medium",
+      "atlasSlot": 14
+    },
+    {
+      "id": "u-1fa93",
+      "slot": 37,
+      "glyph": "🪓",
+      "label": "Топор",
+      "category": "Оружие и магия",
+      "file": "icons/axe.png",
+      "sizeClass": "large",
+      "atlasSlot": 0
+    },
+    {
+      "id": "u-1f3f9",
+      "slot": 38,
+      "glyph": "🏹",
+      "label": "Лук",
+      "category": "Оружие и магия",
+      "file": "icons/bow.png",
+      "sizeClass": "large",
+      "atlasSlot": 1
+    },
+    {
+      "id": "u-2692",
+      "slot": 39,
+      "glyph": "⚒",
+      "label": "Кузница / инструменты",
+      "category": "Оружие и магия",
+      "file": "icons/craft.png",
+      "sizeClass": "large",
+      "atlasSlot": 2
+    },
+    {
+      "id": "u-2694",
+      "slot": 40,
+      "glyph": "⚔️",
+      "label": "Скрещённые мечи",
+      "category": "Оружие и магия",
+      "file": "icons/crossed-swords.png",
+      "sizeClass": "large",
+      "atlasSlot": 3
+    },
+    {
+      "id": "u-1f52e",
+      "slot": 41,
+      "glyph": "🔮",
+      "label": "Магический шар",
+      "category": "Оружие и магия",
+      "file": "icons/crystal-ball.png",
+      "sizeClass": "large",
+      "atlasSlot": 4
+    },
+    {
+      "id": "u-2702",
+      "slot": 42,
+      "glyph": "✂️",
+      "label": "Ножницы / порезы",
+      "category": "Оружие и магия",
+      "file": "icons/cuts.png",
+      "sizeClass": "large",
+      "atlasSlot": 5
+    },
+    {
+      "id": "u-1f5e1",
+      "slot": 43,
+      "glyph": "🗡️",
+      "label": "Кинжал",
+      "category": "Оружие и магия",
+      "file": "icons/dagger.png",
+      "sizeClass": "large",
+      "atlasSlot": 6
+    },
+    {
+      "id": "u-2604",
+      "slot": 44,
+      "glyph": "☄️",
+      "label": "Огненный шар / комета",
+      "category": "Оружие и магия",
+      "file": "icons/fireball.png",
+      "sizeClass": "large",
+      "atlasSlot": 7
+    },
+    {
+      "id": "u-1f528",
+      "slot": 45,
+      "glyph": "🔨",
+      "label": "Молот",
+      "category": "Оружие и магия",
+      "file": "icons/hammer.png",
+      "sizeClass": "large",
+      "atlasSlot": 8
+    },
+    {
+      "id": "u-1f9ca",
+      "slot": 46,
+      "glyph": "🧊",
+      "label": "Куб льда",
+      "category": "Оружие и магия",
+      "file": "icons/ice.png",
+      "sizeClass": "large",
+      "atlasSlot": 9
+    },
+    {
+      "id": "u-26a1",
+      "slot": 47,
+      "glyph": "⚡",
+      "label": "Молния",
+      "category": "Оружие и магия",
+      "file": "icons/lightning.png",
+      "sizeClass": "large",
+      "atlasSlot": 10
+    },
+    {
+      "id": "u-1f9ea",
+      "slot": 48,
+      "glyph": "🧪",
+      "label": "Яд / колба",
+      "category": "Оружие и магия",
+      "file": "icons/poison.png",
+      "sizeClass": "large",
+      "atlasSlot": 11
+    },
+    {
+      "id": "u-2744",
+      "slot": 49,
+      "glyph": "❄️",
+      "label": "Снежинка / лёд",
+      "category": "Оружие и магия",
+      "file": "icons/snowflake.png",
+      "sizeClass": "large",
+      "atlasSlot": 12
+    },
+    {
+      "id": "u-2728",
+      "slot": 50,
+      "glyph": "✨",
+      "label": "Искры / событие",
+      "category": "Оружие и магия",
+      "file": "icons/sparkles.png",
+      "sizeClass": "large",
+      "atlasSlot": 13
+    },
+    {
+      "id": "u-1f30c",
+      "slot": 51,
+      "glyph": "🌌",
+      "label": "Космос / чёрная дыра",
+      "category": "Оружие и магия",
+      "file": "icons/void.png",
+      "sizeClass": "large",
+      "atlasSlot": 14
+    },
+    {
+      "id": "u-1f32a",
+      "slot": 52,
+      "glyph": "🌪️",
+      "label": "Вихрь / размах",
+      "category": "Оружие и магия",
+      "file": "icons/whirlwind.png",
+      "sizeClass": "large",
+      "atlasSlot": 15
+    },
+    {
+      "id": "u-1f9b9",
+      "slot": 53,
+      "glyph": "🦹",
+      "label": "Бандит",
+      "category": "Персонажи и объекты",
+      "file": "icons/bandit.png",
+      "sizeClass": "large",
+      "atlasSlot": 16
+    },
+    {
+      "id": "u-1f9b4",
+      "slot": 54,
+      "glyph": "🦴",
+      "label": "Кость",
+      "category": "Персонажи и объекты",
+      "file": "icons/bone.png",
+      "sizeClass": "large",
+      "atlasSlot": 17
+    },
+    {
+      "id": "u-1f56f",
+      "slot": 55,
+      "glyph": "🕯️",
+      "label": "Свеча",
+      "category": "Персонажи и объекты",
+      "file": "icons/candle.png",
+      "sizeClass": "large",
+      "atlasSlot": 18
+    },
+    {
+      "id": "u-1f3f0",
+      "slot": 56,
+      "glyph": "🏰",
+      "label": "Замок / база",
+      "category": "Персонажи и объекты",
+      "file": "icons/castle.png",
+      "sizeClass": "large",
+      "atlasSlot": 19
+    },
+    {
+      "id": "u-2620",
+      "slot": 57,
+      "glyph": "☠️",
+      "label": "Череп с костями",
+      "category": "Персонажи и объекты",
+      "file": "icons/danger-skull.png",
+      "sizeClass": "large",
+      "atlasSlot": 20
+    },
+    {
+      "id": "u-1f3c3",
+      "slot": 58,
+      "glyph": "🏃",
+      "label": "Бег / рывок",
+      "category": "Персонажи и объекты",
+      "file": "icons/dash.png",
+      "sizeClass": "large",
+      "atlasSlot": 21
+    },
+    {
+      "id": "u-1f409",
+      "slot": 59,
+      "glyph": "🐉",
+      "label": "Дракон",
+      "category": "Персонажи и объекты",
+      "file": "icons/dragon.png",
+      "sizeClass": "large",
+      "atlasSlot": 22
+    },
+    {
+      "id": "u-1f432",
+      "slot": 60,
+      "glyph": "🐲",
+      "label": "Голова дракона",
+      "category": "Персонажи и объекты",
+      "file": "icons/dragon-head.png",
+      "sizeClass": "large",
+      "atlasSlot": 23
+    },
+    {
+      "id": "u-1f441",
+      "slot": 61,
+      "glyph": "👁️",
+      "label": "Глаз",
+      "category": "Персонажи и объекты",
+      "file": "icons/eye.png",
+      "sizeClass": "large",
+      "atlasSlot": 24
+    },
+    {
+      "id": "u-1f47a",
+      "slot": 62,
+      "glyph": "👺",
+      "label": "Гоблин",
+      "category": "Персонажи и объекты",
+      "file": "icons/goblin.png",
+      "sizeClass": "large",
+      "atlasSlot": 25
+    },
+    {
+      "id": "u-1f40e",
+      "slot": 63,
+      "glyph": "🐎",
+      "label": "Лошадь",
+      "category": "Персонажи и объекты",
+      "file": "icons/horse.png",
+      "sizeClass": "large",
+      "atlasSlot": 26
+    },
+    {
+      "id": "u-1f480",
+      "slot": 64,
+      "glyph": "💀",
+      "label": "Череп",
+      "category": "Персонажи и объекты",
+      "file": "icons/skull.png",
+      "sizeClass": "large",
+      "atlasSlot": 27
+    },
+    {
+      "id": "u-1f9d9",
+      "slot": 65,
+      "glyph": "🧙",
+      "label": "Маг",
+      "category": "Персонажи и объекты",
+      "file": "icons/wizard.png",
+      "sizeClass": "large",
+      "atlasSlot": 28
+    },
+    {
+      "id": "u-1f43a",
+      "slot": 66,
+      "glyph": "🐺",
+      "label": "Волк",
+      "category": "Персонажи и объекты",
+      "file": "icons/wolf.png",
+      "sizeClass": "large",
+      "atlasSlot": 29
+    },
+    {
+      "id": "u-1f9df",
+      "slot": 67,
+      "glyph": "🧟",
+      "label": "Зомби",
+      "category": "Персонажи и объекты",
+      "file": "icons/zombie.png",
+      "sizeClass": "large",
+      "atlasSlot": 30
+    },
+    {
+      "id": "u-2022",
+      "slot": 68,
+      "glyph": "•",
+      "label": "Маркер списка",
+      "category": "Оформление",
+      "file": "icons/bullet.png",
+      "sizeClass": "small",
+      "atlasSlot": 22
+    },
+    {
+      "id": "u-2026",
+      "slot": 69,
+      "glyph": "…",
+      "label": "Многоточие",
+      "category": "Оформление",
+      "file": "icons/ellipsis.png",
+      "sizeClass": "small",
+      "atlasSlot": 23
+    },
+    {
+      "id": "u-b7",
+      "slot": 70,
+      "glyph": "·",
+      "label": "Точка-разделитель",
+      "category": "Оформление",
+      "file": "icons/middle-dot.png",
+      "sizeClass": "small",
+      "atlasSlot": 24
+    },
+    {
+      "id": "u-2726",
+      "slot": 71,
+      "glyph": "✦",
+      "label": "Четырёхконечная звезда",
+      "category": "Оформление",
+      "file": "icons/star.png",
+      "sizeClass": "small",
+      "atlasSlot": 25
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import SmallIconText from './ui/SmallIconText';
 import { useEffect, useRef } from 'react';
 import EnemyDefenseCue from './EnemyDefenseCue';
 
@@ -244,7 +245,7 @@ export default function VolleyQte({
           willChange: 'left, top, transform',
         }}
       >
-        <span className="absolute inset-0 flex items-center justify-center text-4xl">✦</span>
+        <span className="absolute inset-0 flex items-center justify-center text-4xl"><SmallIconText>✦</SmallIconText></span>
       </div>
 
       <div
@@ -277,8 +278,8 @@ export default function VolleyQte({
         className="fixed left-1/2 top-10 -translate-x-1/2 rounded-full border border-emerald-300/40 bg-slate-950/85 px-7 py-3 text-2xl text-emerald-100 pointer-events-none"
         style={{ textShadow: '0 3px 8px rgba(0,0,0,0.95)' }}
       >
-        {card?.icon} ШАР БЬЁТ САМ · ЖМИТЕ У ГЕРОЯ
-      </div>
+        <SmallIconText>{card?.icon}</SmallIconText><SmallIconText> ШАР БЬЁТ САМ · ЖМИТЕ У ГЕРОЯ
+      </SmallIconText></div>
     </div>
   );
 }

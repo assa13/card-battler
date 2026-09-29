@@ -1,3 +1,4 @@
+import SmallIconText from '../ui/SmallIconText';
 const selectClass = 'w-full rounded border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-200 outline-none focus:border-amber-500';
 const buttonClass = 'rounded border px-3 py-2 text-xs font-black uppercase tracking-wide transition-colors disabled:cursor-not-allowed disabled:opacity-40';
 
@@ -22,7 +23,7 @@ const CombatArenaControls = ({
     <div className="mb-4 flex items-center justify-between gap-3">
       <div>
         <h1 className="text-sm font-black uppercase tracking-widest text-amber-400">Тестовая арена</h1>
-        <p className="mt-1 text-[10px] text-slate-500">Реальный бой · холст 3200×1800</p>
+        <p className="mt-1 text-[10px] text-slate-500"><SmallIconText>Реальный бой · холст 3200×1800</SmallIconText></p>
       </div>
       <button
         type="button"

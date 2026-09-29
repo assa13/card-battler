@@ -1,3 +1,4 @@
+import SmallIconText from '../ui/SmallIconText';
 import NineSlice from '../ui/NineSlice';
 import UiSprite from '../ui/UiSprite';
 import RarityWash from '../ui/RarityWash';
@@ -132,9 +133,9 @@ const HeroSlot = ({
               <p
                 className="absolute -translate-x-1/2 -translate-y-1/2"
                 style={{ left: 156, top: 83.5, fontSize: 86.05, fontWeight: 500, lineHeight: 1, color: '#ffffff' }}
-              >
+              ><SmallIconText>
                 +
-              </p>
+              </SmallIconText></p>
             )}
           </UiSprite>
         </div>

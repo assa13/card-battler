@@ -1,0 +1,283 @@
+{
+  "atlas": "../../public/assets/items/items-atlas.png",
+  "columns": 5,
+  "rows": 5,
+  "cellSize": 64,
+  "items": [
+    {
+      "name": "Инструменты палача",
+      "icon": "item_11.webp",
+      "index": 0,
+      "rect": {
+        "x": 0,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Запас зелий",
+      "icon": "item_13.webp",
+      "index": 1,
+      "rect": {
+        "x": 64,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Статуя горгульи",
+      "icon": "item_14.webp",
+      "index": 2,
+      "rect": {
+        "x": 128,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Зловещий кинжал",
+      "icon": "item_20.webp",
+      "index": 3,
+      "rect": {
+        "x": 192,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Ступка алхимика",
+      "icon": "item_31.webp",
+      "index": 4,
+      "rect": {
+        "x": 256,
+        "y": 0,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Кожаная перчатка",
+      "icon": "item_34.webp",
+      "index": 5,
+      "rect": {
+        "x": 0,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Связка ключей",
+      "icon": "item_36.webp",
+      "index": 6,
+      "rect": {
+        "x": 64,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Проклятые монеты",
+      "icon": "item_39.webp",
+      "index": 7,
+      "rect": {
+        "x": 128,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Канделябр",
+      "icon": "item_41.webp",
+      "index": 8,
+      "rect": {
+        "x": 192,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Забытая шестерня",
+      "icon": "item_43.webp",
+      "index": 9,
+      "rect": {
+        "x": 256,
+        "y": 64,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Свиток нетопыря",
+      "icon": "item_45.webp",
+      "index": 10,
+      "rect": {
+        "x": 0,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Астролябия",
+      "icon": "item_15.webp",
+      "index": 11,
+      "rect": {
+        "x": 64,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Кости предков",
+      "icon": "item_30.webp",
+      "index": 12,
+      "rect": {
+        "x": 128,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Букет аконита",
+      "icon": "item_32.webp",
+      "index": 13,
+      "rect": {
+        "x": 192,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Рунические камни",
+      "icon": "item_33.webp",
+      "index": 14,
+      "rect": {
+        "x": 256,
+        "y": 128,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Фляга с ядом",
+      "icon": "item_38.webp",
+      "index": 15,
+      "rect": {
+        "x": 0,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Ржавые кандалы",
+      "icon": "item_42.webp",
+      "index": 16,
+      "rect": {
+        "x": 64,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Перо и чернила",
+      "icon": "item_44.webp",
+      "index": 17,
+      "rect": {
+        "x": 128,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Древний гримуар",
+      "icon": "item_10.webp",
+      "index": 18,
+      "rect": {
+        "x": 192,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Череп ворона",
+      "icon": "item_12.webp",
+      "index": 19,
+      "rect": {
+        "x": 256,
+        "y": 192,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Терновый венец",
+      "icon": "item_25.webp",
+      "index": 20,
+      "rect": {
+        "x": 0,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Рутиловый кристалл",
+      "icon": "item_35.webp",
+      "index": 21,
+      "rect": {
+        "x": 64,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Крылатый череп",
+      "icon": "item_37.webp",
+      "index": 22,
+      "rect": {
+        "x": 128,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Зеркало скорби",
+      "icon": "item_40.webp",
+      "index": 23,
+      "rect": {
+        "x": 192,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      }
+    },
+    {
+      "name": "Проклятый гроб",
+      "icon": "item_46.webp",
+      "index": 24,
+      "rect": {
+        "x": 256,
+        "y": 256,
+        "width": 64,
+        "height": 64
+      }
+    }
+  ]
+}

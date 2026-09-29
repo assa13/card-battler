@@ -1,3 +1,4 @@
+import SmallIconText from './ui/SmallIconText';
 import { useEffect, useState } from 'react';
 import AtlasSprite from './AtlasSprite';
 
@@ -48,7 +49,7 @@ const HeroCarousel = ({ heroes, selectedHeroId, onSelect }) => {
         )}
         {hero.locked && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/55 text-center">
-            <span className="text-6xl drop-shadow-[0_0_14px_rgba(0,0,0,0.95)]">{hero.hire?.available ? '⚔' : '🔒'}</span>
+            <span className="text-6xl drop-shadow-[0_0_14px_rgba(0,0,0,0.95)]"><SmallIconText>{hero.hire?.available ? '⚔' : '🔒'}</SmallIconText></span>
             <span className="text-white" style={{ fontSize: 'clamp(20px, 2.2vw, 40px)' }}>{hero.name}</span>
             <span className="px-4 text-amber-300/90" style={{ fontSize: 'clamp(11px, 1vw, 18px)' }}>{hero.lockHint || 'Заблокировано'}</span>
             {hero.hire?.available && (
@@ -61,11 +62,11 @@ const HeroCarousel = ({ heroes, selectedHeroId, onSelect }) => {
       </aside>
       <div className="absolute bottom-0 left-0 z-30 flex h-[10.4%] w-full items-center border-t border-white/10 bg-black/90" style={{ fontFamily: "'Greybeard', sans-serif" }}>
         <button type="button" onClick={() => switchHero(-1)} className="flex h-full w-[5.875%] items-center justify-center" aria-label="Предыдущий герой">
-          <span className="text-4xl text-white drop-shadow-[0_0_8px_rgba(0,0,0,0.95)]">◀</span>
+          <span className="text-4xl text-white drop-shadow-[0_0_8px_rgba(0,0,0,0.95)]"><SmallIconText>◀</SmallIconText></span>
         </button>
-        <div className="ml-[2.125%] text-[7.1vw] leading-none text-white" style={{ fontSize: 'clamp(28px, 4vw, 72px)' }}>{hero.name}{hero.locked ? ' 🔒' : ' lvl1'}</div>
+        <div className="ml-[2.125%] text-[7.1vw] leading-none text-white" style={{ fontSize: 'clamp(28px, 4vw, 72px)' }}>{hero.name}<SmallIconText>{hero.locked ? ' 🔒' : ' lvl1'}</SmallIconText></div>
         <button type="button" onClick={() => switchHero(1)} className="ml-auto flex h-full w-[5.875%] items-center justify-center" aria-label="Следующий герой">
-          <span className="text-4xl text-white drop-shadow-[0_0_8px_rgba(0,0,0,0.95)]">▶</span>
+          <span className="text-4xl text-white drop-shadow-[0_0_8px_rgba(0,0,0,0.95)]"><SmallIconText>▶</SmallIconText></span>
         </button>
       </div>
     </>

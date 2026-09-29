@@ -1,0 +1,3551 @@
+{
+  "image": "atlas.png",
+  "cellSize": 128,
+  "cols": 10,
+  "rows": 8,
+  "width": 1280,
+  "height": 1024,
+  "scannedFiles": [
+    "src/App.css",
+    "src/App.jsx",
+    "src/AtlasSprite.jsx",
+    "src/battle/battleLayout.js",
+    "src/battle/BattleScreen.jsx",
+    "src/battle/battleView.js",
+    "src/cardRarity.js",
+    "src/CharSprite.jsx",
+    "src/config/cardIcons.js",
+    "src/config/uiAtlas.json",
+    "src/dev/ArenaPanel.jsx",
+    "src/dev/AtlasPanel.jsx",
+    "src/dev/backgrounds.js",
+    "src/dev/CombatArenaControls.jsx",
+    "src/dev/dungeonGenerator.js",
+    "src/dev/dungeonGenerator.test.js",
+    "src/dev/dungeonInteraction.js",
+    "src/dev/dungeonInteraction.test.js",
+    "src/dev/dungeonLighting.js",
+    "src/dev/DungeonMap.jsx",
+    "src/dev/dungeonRenderer.js",
+    "src/dev/DungeonTest.css",
+    "src/dev/DungeonTest.jsx",
+    "src/dev/dungeonTestMap.js",
+    "src/dev/RarityWavesPanel.jsx",
+    "src/dev/UiKitGallery.jsx",
+    "src/dev/UnitsPanel.jsx",
+    "src/dev/WidgetsPanel.jsx",
+    "src/dialogue/DialogueScriptOverlay.jsx",
+    "src/dialogue/encounterCharacters.js",
+    "src/dialogue/NightEncounterScreen.jsx",
+    "src/dialogue/scriptRunner.js",
+    "src/dialogue/scripts/index.js",
+    "src/dialogue/scripts/nightCollector.js",
+    "src/dialogue/scripts/nightWanderer.js",
+    "src/dialogue/scripts/returningRegular.js",
+    "src/dialogue/scripts/skeletonFirstDeath.js",
+    "src/dialogue/scripts/strangerSecondDeath.js",
+    "src/dialogue/tavernChatter.js",
+    "src/DialogueConfig.js",
+    "src/DialogueOverlay.jsx",
+    "src/enemyBattleLines.js",
+    "src/EnemyDefenseCue.jsx",
+    "src/enemyDefensePatterns.js",
+    "src/EnemyDefenseRipples.jsx",
+    "src/EquipmentTooltip.jsx",
+    "src/gpu/alphaOutlinePipeline.js",
+    "src/heroCardInventory.js",
+    "src/HeroCarousel.jsx",
+    "src/HeroInventoryScreen.jsx",
+    "src/HorseHerdQte.jsx",
+    "src/index.css",
+    "src/itemSystem.js",
+    "src/main.jsx",
+    "src/MashQte.jsx",
+    "src/NightSplashOverlay.jsx",
+    "src/PreparationCardSlot.jsx",
+    "src/qteMechanics.js",
+    "src/QteOverlay.jsx",
+    "src/qteTimeScale.js",
+    "src/runeTrace.js",
+    "src/RuneTraceQte.jsx",
+    "src/screenScale.js",
+    "src/ScreenStage.jsx",
+    "src/ShaderOutlineWrapper.jsx",
+    "src/ShopScreen.jsx",
+    "src/SleepModal.jsx",
+    "src/SpeechBubble.jsx",
+    "src/spriteColorize.js",
+    "src/TaskMasterScreen.jsx",
+    "src/taskMasterSystem.js",
+    "src/TavernHubScreen.jsx",
+    "src/TavernSceneConfig.js",
+    "src/ui/cardTilt.js",
+    "src/ui/EnemyHpBar.jsx",
+    "src/ui/NineSlice.jsx",
+    "src/ui/RarityWash.jsx",
+    "src/ui/RarityWaves.jsx",
+    "src/ui/rarityWavesParams.js",
+    "src/ui/StageBox.jsx",
+    "src/ui/TiltWrapper.jsx",
+    "src/ui/uiAtlas.js",
+    "src/ui/UiSprite.jsx",
+    "src/ui/useStageScale.js",
+    "src/ui/useStageSpace.js",
+    "src/units/SpineUnit.jsx",
+    "src/units/spineUnits.js",
+    "src/UpgradePopup.jsx",
+    "src/vfx/RuneLineVfx.jsx",
+    "src/vfx/vfxCatalog.js",
+    "src/vfx/VfxStrip.jsx",
+    "src/VolleyQte.jsx",
+    "src/widgets/HeroSlot.jsx",
+    "src/widgets/heroSlotLayout.js",
+    "src/widgets/MagicCard.jsx",
+    "icon-atlas/card-icons/manifest.json",
+    "index.html"
+  ],
+  "icons": [
+    {
+      "id": "u-1f0cf",
+      "slot": 0,
+      "glyph": "🃏",
+      "label": "Карта",
+      "category": "Валюты и ресурсы",
+      "file": "icons/card.png",
+      "index": 0,
+      "row": 0,
+      "col": 0,
+      "x": 0,
+      "y": 0,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🃏"
+      ],
+      "sources": [
+        {
+          "file": "src/taskMasterSystem.js",
+          "line": 17,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f525",
+      "slot": 1,
+      "glyph": "🔥",
+      "label": "Огоньки души / огонь",
+      "category": "Валюты и ресурсы",
+      "file": "icons/embers.png",
+      "index": 1,
+      "row": 0,
+      "col": 1,
+      "x": 128,
+      "y": 0,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🔥"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 1390,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1732,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2402,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2428,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2430,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2446,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1377,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2392,
+          "kind": "comment"
+        },
+        {
+          "file": "src/heroCardInventory.js",
+          "line": 27,
+          "kind": "comment"
+        },
+        {
+          "file": "src/HeroInventoryScreen.jsx",
+          "line": 55,
+          "kind": "ui"
+        },
+        {
+          "file": "src/MashQte.jsx",
+          "line": 223,
+          "kind": "ui"
+        },
+        {
+          "file": "src/ShopScreen.jsx",
+          "line": 256,
+          "kind": "ui"
+        },
+        {
+          "file": "src/TaskMasterScreen.jsx",
+          "line": 128,
+          "kind": "ui"
+        },
+        {
+          "file": "src/taskMasterSystem.js",
+          "line": 44,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1fa99",
+      "slot": 2,
+      "glyph": "🪙",
+      "label": "Золото",
+      "category": "Валюты и ресурсы",
+      "file": "icons/gold.png",
+      "index": 2,
+      "row": 0,
+      "col": 2,
+      "x": 256,
+      "y": 0,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🪙"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 1386,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1377,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2392,
+          "kind": "comment"
+        },
+        {
+          "file": "src/heroCardInventory.js",
+          "line": 26,
+          "kind": "comment"
+        },
+        {
+          "file": "src/HeroCarousel.jsx",
+          "line": 56,
+          "kind": "ui"
+        },
+        {
+          "file": "src/HeroInventoryScreen.jsx",
+          "line": 204,
+          "kind": "ui"
+        },
+        {
+          "file": "src/HeroInventoryScreen.jsx",
+          "line": 361,
+          "kind": "ui"
+        },
+        {
+          "file": "src/ShopScreen.jsx",
+          "line": 256,
+          "kind": "ui"
+        },
+        {
+          "file": "src/ShopScreen.jsx",
+          "line": 359,
+          "kind": "ui"
+        },
+        {
+          "file": "src/ShopScreen.jsx",
+          "line": 367,
+          "kind": "ui"
+        },
+        {
+          "file": "src/TaskMasterScreen.jsx",
+          "line": 128,
+          "kind": "ui"
+        },
+        {
+          "file": "src/taskMasterSystem.js",
+          "line": 35,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-2764",
+      "slot": 3,
+      "glyph": "❤️",
+      "label": "Здоровье",
+      "category": "Валюты и ресурсы",
+      "file": "icons/health.png",
+      "index": 3,
+      "row": 0,
+      "col": 3,
+      "x": 384,
+      "y": 0,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "❤️"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 496,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f535",
+      "slot": 4,
+      "glyph": "🔵",
+      "label": "Мана / эфир",
+      "category": "Валюты и ресурсы",
+      "file": "icons/mana.png",
+      "index": 4,
+      "row": 0,
+      "col": 4,
+      "x": 512,
+      "y": 0,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🔵"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 494,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f4aa",
+      "slot": 5,
+      "glyph": "💪",
+      "label": "Сила",
+      "category": "Валюты и ресурсы",
+      "file": "icons/power.png",
+      "index": 5,
+      "row": 0,
+      "col": 5,
+      "x": 640,
+      "y": 0,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "💪"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 495,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f381",
+      "slot": 6,
+      "glyph": "🎁",
+      "label": "Награда",
+      "category": "Валюты и ресурсы",
+      "file": "icons/reward.png",
+      "index": 6,
+      "row": 0,
+      "col": 6,
+      "x": 768,
+      "y": 0,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🎁"
+      ],
+      "sources": [
+        {
+          "file": "src/taskMasterSystem.js",
+          "line": 26,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f4dc",
+      "slot": 7,
+      "glyph": "📜",
+      "label": "Свиток / фолиант",
+      "category": "Валюты и ресурсы",
+      "file": "icons/scroll.png",
+      "index": 7,
+      "row": 0,
+      "col": 7,
+      "x": 896,
+      "y": 0,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "📜"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 497,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-2194",
+      "slot": 8,
+      "glyph": "↔",
+      "label": "Стрелка в обе стороны",
+      "category": "Управление",
+      "file": "icons/arrow-both.png",
+      "index": 8,
+      "row": 0,
+      "col": 8,
+      "x": 1024,
+      "y": 0,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "↔"
+      ],
+      "sources": [
+        {
+          "file": "src/gpu/alphaOutlinePipeline.js",
+          "line": 14,
+          "kind": "comment"
+        }
+      ]
+    },
+    {
+      "id": "u-2b07",
+      "slot": 9,
+      "glyph": "⬇️",
+      "label": "Стрелка вниз",
+      "category": "Управление",
+      "file": "icons/arrow-down.png",
+      "index": 9,
+      "row": 0,
+      "col": 9,
+      "x": 1152,
+      "y": 0,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "⬇️",
+        "⬇"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 159,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 8175,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-2192",
+      "slot": 10,
+      "glyph": "→",
+      "label": "Стрелка вправо",
+      "category": "Управление",
+      "file": "icons/arrow-right.png",
+      "index": 10,
+      "row": 1,
+      "col": 0,
+      "x": 0,
+      "y": 128,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "→"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 8594,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 222,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 331,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 610,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1976,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2001,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2004,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2009,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2487,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2539,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3133,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3134,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3475,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3513,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3673,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3704,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3705,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 4389,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 4517,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 4685,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 5123,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 5247,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 5494,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 5668,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 6020,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 6044,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 6058,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 6059,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 6061,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 6496,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 7209,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 7942,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 8566,
+          "kind": "comment"
+        },
+        {
+          "file": "src/config/cardIcons.js",
+          "line": 5,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/DialogueScriptOverlay.jsx",
+          "line": 131,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/encounterCharacters.js",
+          "line": 44,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/encounterCharacters.js",
+          "line": 62,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/scripts/nightCollector.js",
+          "line": 7,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/scripts/nightWanderer.js",
+          "line": 9,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/scripts/returningRegular.js",
+          "line": 7,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/scripts/returningRegular.js",
+          "line": 8,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/scripts/returningRegular.js",
+          "line": 9,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/scripts/strangerSecondDeath.js",
+          "line": 8,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/scripts/strangerSecondDeath.js",
+          "line": 9,
+          "kind": "comment"
+        },
+        {
+          "file": "src/DialogueOverlay.jsx",
+          "line": 12,
+          "kind": "comment"
+        },
+        {
+          "file": "src/DialogueOverlay.jsx",
+          "line": 13,
+          "kind": "comment"
+        },
+        {
+          "file": "src/gpu/alphaOutlinePipeline.js",
+          "line": 225,
+          "kind": "comment"
+        },
+        {
+          "file": "src/screenScale.js",
+          "line": 8,
+          "kind": "comment"
+        },
+        {
+          "file": "src/screenScale.js",
+          "line": 50,
+          "kind": "comment"
+        },
+        {
+          "file": "src/ShaderOutlineWrapper.jsx",
+          "line": 28,
+          "kind": "comment"
+        },
+        {
+          "file": "src/SpeechBubble.jsx",
+          "line": 61,
+          "kind": "comment"
+        },
+        {
+          "file": "src/SpeechBubble.jsx",
+          "line": 62,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernHubScreen.jsx",
+          "line": 255,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernHubScreen.jsx",
+          "line": 345,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernHubScreen.jsx",
+          "line": 346,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernHubScreen.jsx",
+          "line": 549,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernHubScreen.jsx",
+          "line": 559,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernHubScreen.jsx",
+          "line": 567,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernHubScreen.jsx",
+          "line": 574,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernHubScreen.jsx",
+          "line": 580,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernHubScreen.jsx",
+          "line": 666,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 50,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 249,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 264,
+          "kind": "comment"
+        },
+        {
+          "file": "src/ui/useStageSpace.js",
+          "line": 19,
+          "kind": "comment"
+        },
+        {
+          "file": "src/ui/useStageSpace.js",
+          "line": 23,
+          "kind": "comment"
+        },
+        {
+          "file": "src/UpgradePopup.jsx",
+          "line": 14,
+          "kind": "ui"
+        },
+        {
+          "file": "src/UpgradePopup.jsx",
+          "line": 18,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-25b8",
+      "slot": 11,
+      "glyph": "▸",
+      "label": "Малая стрелка вправо",
+      "category": "Управление",
+      "file": "icons/caret-right.png",
+      "index": 11,
+      "row": 1,
+      "col": 1,
+      "x": 128,
+      "y": 128,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "▸"
+      ],
+      "sources": [
+        {
+          "file": "src/dialogue/DialogueScriptOverlay.jsx",
+          "line": 406,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-2713",
+      "slot": 12,
+      "glyph": "✓",
+      "label": "Галочка",
+      "category": "Управление",
+      "file": "icons/check.png",
+      "index": 12,
+      "row": 1,
+      "col": 2,
+      "x": 256,
+      "y": 128,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "✓"
+      ],
+      "sources": [
+        {
+          "file": "src/battle/BattleScreen.jsx",
+          "line": 321,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-2715",
+      "slot": 13,
+      "glyph": "✕",
+      "label": "Закрыть",
+      "category": "Управление",
+      "file": "icons/close.png",
+      "index": 13,
+      "row": 1,
+      "col": 3,
+      "x": 384,
+      "y": 128,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "✕"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 2657,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 8398,
+          "kind": "ui"
+        },
+        {
+          "file": "src/ShopScreen.jsx",
+          "line": 265,
+          "kind": "ui"
+        },
+        {
+          "file": "src/TaskMasterScreen.jsx",
+          "line": 282,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-21",
+      "slot": 14,
+      "glyph": "!",
+      "label": "Внимание",
+      "category": "Управление",
+      "file": "icons/exclamation.png",
+      "index": 14,
+      "row": 1,
+      "col": 4,
+      "x": 512,
+      "y": 128,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "!"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 2118,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3933,
+          "kind": "ui"
+        },
+        {
+          "file": "src/TavernHubScreen.jsx",
+          "line": 130,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-23f3",
+      "slot": 15,
+      "glyph": "⏳",
+      "label": "Ожидание",
+      "category": "Управление",
+      "file": "icons/hourglass.png",
+      "index": 15,
+      "row": 1,
+      "col": 5,
+      "x": 640,
+      "y": 128,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "⏳"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 8155,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-2d",
+      "slot": 16,
+      "glyph": "-",
+      "label": "Короткий минус",
+      "category": "Управление",
+      "file": "icons/hyphen.png",
+      "index": 16,
+      "row": 1,
+      "col": 6,
+      "x": 768,
+      "y": 128,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "-"
+      ],
+      "sources": [
+        {
+          "file": "src/dev/AtlasPanel.jsx",
+          "line": 14,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/WidgetsPanel.jsx",
+          "line": 114,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f512",
+      "slot": 17,
+      "glyph": "🔒",
+      "label": "Замок",
+      "category": "Управление",
+      "file": "icons/lock.png",
+      "index": 17,
+      "row": 1,
+      "col": 7,
+      "x": 896,
+      "y": 128,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🔒"
+      ],
+      "sources": [
+        {
+          "file": "src/HeroCarousel.jsx",
+          "line": 51,
+          "kind": "ui"
+        },
+        {
+          "file": "src/HeroCarousel.jsx",
+          "line": 66,
+          "kind": "ui"
+        },
+        {
+          "file": "src/HeroInventoryScreen.jsx",
+          "line": 196,
+          "kind": "ui"
+        },
+        {
+          "file": "src/PreparationCardSlot.jsx",
+          "line": 17,
+          "kind": "ui"
+        },
+        {
+          "file": "src/PreparationCardSlot.jsx",
+          "line": 33,
+          "kind": "ui"
+        },
+        {
+          "file": "src/TavernHubScreen.jsx",
+          "line": 32,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-2212",
+      "slot": 18,
+      "glyph": "−",
+      "label": "Минус",
+      "category": "Управление",
+      "file": "icons/minus.png",
+      "index": 18,
+      "row": 1,
+      "col": 8,
+      "x": 1024,
+      "y": 128,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "−"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 719,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 7832,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 176,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1057,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 4517,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 5732,
+          "kind": "comment"
+        },
+        {
+          "file": "src/battle/battleLayout.js",
+          "line": 73,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/encounterCharacters.js",
+          "line": 45,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 65,
+          "kind": "comment"
+        }
+      ]
+    },
+    {
+      "id": "u-d7",
+      "slot": 19,
+      "glyph": "×",
+      "label": "Крестик / умножение",
+      "category": "Управление",
+      "file": "icons/multiply.png",
+      "index": 19,
+      "row": 1,
+      "col": 9,
+      "x": 1152,
+      "y": 128,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "×"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 171,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 717,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2476,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 129,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 135,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 152,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 176,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 201,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 321,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 619,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 623,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 651,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 652,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2020,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3856,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 4231,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 4667,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 4668,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 4669,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 5671,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 6089,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 7212,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 7898,
+          "kind": "comment"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 7903,
+          "kind": "comment"
+        },
+        {
+          "file": "src/battle/battleLayout.js",
+          "line": 1,
+          "kind": "comment"
+        },
+        {
+          "file": "src/battle/battleLayout.js",
+          "line": 27,
+          "kind": "comment"
+        },
+        {
+          "file": "src/battle/battleLayout.js",
+          "line": 44,
+          "kind": "comment"
+        },
+        {
+          "file": "src/battle/battleLayout.js",
+          "line": 55,
+          "kind": "comment"
+        },
+        {
+          "file": "src/battle/battleLayout.js",
+          "line": 72,
+          "kind": "comment"
+        },
+        {
+          "file": "src/battle/battleLayout.js",
+          "line": 87,
+          "kind": "comment"
+        },
+        {
+          "file": "src/battle/BattleScreen.jsx",
+          "line": 41,
+          "kind": "comment"
+        },
+        {
+          "file": "src/battle/BattleScreen.jsx",
+          "line": 279,
+          "kind": "comment"
+        },
+        {
+          "file": "src/CharSprite.jsx",
+          "line": 6,
+          "kind": "comment"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 19,
+          "kind": "ui"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 27,
+          "kind": "ui"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 35,
+          "kind": "ui"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 43,
+          "kind": "ui"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 68,
+          "kind": "ui"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 76,
+          "kind": "ui"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 84,
+          "kind": "ui"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 99,
+          "kind": "ui"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 104,
+          "kind": "ui"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 109,
+          "kind": "ui"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 114,
+          "kind": "ui"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 119,
+          "kind": "ui"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 124,
+          "kind": "ui"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 129,
+          "kind": "ui"
+        },
+        {
+          "file": "src/config/uiAtlas.json",
+          "line": 134,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/AtlasPanel.jsx",
+          "line": 126,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/AtlasPanel.jsx",
+          "line": 127,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/AtlasPanel.jsx",
+          "line": 128,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/AtlasPanel.jsx",
+          "line": 129,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/AtlasPanel.jsx",
+          "line": 145,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/AtlasPanel.jsx",
+          "line": 151,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/AtlasPanel.jsx",
+          "line": 152,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/AtlasPanel.jsx",
+          "line": 174,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/CombatArenaControls.jsx",
+          "line": 25,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/dungeonTestMap.js",
+          "line": 10,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dev/dungeonTestMap.js",
+          "line": 54,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dev/UiKitGallery.jsx",
+          "line": 33,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/WidgetsPanel.jsx",
+          "line": 26,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/WidgetsPanel.jsx",
+          "line": 63,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dialogue/DialogueScriptOverlay.jsx",
+          "line": 14,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/DialogueScriptOverlay.jsx",
+          "line": 37,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/encounterCharacters.js",
+          "line": 10,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/encounterCharacters.js",
+          "line": 16,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/encounterCharacters.js",
+          "line": 34,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/encounterCharacters.js",
+          "line": 44,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/NightEncounterScreen.jsx",
+          "line": 7,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/NightEncounterScreen.jsx",
+          "line": 8,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/NightEncounterScreen.jsx",
+          "line": 11,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/NightEncounterScreen.jsx",
+          "line": 12,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/NightEncounterScreen.jsx",
+          "line": 13,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/scripts/nightWanderer.js",
+          "line": 6,
+          "kind": "comment"
+        },
+        {
+          "file": "src/HorseHerdQte.jsx",
+          "line": 20,
+          "kind": "comment"
+        },
+        {
+          "file": "src/QteOverlay.jsx",
+          "line": 66,
+          "kind": "comment"
+        },
+        {
+          "file": "src/qteTimeScale.js",
+          "line": 12,
+          "kind": "comment"
+        },
+        {
+          "file": "src/qteTimeScale.js",
+          "line": 22,
+          "kind": "comment"
+        },
+        {
+          "file": "src/qteTimeScale.js",
+          "line": 79,
+          "kind": "comment"
+        },
+        {
+          "file": "src/screenScale.js",
+          "line": 3,
+          "kind": "comment"
+        },
+        {
+          "file": "src/screenScale.js",
+          "line": 9,
+          "kind": "comment"
+        },
+        {
+          "file": "src/screenScale.js",
+          "line": 10,
+          "kind": "comment"
+        },
+        {
+          "file": "src/screenScale.js",
+          "line": 22,
+          "kind": "comment"
+        },
+        {
+          "file": "src/screenScale.js",
+          "line": 30,
+          "kind": "comment"
+        },
+        {
+          "file": "src/screenScale.js",
+          "line": 40,
+          "kind": "comment"
+        },
+        {
+          "file": "src/ScreenStage.jsx",
+          "line": 7,
+          "kind": "comment"
+        },
+        {
+          "file": "src/ShopScreen.jsx",
+          "line": 19,
+          "kind": "comment"
+        },
+        {
+          "file": "src/ShopScreen.jsx",
+          "line": 27,
+          "kind": "comment"
+        },
+        {
+          "file": "src/ShopScreen.jsx",
+          "line": 47,
+          "kind": "comment"
+        },
+        {
+          "file": "src/ShopScreen.jsx",
+          "line": 64,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernHubScreen.jsx",
+          "line": 364,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernHubScreen.jsx",
+          "line": 590,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 3,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 4,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 5,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 6,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 21,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 30,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 49,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 50,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 79,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 166,
+          "kind": "comment"
+        },
+        {
+          "file": "src/TavernSceneConfig.js",
+          "line": 186,
+          "kind": "comment"
+        },
+        {
+          "file": "src/ui/NineSlice.jsx",
+          "line": 27,
+          "kind": "ui"
+        },
+        {
+          "file": "src/ui/RarityWaves.jsx",
+          "line": 12,
+          "kind": "comment"
+        },
+        {
+          "file": "src/ui/StageBox.jsx",
+          "line": 4,
+          "kind": "comment"
+        },
+        {
+          "file": "src/ui/uiAtlas.js",
+          "line": 40,
+          "kind": "ui"
+        },
+        {
+          "file": "src/ui/uiAtlas.js",
+          "line": 48,
+          "kind": "ui"
+        },
+        {
+          "file": "src/ui/useStageScale.js",
+          "line": 5,
+          "kind": "comment"
+        },
+        {
+          "file": "src/ui/useStageSpace.js",
+          "line": 5,
+          "kind": "comment"
+        },
+        {
+          "file": "src/UpgradePopup.jsx",
+          "line": 18,
+          "kind": "ui"
+        },
+        {
+          "file": "src/widgets/MagicCard.jsx",
+          "line": 11,
+          "kind": "comment"
+        }
+      ]
+    },
+    {
+      "id": "u-2b",
+      "slot": 20,
+      "glyph": "+",
+      "label": "Плюс / свободный слот",
+      "category": "Управление",
+      "file": "icons/plus.png",
+      "index": 20,
+      "row": 2,
+      "col": 0,
+      "x": 0,
+      "y": 256,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "+"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 1345,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1467,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1508,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2144,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2148,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2290,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 8416,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 8419,
+          "kind": "ui"
+        },
+        {
+          "file": "src/battle/BattleScreen.jsx",
+          "line": 324,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/DungeonMap.jsx",
+          "line": 163,
+          "kind": "ui"
+        },
+        {
+          "file": "src/EquipmentTooltip.jsx",
+          "line": 9,
+          "kind": "ui"
+        },
+        {
+          "file": "src/EquipmentTooltip.jsx",
+          "line": 50,
+          "kind": "ui"
+        },
+        {
+          "file": "src/PreparationCardSlot.jsx",
+          "line": 18,
+          "kind": "ui"
+        },
+        {
+          "file": "src/TavernHubScreen.jsx",
+          "line": 32,
+          "kind": "ui"
+        },
+        {
+          "file": "src/widgets/HeroSlot.jsx",
+          "line": 136,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-3f",
+      "slot": 21,
+      "glyph": "?",
+      "label": "Неизвестно",
+      "category": "Управление",
+      "file": "icons/question.png",
+      "index": 21,
+      "row": 2,
+      "col": 1,
+      "x": 128,
+      "y": 256,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "?"
+      ],
+      "sources": [
+        {
+          "file": "src/TaskMasterScreen.jsx",
+          "line": 63,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-21a9",
+      "slot": 22,
+      "glyph": "↩",
+      "label": "Возврат",
+      "category": "Управление",
+      "file": "icons/return.png",
+      "index": 22,
+      "row": 2,
+      "col": 2,
+      "x": 256,
+      "y": 256,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "↩"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 7828,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f509",
+      "slot": 23,
+      "glyph": "🔉",
+      "label": "Тихий звук",
+      "category": "Управление",
+      "file": "icons/sound-low.png",
+      "index": 23,
+      "row": 2,
+      "col": 3,
+      "x": 384,
+      "y": 256,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🔉"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 7852,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f507",
+      "slot": 24,
+      "glyph": "🔇",
+      "label": "Звук выключен",
+      "category": "Управление",
+      "file": "icons/sound-off.png",
+      "index": 24,
+      "row": 2,
+      "col": 4,
+      "x": 512,
+      "y": 256,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🔇"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 7852,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f50a",
+      "slot": 25,
+      "glyph": "🔊",
+      "label": "Громкий звук",
+      "category": "Управление",
+      "file": "icons/sound-on.png",
+      "index": 25,
+      "row": 2,
+      "col": 5,
+      "x": 640,
+      "y": 256,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🔊"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 7852,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-25bc",
+      "slot": 26,
+      "glyph": "▼",
+      "label": "Треугольник вниз",
+      "category": "Управление",
+      "file": "icons/triangle-down.png",
+      "index": 26,
+      "row": 2,
+      "col": 6,
+      "x": 768,
+      "y": 256,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "▼"
+      ],
+      "sources": [
+        {
+          "file": "src/SpeechBubble.jsx",
+          "line": 85,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-25c0",
+      "slot": 27,
+      "glyph": "◀",
+      "label": "Треугольник влево",
+      "category": "Управление",
+      "file": "icons/triangle-left.png",
+      "index": 27,
+      "row": 2,
+      "col": 7,
+      "x": 896,
+      "y": 256,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "◀"
+      ],
+      "sources": [
+        {
+          "file": "src/EquipmentTooltip.jsx",
+          "line": 55,
+          "kind": "ui"
+        },
+        {
+          "file": "src/HeroCarousel.jsx",
+          "line": 64,
+          "kind": "ui"
+        },
+        {
+          "file": "src/HeroInventoryScreen.jsx",
+          "line": 189,
+          "kind": "ui"
+        },
+        {
+          "file": "src/ShopScreen.jsx",
+          "line": 339,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-25b6",
+      "slot": 28,
+      "glyph": "▶",
+      "label": "Треугольник вправо",
+      "category": "Управление",
+      "file": "icons/triangle-right.png",
+      "index": 28,
+      "row": 2,
+      "col": 8,
+      "x": 1024,
+      "y": 256,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "▶"
+      ],
+      "sources": [
+        {
+          "file": "src/EquipmentTooltip.jsx",
+          "line": 57,
+          "kind": "ui"
+        },
+        {
+          "file": "src/HeroCarousel.jsx",
+          "line": 68,
+          "kind": "ui"
+        },
+        {
+          "file": "src/ShopScreen.jsx",
+          "line": 350,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-25b2",
+      "slot": 29,
+      "glyph": "▲",
+      "label": "Треугольник вверх",
+      "category": "Управление",
+      "file": "icons/triangle-up.png",
+      "index": 29,
+      "row": 2,
+      "col": 9,
+      "x": 1152,
+      "y": 256,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "▲"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 8594,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1fa78",
+      "slot": 30,
+      "glyph": "🩸",
+      "label": "Кровотечение",
+      "category": "Статусы",
+      "file": "icons/bleed.png",
+      "index": 30,
+      "row": 3,
+      "col": 0,
+      "x": 0,
+      "y": 384,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🩸"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 157,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 6230,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-1f300",
+      "slot": 31,
+      "glyph": "🌀",
+      "label": "Ослепление / вихрь",
+      "category": "Статусы",
+      "file": "icons/blind.png",
+      "index": 31,
+      "row": 3,
+      "col": 1,
+      "x": 128,
+      "y": 384,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🌀"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 158,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f517",
+      "slot": 32,
+      "glyph": "🔗",
+      "label": "Цепь / комбо",
+      "category": "Статусы",
+      "file": "icons/chain.png",
+      "index": 32,
+      "row": 3,
+      "col": 2,
+      "x": 256,
+      "y": 384,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🔗"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 592,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1507,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 7240,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-1f7e2",
+      "slot": 33,
+      "glyph": "🟢",
+      "label": "Зелёная сфера / слизень",
+      "category": "Статусы",
+      "file": "icons/green-orb.png",
+      "index": 33,
+      "row": 3,
+      "col": 3,
+      "x": 384,
+      "y": 384,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🟢"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 979,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f3af",
+      "slot": 34,
+      "glyph": "🎯",
+      "label": "Метка / цель",
+      "category": "Статусы",
+      "file": "icons/mark.png",
+      "index": 34,
+      "row": 3,
+      "col": 4,
+      "x": 512,
+      "y": 384,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🎯"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 160,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f6e1",
+      "slot": 35,
+      "glyph": "🛡️",
+      "label": "Броня / щит",
+      "category": "Статусы",
+      "file": "icons/shield.png",
+      "index": 35,
+      "row": 3,
+      "col": 5,
+      "x": 640,
+      "y": 384,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🛡️"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 141,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 156,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 591,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1501,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 7233,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-1f4ab",
+      "slot": 36,
+      "glyph": "💫",
+      "label": "Оглушение",
+      "category": "Статусы",
+      "file": "icons/stun.png",
+      "index": 36,
+      "row": 3,
+      "col": 6,
+      "x": 768,
+      "y": 384,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "💫"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 155,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 6339,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1fa93",
+      "slot": 37,
+      "glyph": "🪓",
+      "label": "Топор",
+      "category": "Оружие и магия",
+      "file": "icons/axe.png",
+      "index": 37,
+      "row": 3,
+      "col": 7,
+      "x": 896,
+      "y": 384,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🪓"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 982,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-1f3f9",
+      "slot": 38,
+      "glyph": "🏹",
+      "label": "Лук",
+      "category": "Оружие и магия",
+      "file": "icons/bow.png",
+      "index": 38,
+      "row": 3,
+      "col": 8,
+      "x": 1024,
+      "y": 384,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🏹"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 984,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1760,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-2692",
+      "slot": 39,
+      "glyph": "⚒",
+      "label": "Кузница / инструменты",
+      "category": "Оружие и магия",
+      "file": "icons/craft.png",
+      "index": 39,
+      "row": 3,
+      "col": 9,
+      "x": 1152,
+      "y": 384,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "⚒"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 8211,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-2694",
+      "slot": 40,
+      "glyph": "⚔️",
+      "label": "Скрещённые мечи",
+      "category": "Оружие и магия",
+      "file": "icons/crossed-swords.png",
+      "index": 40,
+      "row": 4,
+      "col": 0,
+      "x": 0,
+      "y": 512,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "⚔️",
+        "⚔"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 436,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 822,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 826,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3214,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/DungeonMap.jsx",
+          "line": 183,
+          "kind": "ui"
+        },
+        {
+          "file": "src/HeroCarousel.jsx",
+          "line": 51,
+          "kind": "ui"
+        },
+        {
+          "file": "src/HeroInventoryScreen.jsx",
+          "line": 196,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-1f52e",
+      "slot": 41,
+      "glyph": "🔮",
+      "label": "Магический шар",
+      "category": "Оружие и магия",
+      "file": "icons/crystal-ball.png",
+      "index": 41,
+      "row": 4,
+      "col": 1,
+      "x": 128,
+      "y": 512,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🔮"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 143,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-2702",
+      "slot": 42,
+      "glyph": "✂️",
+      "label": "Ножницы / порезы",
+      "category": "Оружие и магия",
+      "file": "icons/cuts.png",
+      "index": 42,
+      "row": 4,
+      "col": 2,
+      "x": 256,
+      "y": 512,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "✂️"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 446,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-1f5e1",
+      "slot": 43,
+      "glyph": "🗡️",
+      "label": "Кинжал",
+      "category": "Оружие и магия",
+      "file": "icons/dagger.png",
+      "index": 43,
+      "row": 4,
+      "col": 3,
+      "x": 384,
+      "y": 512,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🗡️"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 142,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 443,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 823,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1740,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1759,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3208,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/WidgetsPanel.jsx",
+          "line": 73,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-2604",
+      "slot": 44,
+      "glyph": "☄️",
+      "label": "Огненный шар / комета",
+      "category": "Оружие и магия",
+      "file": "icons/fireball.png",
+      "index": 44,
+      "row": 4,
+      "col": 4,
+      "x": 512,
+      "y": 512,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "☄️"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 452,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/WidgetsPanel.jsx",
+          "line": 14,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-1f528",
+      "slot": 45,
+      "glyph": "🔨",
+      "label": "Молот",
+      "category": "Оружие и магия",
+      "file": "icons/hammer.png",
+      "index": 45,
+      "row": 4,
+      "col": 5,
+      "x": 640,
+      "y": 512,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🔨"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 438,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/WidgetsPanel.jsx",
+          "line": 78,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-1f9ca",
+      "slot": 46,
+      "glyph": "🧊",
+      "label": "Куб льда",
+      "category": "Оружие и магия",
+      "file": "icons/ice.png",
+      "index": 46,
+      "row": 4,
+      "col": 6,
+      "x": 768,
+      "y": 512,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🧊"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 1750,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-26a1",
+      "slot": 47,
+      "glyph": "⚡",
+      "label": "Молния",
+      "category": "Оружие и магия",
+      "file": "icons/lightning.png",
+      "index": 47,
+      "row": 4,
+      "col": 7,
+      "x": 896,
+      "y": 512,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "⚡"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 1715,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1751,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-1f9ea",
+      "slot": 48,
+      "glyph": "🧪",
+      "label": "Яд / колба",
+      "category": "Оружие и магия",
+      "file": "icons/poison.png",
+      "index": 48,
+      "row": 4,
+      "col": 8,
+      "x": 1024,
+      "y": 512,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🧪"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 445,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1743,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1762,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-2744",
+      "slot": 49,
+      "glyph": "❄️",
+      "label": "Снежинка / лёд",
+      "category": "Оружие и магия",
+      "file": "icons/snowflake.png",
+      "index": 49,
+      "row": 4,
+      "col": 9,
+      "x": 1152,
+      "y": 512,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "❄️"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 453,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-2728",
+      "slot": 50,
+      "glyph": "✨",
+      "label": "Искры / событие",
+      "category": "Оружие и магия",
+      "file": "icons/sparkles.png",
+      "index": 50,
+      "row": 5,
+      "col": 0,
+      "x": 0,
+      "y": 640,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "✨"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 824,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3215,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 8457,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f30c",
+      "slot": 51,
+      "glyph": "🌌",
+      "label": "Космос / чёрная дыра",
+      "category": "Оружие и магия",
+      "file": "icons/void.png",
+      "index": 51,
+      "row": 5,
+      "col": 1,
+      "x": 128,
+      "y": 640,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🌌"
+      ],
+      "sources": [
+        {
+          "file": "src/dev/WidgetsPanel.jsx",
+          "line": 17,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-1f32a",
+      "slot": 52,
+      "glyph": "🌪️",
+      "label": "Вихрь / размах",
+      "category": "Оружие и магия",
+      "file": "icons/whirlwind.png",
+      "index": 52,
+      "row": 5,
+      "col": 2,
+      "x": 256,
+      "y": 640,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🌪️"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 439,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-1f9b9",
+      "slot": 53,
+      "glyph": "🦹",
+      "label": "Бандит",
+      "category": "Персонажи и объекты",
+      "file": "icons/bandit.png",
+      "index": 53,
+      "row": 5,
+      "col": 3,
+      "x": 384,
+      "y": 640,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🦹"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 980,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f9b4",
+      "slot": 54,
+      "glyph": "🦴",
+      "label": "Кость",
+      "category": "Персонажи и объекты",
+      "file": "icons/bone.png",
+      "index": 54,
+      "row": 5,
+      "col": 4,
+      "x": 512,
+      "y": 640,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🦴"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 1761,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f56f",
+      "slot": 55,
+      "glyph": "🕯️",
+      "label": "Свеча",
+      "category": "Персонажи и объекты",
+      "file": "icons/candle.png",
+      "index": 55,
+      "row": 5,
+      "col": 5,
+      "x": 640,
+      "y": 640,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🕯️"
+      ],
+      "sources": [
+        {
+          "file": "src/SleepModal.jsx",
+          "line": 33,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f3f0",
+      "slot": 56,
+      "glyph": "🏰",
+      "label": "Замок / база",
+      "category": "Персонажи и объекты",
+      "file": "icons/castle.png",
+      "index": 56,
+      "row": 5,
+      "col": 6,
+      "x": 768,
+      "y": 640,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🏰"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 819,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3211,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-2620",
+      "slot": 57,
+      "glyph": "☠️",
+      "label": "Череп с костями",
+      "category": "Персонажи и объекты",
+      "file": "icons/danger-skull.png",
+      "index": 57,
+      "row": 5,
+      "col": 7,
+      "x": 896,
+      "y": 640,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "☠️"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 821,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3213,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f3c3",
+      "slot": 58,
+      "glyph": "🏃",
+      "label": "Бег / рывок",
+      "category": "Персонажи и объекты",
+      "file": "icons/dash.png",
+      "index": 58,
+      "row": 5,
+      "col": 8,
+      "x": 1024,
+      "y": 640,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🏃"
+      ],
+      "sources": [
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-1f409",
+      "slot": 59,
+      "glyph": "🐉",
+      "label": "Дракон",
+      "category": "Персонажи и объекты",
+      "file": "icons/dragon.png",
+      "index": 59,
+      "row": 5,
+      "col": 9,
+      "x": 1152,
+      "y": 640,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🐉"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 987,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f432",
+      "slot": 60,
+      "glyph": "🐲",
+      "label": "Голова дракона",
+      "category": "Персонажи и объекты",
+      "file": "icons/dragon-head.png",
+      "index": 60,
+      "row": 6,
+      "col": 0,
+      "x": 0,
+      "y": 768,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🐲"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 820,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 3212,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f441",
+      "slot": 61,
+      "glyph": "👁️",
+      "label": "Глаз",
+      "category": "Персонажи и объекты",
+      "file": "icons/eye.png",
+      "index": 61,
+      "row": 6,
+      "col": 1,
+      "x": 128,
+      "y": 768,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "👁️"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 986,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f47a",
+      "slot": 62,
+      "glyph": "👺",
+      "label": "Гоблин",
+      "category": "Персонажи и объекты",
+      "file": "icons/goblin.png",
+      "index": 62,
+      "row": 6,
+      "col": 2,
+      "x": 256,
+      "y": 768,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "👺"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 983,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f40e",
+      "slot": 63,
+      "glyph": "🐎",
+      "label": "Лошадь",
+      "category": "Персонажи и объекты",
+      "file": "icons/horse.png",
+      "index": 63,
+      "row": 6,
+      "col": 3,
+      "x": 384,
+      "y": 768,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🐎"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 450,
+          "kind": "ui"
+        },
+        {
+          "file": "icon-atlas/card-icons/manifest.json",
+          "line": 1,
+          "kind": "legacy-card"
+        }
+      ]
+    },
+    {
+      "id": "u-1f480",
+      "slot": 64,
+      "glyph": "💀",
+      "label": "Череп",
+      "category": "Персонажи и объекты",
+      "file": "icons/skull.png",
+      "index": 64,
+      "row": 6,
+      "col": 4,
+      "x": 512,
+      "y": 768,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "💀"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 985,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1705,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1709,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1712,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 1719,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2298,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2677,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2721,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2627,
+          "kind": "comment"
+        }
+      ]
+    },
+    {
+      "id": "u-1f9d9",
+      "slot": 65,
+      "glyph": "🧙",
+      "label": "Маг",
+      "category": "Персонажи и объекты",
+      "file": "icons/wizard.png",
+      "index": 65,
+      "row": 6,
+      "col": 5,
+      "x": 640,
+      "y": 768,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🧙"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 981,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f43a",
+      "slot": 66,
+      "glyph": "🐺",
+      "label": "Волк",
+      "category": "Персонажи и объекты",
+      "file": "icons/wolf.png",
+      "index": 66,
+      "row": 6,
+      "col": 6,
+      "x": 768,
+      "y": 768,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🐺"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 978,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-1f9df",
+      "slot": 67,
+      "glyph": "🧟",
+      "label": "Зомби",
+      "category": "Персонажи и объекты",
+      "file": "icons/zombie.png",
+      "index": 67,
+      "row": 6,
+      "col": 7,
+      "x": 896,
+      "y": 768,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "🧟"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 977,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-2022",
+      "slot": 68,
+      "glyph": "•",
+      "label": "Маркер списка",
+      "category": "Оформление",
+      "file": "icons/bullet.png",
+      "index": 68,
+      "row": 6,
+      "col": 8,
+      "x": 1024,
+      "y": 768,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "•"
+      ],
+      "sources": [
+        {
+          "file": "src/dialogue/NightEncounterScreen.jsx",
+          "line": 8,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/NightEncounterScreen.jsx",
+          "line": 9,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/NightEncounterScreen.jsx",
+          "line": 11,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/NightEncounterScreen.jsx",
+          "line": 12,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/NightEncounterScreen.jsx",
+          "line": 13,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/scripts/index.js",
+          "line": 11,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/scripts/index.js",
+          "line": 12,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/scripts/index.js",
+          "line": 14,
+          "kind": "comment"
+        }
+      ]
+    },
+    {
+      "id": "u-2026",
+      "slot": 69,
+      "glyph": "…",
+      "label": "Многоточие",
+      "category": "Оформление",
+      "file": "icons/ellipsis.png",
+      "index": 69,
+      "row": 6,
+      "col": 9,
+      "x": 1152,
+      "y": 768,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "…"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 2905,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 5668,
+          "kind": "comment"
+        }
+      ]
+    },
+    {
+      "id": "u-b7",
+      "slot": 70,
+      "glyph": "·",
+      "label": "Точка-разделитель",
+      "category": "Оформление",
+      "file": "icons/middle-dot.png",
+      "index": 70,
+      "row": 7,
+      "col": 0,
+      "x": 0,
+      "y": 896,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "·"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 2352,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 2654,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 7256,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 8050,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 8594,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/AtlasPanel.jsx",
+          "line": 140,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/AtlasPanel.jsx",
+          "line": 145,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/AtlasPanel.jsx",
+          "line": 153,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/AtlasPanel.jsx",
+          "line": 181,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/CombatArenaControls.jsx",
+          "line": 25,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/CombatArenaControls.jsx",
+          "line": 49,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/CombatArenaControls.jsx",
+          "line": 50,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/CombatArenaControls.jsx",
+          "line": 76,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/UiKitGallery.jsx",
+          "line": 33,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/UnitsPanel.jsx",
+          "line": 46,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dev/WidgetsPanel.jsx",
+          "line": 124,
+          "kind": "ui"
+        },
+        {
+          "file": "src/dialogue/tavernChatter.js",
+          "line": 9,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/tavernChatter.js",
+          "line": 10,
+          "kind": "comment"
+        },
+        {
+          "file": "src/dialogue/tavernChatter.js",
+          "line": 11,
+          "kind": "comment"
+        },
+        {
+          "file": "src/ShopScreen.jsx",
+          "line": 359,
+          "kind": "ui"
+        },
+        {
+          "file": "src/ShopScreen.jsx",
+          "line": 367,
+          "kind": "ui"
+        },
+        {
+          "file": "src/SleepModal.jsx",
+          "line": 38,
+          "kind": "ui"
+        },
+        {
+          "file": "src/UpgradePopup.jsx",
+          "line": 14,
+          "kind": "ui"
+        },
+        {
+          "file": "src/VolleyQte.jsx",
+          "line": 280,
+          "kind": "ui"
+        }
+      ]
+    },
+    {
+      "id": "u-2726",
+      "slot": 71,
+      "glyph": "✦",
+      "label": "Четырёхконечная звезда",
+      "category": "Оформление",
+      "file": "icons/star.png",
+      "index": 71,
+      "row": 7,
+      "col": 1,
+      "x": 128,
+      "y": 896,
+      "width": 128,
+      "height": 128,
+      "aliases": [
+        "✦"
+      ],
+      "sources": [
+        {
+          "file": "src/App.jsx",
+          "line": 2601,
+          "kind": "ui"
+        },
+        {
+          "file": "src/App.jsx",
+          "line": 8596,
+          "kind": "ui"
+        },
+        {
+          "file": "src/VolleyQte.jsx",
+          "line": 247,
+          "kind": "ui"
+        }
+      ]
+    }
+  ]
+}

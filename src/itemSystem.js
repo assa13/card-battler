@@ -108,7 +108,7 @@ const pickTemplate = (rarity) => {
   return { template: available[Math.floor(Math.random() * available.length)], tinted: true };
 };
 
-export const getItemIconUrl = (icon) => `./icons/${icon}`;
+export const getItemIconUrl = (icon) => `./assets/items/${icon}`;
 export const sortItemsByRarity = (items) => [...items].sort((left, right) => {
   const rarityDelta = RARITY_ORDER.indexOf(right?.rarity) - RARITY_ORDER.indexOf(left?.rarity);
   if (rarityDelta !== 0) return rarityDelta;

@@ -1,3 +1,6 @@
+import EnemyDifficultyTooltip from '../ui/EnemyDifficultyTooltip';
+import SmallIconText from '../ui/SmallIconText';
+import GameIcon from '../ui/GameIcon';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ATLAS_URL } from './dungeonTestMap.js';
 import { COLS, ROWS, ENTITY_URLS } from './dungeonGenerator.js';
@@ -7,13 +10,16 @@ import {
   RENDER_WIDTH,
   createDungeonRenderer,
 } from './dungeonRenderer.js';
-import { adjacentTargets, visibleCoins, visibleEntities } from './dungeonInteraction.js';
+import { adjacentTargets, visibleCoins, visibleEntities, ENCOUNTER_NAMES } from './dungeonInteraction.js';
 import './DungeonTest.css';
 
 export default function DungeonMap({
   run,
   dispatch,
   branches = [],
+  sector = 1,
+  stage = 1,
+  locationTint = null,
   onEncounter,
   onChest,
   onExit,
@@ -27,7 +33,8 @@ export default function DungeonMap({
     ...run.level,
     entities: visibleEntities(run),
     coins: visibleCoins(run),
-  }), [run]);
+    locationTint,
+  }), [run, locationTint]);
   const nearby = useMemo(() => adjacentTargets(run), [run]);
   const highlightedIds = useMemo(() => new Set(nearby.map(entity => entity.id)), [nearby]);
   const handledEncounterRef = useRef(null);
@@ -144,6 +151,22 @@ export default function DungeonMap({
         <canvas ref={canvasRef} width={RENDER_WIDTH} height={RENDER_HEIGHT} role="img"
           tabIndex={0} onClick={clickMap}
           aria-label={`Карта подземелья. Герой: столбец ${run.hero.x + 1}, строка ${run.hero.y + 1}. Передвижение стрелками, WASD или кликом.`} />
+        {level.entities.filter(entity => entity.kind === 'enemy').map(entity => (
+          <button key={entity.id} type="button" className="dungeon-enemy-target enemy-hover-target"
+            aria-label={`${entity.enemyName || ENCOUNTER_NAMES[entity.sprite]}. Показать сложность, нажать для нападения.`}
+            style={{
+              left: `${(RENDER_PADDING + entity.x * (RENDER_WIDTH - RENDER_PADDING * 2) / COLS) / RENDER_WIDTH * 100}%`,
+              top: `${(RENDER_PADDING + entity.y * (RENDER_HEIGHT - RENDER_PADDING * 2) / ROWS) / RENDER_HEIGHT * 100}%`,
+              width: `${(RENDER_WIDTH - RENDER_PADDING * 2) / COLS / RENDER_WIDTH * 100}%`,
+              height: `${(RENDER_HEIGHT - RENDER_PADDING * 2) / ROWS / RENDER_HEIGHT * 100}%`,
+            }}
+            onClick={() => dispatch({ type: 'click', cell: { x: entity.x, y: entity.y } })}>
+            <EnemyDifficultyTooltip name={entity.enemyName || ENCOUNTER_NAMES[entity.sprite]}
+              type={entity.difficultyType} sector={sector} stage={stage}
+              nearby={highlightedIds.has(entity.id)}
+              align={entity.x < 3 ? 'left' : entity.x > COLS - 4 ? 'right' : 'center'} />
+          </button>
+        ))}
         {(run.popups || []).map(popup => {
           const style = {
             left: `${((RENDER_PADDING + (popup.x + 0.5) * (RENDER_WIDTH - RENDER_PADDING * 2) / COLS) / RENDER_WIDTH) * 100}%`,
@@ -160,7 +183,7 @@ export default function DungeonMap({
           }
           return (
             <span key={popup.id} className="dungeon-coin-popup" style={style}
-              onAnimationEnd={dismiss}>+{popup.value}</span>
+              onAnimationEnd={dismiss}><SmallIconText>+</SmallIconText>{popup.value}</span>
           );
         })}
         {level.portals.filter(portal => portal.kind === 'exit').map(portal => {
@@ -177,10 +200,10 @@ export default function DungeonMap({
               aria-label={branch?.label || 'Выход'}
               onClick={event => {
                 event.stopPropagation();
-                dispatch({ type: 'click', cell: portal.access });
+                dispatch({ type: 'click', cell: { x: portal.x, y: portal.y } });
               }}
             >
-              <span aria-hidden="true">{branch?.icon || '⚔️'}</span>
+              <GameIcon name={branch?.type || 'exit'} size={32} />
               <span role="tooltip" className="dungeon-exit-tooltip">
                 {branch?.label || 'Следующая ветвь'}
               </span>

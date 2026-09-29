@@ -1,8 +1,9 @@
+import { HORSE_COUNT, HORSE_QTE_BONUS } from './encounterBalance.js';
+import SmallIconText from './ui/SmallIconText';
 import { useEffect, useRef, useState } from 'react';
 import EnemyDefenseCue from './EnemyDefenseCue';
 import useStageSpace from './ui/useStageSpace';
 
-const HORSE_COUNT = 8;
 const BASE_RUN_MS = 2084;
 const CENTER_INTERVAL_MS = 600;
 const WINDOW_HALF_MS = 121;
@@ -28,12 +29,9 @@ const HORSE_SIZE_MIN = 488;
 const HORSE_SIZE_MAX = 863;
 const HORSE_ROW_JITTER = 117;
 const MARKER_SIZE = 188;
-const MARKER_BORDER = 7;
 const LINE_WIDTH = 5;
 const FLASH_SIZE = 240;
-const FLASH_BORDER = 10;
 const IMPACT_SIZE = 240;
-const IMPACT_BORDER = 13;
 const CUE_SIZE = 107;
 const CUE_OFFSET_X = 47;
 const CUE_OFFSET_Y = 43;
@@ -58,41 +56,6 @@ const toCanvasNode = (node, space) => ({
   x: space.canvasX(node.x),
   y: space.canvasY(node.y),
 });
-
-const HorseAtlasSprite = ({ active, size, speedFactor }) => {
-  const [frame, setFrame] = useState(0);
-  const atlas = active ? HORSE_ATLASES.active : HORSE_ATLASES.default;
-  const fps = atlas.fps * BASE_ANIMATION_SPEED * speedFactor;
-
-  useEffect(() => {
-    const timer = setInterval(
-      () => setFrame(previous => (previous + 1) % atlas.frameCount),
-      1000 / fps,
-    );
-    return () => clearInterval(timer);
-  }, [fps, atlas.frameCount]);
-
-  const col = frame % atlas.cols;
-  const row = Math.floor(frame / atlas.cols);
-  return (
-    <div style={{ width: size, height: size, overflow: 'hidden' }}>
-      <img
-        src={atlas.url}
-        alt=""
-        aria-hidden="true"
-        draggable={false}
-        className="block max-w-none select-none"
-        style={{
-          width: atlas.cols * size,
-          height: atlas.rows * size,
-          marginLeft: -col * size,
-          marginTop: -row * size,
-          imageRendering: 'pixelated',
-        }}
-      />
-    </div>
-  );
-};
 
 const createHorses = (arena, targetNodes) => {
   const safeTop = arena.top + arena.height * 0.2;
@@ -146,6 +109,7 @@ const HorseHerdQte = ({
   const [targets] = useState(() => targetNodes.map(node => toCanvasNode(node, space)));
   const [horses, setHorses] = useState(() => createHorses(arena, targets));
   const horsesRef = useRef(horses);
+  const horseNodesRef = useRef(new Map());
   const [resolved, setResolved] = useState(false);
   const [resultCount, setResultCount] = useState(0);
   const [windowFlashSeq, setWindowFlashSeq] = useState(0);
@@ -169,31 +133,33 @@ const HorseHerdQte = ({
     startedAtRef.current = performance.now();
 
     // Бой отвечает свежей точкой удара в экранных пикселях — возвращаем её в холст.
-    const impactAt = (target) => {
+    const impactAt = (target, active) => {
       const current = spaceRef.current;
       const hit = callbacksRef.current.onImpact?.({
         ...target,
         x: current.x(target.x),
         y: current.y(target.y),
-      });
+      }, active);
       return hit ? toCanvasNode(hit, current) : target;
     };
 
     const tick = (now) => {
       const elapsed = now - startedAtRef.current;
       let openedWindows = 0;
+      let changed = false;
       const nextHorses = horsesRef.current.map(horse => {
         const localMs = elapsed - horse.spawnAt;
         const progress = clamp(localMs / horse.runMs, 0, 1);
         const x = arena.left - horseSize + progress * (arena.width + horseSize * 2);
-        const reachedTarget = horse.active && horse.target && x >= horse.target.x;
+        const reachedTarget = horse.target && x >= horse.target.x;
+        if (reachedTarget && !horse.impacted) changed = true;
         const impacted = horse.impacted || reachedTarget;
         const windowOpened = !horse.windowSignaled
           && localMs >= horse.runMs / 2 - WINDOW_HALF_MS;
 
         if (windowOpened) openedWindows += 1;
         const impactTarget = reachedTarget && !horse.impacted
-          ? impactAt(horse.target)
+          ? impactAt(horse.target, horse.active)
           : horse.impactTarget;
         return localMs < 0 ? horse : {
           ...horse,
@@ -204,7 +170,25 @@ const HorseHerdQte = ({
         };
       });
       horsesRef.current = nextHorses;
-      setHorses(nextHorses);
+      // Position and sprite UV updates do not go through React or layout.
+      const current = spaceRef.current;
+      for (const horse of nextHorses) {
+        const node = horseNodesRef.current.get(horse.id);
+        if (!node) continue;
+        const visible = horse.progress >= 0 && horse.progress < 1 && !horse.impacted;
+        node.style.visibility = visible ? 'visible' : 'hidden';
+        if (!visible) continue;
+        const x = arena.left - horseSize + horse.progress * (arena.width + horseSize * 2);
+        node.style.transform = `translate3d(${current.x(x)}px, ${current.y(horse.y)}px, 0) translate(-50%, -50%)`;
+        node.style.opacity = Math.min(clamp(horse.progress / 0.14, 0, 1), clamp((1 - horse.progress) / 0.14, 0, 1));
+        const atlas = HORSE_ATLASES.default;
+        const frame = Math.floor(Math.max(0, elapsed - horse.spawnAt) / 1000 * atlas.fps * BASE_ANIMATION_SPEED * horse.speedFactor) % atlas.frameCount;
+        if (node.dataset.frame !== String(frame)) {
+          node.firstElementChild.style.backgroundPosition = `${frame % atlas.cols / (atlas.cols - 1) * 100}% ${Math.floor(frame / atlas.cols) / (atlas.rows - 1) * 100}%`;
+          node.dataset.frame = String(frame);
+        }
+      }
+      if (changed) setHorses(nextHorses);
       if (openedWindows > 0) setWindowFlashSeq(sequence => sequence + openedWindows);
 
       if (elapsed >= totalMs && !resolvedRef.current) {
@@ -212,7 +196,7 @@ const HorseHerdQte = ({
         resolvedRef.current = true;
         setResolved(true);
         setResultCount(activatedCount);
-        const multiplier = Math.min(1.35, 1 + activatedCount * (0.35 / HORSE_COUNT));
+        const multiplier = 1 + activatedCount * (HORSE_QTE_BONUS / HORSE_COUNT);
         callbacksRef.current.onResolve?.(multiplier);
         finishTimerRef.current = window.setTimeout(
           () => callbacksRef.current.onDone?.(),
@@ -270,7 +254,7 @@ const HorseHerdQte = ({
         className="fixed top-8 left-1/2 -translate-x-1/2 rounded-full border border-purple-300/40 bg-slate-950/80 px-5 py-2 text-center shadow-[0_0_35px_rgba(168,85,247,0.35)] pointer-events-none"
       >
         <div className="text-[10px] font-black uppercase tracking-[0.28em] text-purple-300">
-          {card?.icon} {card?.name}
+          <SmallIconText>{card?.icon}</SmallIconText> {card?.name}
         </div>
         <div className="mt-1 text-xs font-bold text-white">
           {resolved ? `${resultCount}/${HORSE_COUNT} активировано` : 'Нажимайте, когда лошадь пересекает центр'}
@@ -289,15 +273,17 @@ const HorseHerdQte = ({
         }}
       />
       <div
-        className="fixed rounded-full bg-purple-400/10 pointer-events-none"
+        className="fixed pointer-events-none"
         style={{
           left: space.x(markerX),
           top: space.y(markerY),
           width: space.size(MARKER_SIZE),
           height: space.size(MARKER_SIZE),
-          border: `${space.size(MARKER_BORDER)}px solid rgba(243,232,255,0.9)`,
+          border: `${space.size(7)}px solid rgba(243,232,255,0.9)`,
+          borderRadius: '50%',
+          background: 'rgba(192,132,252,0.1)',
           transform: 'translate(-50%, -50%)',
-          boxShadow: '0 0 24px rgba(216,180,254,0.95), inset 0 0 20px rgba(168,85,247,0.55)',
+
           animation: 'horseHerdMarkerPulse 720ms ease-in-out infinite',
         }}
       />
@@ -316,14 +302,14 @@ const HorseHerdQte = ({
             style={{ animation: 'horseHerdWindowScreenFlash 240ms ease-out both' }}
           />
           <div
-            className="fixed rounded-full border-white"
+            className="fixed"
             style={{
               left: space.x(markerX),
               top: space.y(markerY),
               width: space.size(FLASH_SIZE),
               height: space.size(FLASH_SIZE),
-              borderWidth: space.size(FLASH_BORDER),
-              boxShadow: '0 0 45px 16px rgba(255,255,255,0.95)',
+              border: `${space.size(10)}px solid white`,
+              borderRadius: '50%',
               animation: 'horseHerdWindowMarkerFlash 300ms cubic-bezier(0.16, 1, 0.3, 1) both',
             }}
           />
@@ -331,39 +317,33 @@ const HorseHerdQte = ({
       )}
 
       {horses.map(horse => {
-        if (horse.progress < 0 || horse.impacted) return null;
-        const x = arena.left - horseSize + horse.progress * (arena.width + horseSize * 2);
-        const fadeIn = clamp(horse.progress / 0.14, 0, 1);
-        const fadeOut = clamp((1 - horse.progress) / 0.14, 0, 1);
-        const opacity = Math.min(fadeIn, fadeOut);
+        if (horse.impacted) return null;
         return (
           <div
             key={horse.id}
-            className={`fixed pointer-events-none ${horse.active ? 'drop-shadow-[0_0_34px_rgba(168,85,247,1)]' : 'drop-shadow-[0_0_18px_rgba(148,163,184,0.65)]'}`}
+            ref={node => { if (node) horseNodesRef.current.set(horse.id, node); else horseNodesRef.current.delete(horse.id); }}
+            className="fixed pointer-events-none"
             style={{
-              left: space.x(x),
-              top: space.y(horse.y),
+              left: 0,
+              top: 0,
               width: space.size(horseSize),
               height: space.size(horseSize),
-              opacity,
-              transform: `translate(-50%, -50%) scale(${horse.active ? 1.12 : 1})`,
-              transition: 'filter 80ms ease-out, transform 80ms ease-out',
+              visibility: 'hidden',
+              willChange: 'transform, opacity',
             }}
           >
-            <HorseAtlasSprite
-              active={horse.active}
-              size={space.size(horseSize)}
-              speedFactor={horse.speedFactor}
-            />
+            <div aria-hidden="true" style={{ width: '100%', height: '100%',
+              backgroundImage: `url("${horse.active ? HORSE_ATLASES.active.url : HORSE_ATLASES.default.url}")`,
+              backgroundSize: '400% 400%', backgroundRepeat: 'no-repeat', imageRendering: 'pixelated',
+              transform: `scale(${horse.active ? 1.12 : 1})`, transition: 'transform 80ms ease-out',
+            }} />
             {horse.active && (
               <div
                 key={`ignite-${horse.activatedAt}`}
                 className="absolute inset-[-12%] rounded-full pointer-events-none"
                 style={{
                   background: 'radial-gradient(circle, rgba(125,211,252,0.8) 0%, rgba(139,92,246,0.55) 36%, transparent 72%)',
-                  boxShadow: '0 0 42px 16px rgba(59,130,246,0.7), 0 0 70px 28px rgba(139,92,246,0.5)',
                   animation: 'horseHerdIgniteFlash 460ms cubic-bezier(0.16, 1, 0.3, 1) both',
-                  mixBlendMode: 'screen',
                 }}
               />
             )}
@@ -382,12 +362,12 @@ const HorseHerdQte = ({
           }}
         >
           <div
-            className="rounded-full border-purple-100 bg-fuchsia-400/50 shadow-[0_0_55px_25px_rgba(168,85,247,0.9)]"
+            className="relative"
             style={{
               width: space.size(IMPACT_SIZE),
               height: space.size(IMPACT_SIZE),
-              borderWidth: space.size(IMPACT_BORDER),
-              borderStyle: 'solid',
+              border: `${space.size(13)}px solid rgba(216,180,254,0.95)`,
+              borderRadius: '50%',
               animation: 'horseHerdImpact 420ms cubic-bezier(0.16, 1, 0.3, 1) both',
             }}
           />
@@ -404,9 +384,9 @@ const HorseHerdQte = ({
           100% { opacity: 0; transform: translate(-50%, -50%) scale(1.65); }
         }
         @keyframes horseHerdIgniteFlash {
-          0% { opacity: 1; transform: scale(0.35); filter: brightness(2.4); }
-          45% { opacity: 0.95; transform: scale(1.15); filter: brightness(1.7); }
-          100% { opacity: 0; transform: scale(1.5); filter: brightness(1); }
+          0% { opacity: 1; transform: scale(0.35); }
+          45% { opacity: 0.95; transform: scale(1.15); }
+          100% { opacity: 0; transform: scale(1.5); }
         }
         @keyframes horseHerdMarkerPulse {
           0%, 100% { opacity: 0.72; transform: translate(-50%, -50%) scale(0.9); }

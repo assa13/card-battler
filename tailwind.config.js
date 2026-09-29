@@ -11,7 +11,7 @@ export default {
     ...(isProduction ? ["!./src/dev/**"] : []),
   ],
   theme: {
-    extend: {},
+    extend: { fontFamily: { sans: ['Greybeard', 'sans-serif'], serif: ['Greybeard', 'sans-serif'], mono: ['Greybeard', 'sans-serif'] } },
   },
   plugins: [],
 }

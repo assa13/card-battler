@@ -1,0 +1,217 @@
+{
+  "image": "assets/ui/atlas/small-icons.png?v=4f9283d5e4e7",
+  "cellSize": 32,
+  "cols": 8,
+  "rows": 4,
+  "icons": {
+    "arrow-both": {
+      "slot": 0,
+      "glyph": "↔",
+      "label": "Стрелка в обе стороны",
+      "aliases": [
+        "↔"
+      ]
+    },
+    "arrow-down": {
+      "slot": 1,
+      "glyph": "⬇️",
+      "label": "Стрелка вниз",
+      "aliases": [
+        "⬇️",
+        "⬇"
+      ]
+    },
+    "arrow-right": {
+      "slot": 2,
+      "glyph": "→",
+      "label": "Стрелка вправо",
+      "aliases": [
+        "→"
+      ]
+    },
+    "caret-right": {
+      "slot": 3,
+      "glyph": "▸",
+      "label": "Малая стрелка вправо",
+      "aliases": [
+        "▸"
+      ]
+    },
+    "check": {
+      "slot": 4,
+      "glyph": "✓",
+      "label": "Галочка",
+      "aliases": [
+        "✓"
+      ]
+    },
+    "close": {
+      "slot": 5,
+      "glyph": "✕",
+      "label": "Закрыть",
+      "aliases": [
+        "✕"
+      ]
+    },
+    "exclamation": {
+      "slot": 6,
+      "glyph": "!",
+      "label": "Внимание",
+      "aliases": [
+        "!"
+      ]
+    },
+    "hourglass": {
+      "slot": 7,
+      "glyph": "⏳",
+      "label": "Ожидание",
+      "aliases": [
+        "⏳"
+      ]
+    },
+    "hyphen": {
+      "slot": 8,
+      "glyph": "-",
+      "label": "Короткий минус",
+      "aliases": [
+        "-"
+      ]
+    },
+    "lock": {
+      "slot": 9,
+      "glyph": "🔒",
+      "label": "Замок",
+      "aliases": [
+        "🔒"
+      ]
+    },
+    "minus": {
+      "slot": 10,
+      "glyph": "−",
+      "label": "Минус",
+      "aliases": [
+        "−"
+      ]
+    },
+    "multiply": {
+      "slot": 11,
+      "glyph": "×",
+      "label": "Крестик / умножение",
+      "aliases": [
+        "×"
+      ]
+    },
+    "plus": {
+      "slot": 12,
+      "glyph": "+",
+      "label": "Плюс / свободный слот",
+      "aliases": [
+        "+"
+      ]
+    },
+    "question": {
+      "slot": 13,
+      "glyph": "?",
+      "label": "Неизвестно",
+      "aliases": [
+        "?"
+      ]
+    },
+    "return": {
+      "slot": 14,
+      "glyph": "↩",
+      "label": "Возврат",
+      "aliases": [
+        "↩"
+      ]
+    },
+    "sound-low": {
+      "slot": 15,
+      "glyph": "🔉",
+      "label": "Тихий звук",
+      "aliases": [
+        "🔉"
+      ]
+    },
+    "sound-off": {
+      "slot": 16,
+      "glyph": "🔇",
+      "label": "Звук выключен",
+      "aliases": [
+        "🔇"
+      ]
+    },
+    "sound-on": {
+      "slot": 17,
+      "glyph": "🔊",
+      "label": "Громкий звук",
+      "aliases": [
+        "🔊"
+      ]
+    },
+    "triangle-down": {
+      "slot": 18,
+      "glyph": "▼",
+      "label": "Треугольник вниз",
+      "aliases": [
+        "▼"
+      ]
+    },
+    "triangle-left": {
+      "slot": 19,
+      "glyph": "◀",
+      "label": "Треугольник влево",
+      "aliases": [
+        "◀"
+      ]
+    },
+    "triangle-right": {
+      "slot": 20,
+      "glyph": "▶",
+      "label": "Треугольник вправо",
+      "aliases": [
+        "▶"
+      ]
+    },
+    "triangle-up": {
+      "slot": 21,
+      "glyph": "▲",
+      "label": "Треугольник вверх",
+      "aliases": [
+        "▲"
+      ]
+    },
+    "bullet": {
+      "slot": 22,
+      "glyph": "•",
+      "label": "Маркер списка",
+      "aliases": [
+        "•"
+      ]
+    },
+    "ellipsis": {
+      "slot": 23,
+      "glyph": "…",
+      "label": "Многоточие",
+      "aliases": [
+        "…"
+      ]
+    },
+    "middle-dot": {
+      "slot": 24,
+      "glyph": "·",
+      "label": "Точка-разделитель",
+      "aliases": [
+        "·"
+      ]
+    },
+    "star": {
+      "slot": 25,
+      "glyph": "✦",
+      "label": "Четырёхконечная звезда",
+      "aliases": [
+        "✦"
+      ]
+    }
+  }
+}

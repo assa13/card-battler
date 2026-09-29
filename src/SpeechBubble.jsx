@@ -1,3 +1,4 @@
+import SmallIconText from './ui/SmallIconText';
 import { useEffect, useRef, useState } from 'react';
 
 // Пиксель-арт пузырь реплики (техника codepen ZEZWyeM):
@@ -46,7 +47,7 @@ const SpeechBubble = ({ text, name, speedMult = 1, onTypingDone }) => {
   const finished = visibleChars >= text.length;
 
   const textStyle = {
-    fontFamily: '"Greybeard", "Courier New", monospace',
+    fontFamily: '"Greybeard", sans-serif',
     fontSize: 14,
     lineHeight: 1.3,
     fontWeight: 700,
@@ -70,7 +71,7 @@ const SpeechBubble = ({ text, name, speedMult = 1, onTypingDone }) => {
         {/* Контент: невидимый полный текст держит ФИНАЛЬНЫЙ размер с первого кадра */}
         <div className="relative" style={{ padding: `${PX * 2.5}px ${PX * 3}px`, color: INK }}>
           {name && (
-            <div className="uppercase tracking-wider" style={{ fontSize: 11, fontWeight: 900, color: '#8a6d3b', marginBottom: PX, fontFamily: '"Greybeard", "Courier New", monospace' }}>
+            <div className="uppercase tracking-wider" style={{ fontSize: 11, fontWeight: 900, color: '#8a6d3b', marginBottom: PX, fontFamily: '"Greybeard", sans-serif' }}>
               {name}
             </div>
           )}
@@ -82,7 +83,7 @@ const SpeechBubble = ({ text, name, speedMult = 1, onTypingDone }) => {
             </span>
           </div>
           {finished && (
-            <span className="absolute animate-bounce" style={{ right: PX * 2, bottom: PX / 2, fontSize: 11, color: '#8a6d3b' }}>▼</span>
+            <span className="absolute animate-bounce" style={{ right: PX * 2, bottom: PX / 2, fontSize: 11, color: '#8a6d3b' }}><SmallIconText>▼</SmallIconText></span>
           )}
         </div>
       </div>

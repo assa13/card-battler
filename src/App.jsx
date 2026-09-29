@@ -1,12 +1,23 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo, useContext, useReducer } from 'react';
+import { getEncounterProfile, fillEncounterSquad, createHorseDamageBudget, getOnboardingHint } from './encounterBalance.js';
+import { EMPTY_INVENTORY, inventoryReducer, inventorySlots } from './inventoryCapacity.js';
+import SmallIconText from './ui/SmallIconText';
+import GameIcon from './ui/GameIcon';
+import KitProgress from './ui/KitProgress';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, useContext, useReducer } from 'react';
 import TavernHubScreen from './TavernHubScreen';
+import SectorSelectScreen from './SectorSelectScreen';
+import { canEnterSector } from './sectorSelection';
 import HeroInventoryScreen from './HeroInventoryScreen';
 import ShopScreen from './ShopScreen';
 import TaskMasterScreen from './TaskMasterScreen';
 import PreparationCardSlot from './PreparationCardSlot';
 import SpeechBubble from './SpeechBubble';
 import CharSprite from './CharSprite';
+import TargetReticle from './ui/TargetReticle';
 import TiltWrapper from './ui/TiltWrapper';
+import ModalWindow from './ui/ModalWindow';
+import NineSlice from './ui/NineSlice';
+import MagicCard from './widgets/MagicCard';
 import EnemyHpBar from './ui/EnemyHpBar';
 import { CardTiltContext } from './ui/cardTilt';
 import BattleScreen from './battle/BattleScreen';
@@ -47,7 +58,11 @@ import {
   SKELETON_BOSS_PATTERN,
   resolveSkeletonBossTarget,
 } from './enemyDefensePatterns';
+import DungeonMap from './dev/DungeonMap.jsx';
+import { generateDungeon } from './dev/dungeonGenerator.js';
+import { createDungeonRun, dungeonRunReducer } from './dev/dungeonInteraction.js';
 import { CARD_RARITIES, CARD_RARITY_GLOW } from './cardRarity';
+import { getCardIconUrl } from './config/cardIcons';
 import {
   HERO_COLORIZE as CHAR_COLORIZE,
   STRANGER_COLORIZE,
@@ -113,6 +128,13 @@ const CombatArenaControls = import.meta.env.DEV
   ? React.lazy(() => import('./dev/CombatArenaControls'))
   : () => null;
 
+const PRODUCTION_DUNGEON_TOOLS = {
+  Map: DungeonMap,
+  generate: generateDungeon,
+  createRun: createDungeonRun,
+  reducer: dungeonRunReducer,
+};
+
 // --- 1. КОНСТАНТЫ И НАСТРОЙКИ ---
 
 // Боевой экран на холсте 3200×1800 — основной. Старая вёрстка от вьюпорта
@@ -121,7 +143,6 @@ const CombatArenaControls = import.meta.env.DEV
 const CANVAS_BATTLE_DEFAULT = true;
 
 const MAX_MANA = 3;
-const ENEMY_POWER_MULT = 0.5; // глобальный нерф врагов: HP и урон ×0.5
 const NUM_STAGES = 15; 
 const STAGE_WIDTH = 160; 
 
@@ -432,11 +453,11 @@ const HERO_ABILITIES = {
     basic: { id: 'b2', name: 'Кинжал', cost: 0, mult: 2.0, dmgType: 'ranged', icon: '🗡️', targeting: 'random2', rarity: 'COMMON', vfxType: 'dagger_single', qte: { mechanic: 'NONE' } },
     skills: [
       { id: 's2_1', ownerId: 'p2', name: 'Яд', cost: 1, mult: 1.8, dmgType: 'ranged', icon: '🧪', targeting: 'random2', rarity: 'COMMON', vfxType: 'poison', secondary: { effect: 'bleed' }, qte: { mechanic: 'RHYTHM', trigger: 'ALWAYS' } },
-      { id: 's2_2', ownerId: 'p2', name: 'Тысяча порезов', cost: 2, mult: 1.4, dmgType: 'ranged', icon: '✂️', targeting: 'all', rarity: 'RARE', vfxType: 'daggers', secondary: { effect: 'bleed' }, qte: { mechanic: 'VOLLEY', trigger: 'ALWAYS' } }
+      { id: 's2_2', ownerId: 'p2', name: 'Веер кинжалов', cost: 2, mult: 1.4, dmgType: 'ranged', icon: '✂️', targeting: 'all', rarity: 'RARE', vfxType: 'daggers', secondary: { effect: 'bleed' }, qte: { mechanic: 'PRECISION', trigger: 'ALWAYS' } }
     ]
   },
   p3: {
-    basic: { id: 'b3', name: 'Мертвая лошадь', cost: 2, mult: 1.0, dmgType: 'magic', icon: '🐎', targeting: 'all', rarity: 'COMMON', vfxType: 'horse_herd', qte: { mechanic: 'HORSE_HERD', trigger: 'ALWAYS' } },
+    basic: { id: 'b3', name: 'Мертвая лошадь', cost: 2, mult: 3.0, dmgType: 'magic', icon: '🐎', targeting: 'all', rarity: 'COMMON', vfxType: 'horse_herd', qte: { mechanic: 'HORSE_HERD', trigger: 'ALWAYS' } },
     skills: [
       { id: 's3_1', ownerId: 'p3', name: 'Огненный шар', cost: 3, mult: 1.0, dmgType: 'magic', icon: '☄️', targeting: 'all', rarity: 'RARE', vfxType: 'fireball', qte: { mechanic: 'MASH', trigger: 'ALWAYS' } },
       { id: 's3_2', ownerId: 'p3', name: 'Ледяной шип', cost: 2, mult: 1.6, dmgType: 'magic', icon: '❄️', targeting: 'all', rarity: 'RARE', vfxType: 'ice_spike', secondary: { effect: 'mark' }, qte: { mechanic: 'PRECISION', trigger: 'IMPORTANT' } }
@@ -715,12 +736,35 @@ const getSecondaryDesc = (owner, card) => {
 // Полное описание карты для UI
 const getCardDescription = (owner, card) => {
   if (!card) return { targetLine: '', effectLine: null };
-  const targetLine = getTargetingLabel(getCardTargeting(card));
+  const targetLine = card.qte?.mechanic === 'HORSE_HERD'
+    ? 'Общий урон табуна · QTE до +35%'
+    : getTargetingLabel(getCardTargeting(card));
   const secondary = getSecondaryDesc(owner, card);
   const effectLine = secondary
     ? { icon: secondary.def.icon, label: secondary.def.label, value: secondary.valueText, color: secondary.def.color }
     : null;
   return { targetLine, effectLine };
+};
+
+// Карта → пропсы `MagicCard`: виджет умеет только показывать, всё остальное
+// (иконка, описание эффекта) собирается здесь. Тем же способом карта попадает
+// в боевой экран, см. снимок героев в `canvasBattle`.
+const toMagicCard = (card, owner = null, { comboMult = 1, chainBonus = 0 } = {}) => {
+  const { effectLine: effect, targetLine } = getCardDescription(owner, card);
+  const damage = isModCard(card) ? null : getCardDamage(owner, card, comboMult) + chainBonus;
+  const boosted = damage != null && damage > getCardDamage(owner, card);
+  return {
+    // Уровень идёт частью названия: отдельного места под него в макете нет.
+    name: `${card.name} ${getCardLevel(card)}`,
+    icon: card.icon,
+    iconUrl: getCardIconUrl(card),
+    cost: card.cost,
+    rarity: card.rarity,
+    description: <>
+      {damage != null && <><strong style={{ color: boosted ? '#d099f8' : '#eee9dc' }}>{damage}</strong> урона<br /></>}
+      {effect ? `${effect.label} ${effect.value}` : targetLine}
+    </>,
+  };
 };
 
 // Готовит payload эффекта для наложения на врага (величины посчитаны от владельца).
@@ -1010,13 +1054,14 @@ const spawnEnemies = (type, stage, sector = 1, enemyNames = null) => {
   const s = (stage || 1) + (sector - 1) * 6;
   const mult = Math.pow(1.55, sector - 1);
   let counter = 0;
-  const difficultyMult = type === 'combat_hard' ? 1.25 : type === 'combat_medium' ? 1 : 0.85;
+  const profile = getEncounterProfile(type, stage, sector);
+  const difficultyMult = profile.hp;
   const mk = (name, strengthMult = difficultyMult) => {
     const template = ENEMY_STAT_TEMPLATES[name];
     const { dmgMult, attackStyle, vfxType } = ENEMY_TYPES[name]
       || { dmgMult: 1, attackStyle: 'melee', vfxType: 'enemy' };
     const hp = Math.round(
-      (template.baseHp + s * template.perStage) * mult * ENEMY_POWER_MULT * strengthMult,
+      (template.baseHp + s * template.perStage) * mult * profile.hpPower * strengthMult,
     );
     return {
       id: `enemy_${Date.now()}_${counter++}`,
@@ -1029,11 +1074,18 @@ const spawnEnemies = (type, stage, sector = 1, enemyNames = null) => {
       dmgMult,
       attackStyle,
       vfxType,
+      difficultyType: type,
+      attackPower: profile.attackPower * profile.attack,
       statuses: {},
     };
   };
 
-  if (enemyNames) return enemyNames.map(name => ({ ...mk(name), isBoss: type === 'boss' }));
+  if (enemyNames) {
+    const pool = SECTOR_ZONE_ENEMY_POOLS[sector]?.[getEnemyZone(stage)]
+      || LEGACY_ENEMY_POOLS[type] || LEGACY_ENEMY_POOLS.combat_easy;
+    const squad = type === 'boss' ? enemyNames : fillEncounterSquad(enemyNames, pool, profile.count);
+    return squad.map(name => ({ ...mk(name), isBoss: type === 'boss' }));
+  }
 
   if (type === 'boss') {
     const bossName = sector <= 1
@@ -1054,11 +1106,7 @@ const spawnEnemies = (type, stage, sector = 1, enemyNames = null) => {
 
   const zonePool = SECTOR_ZONE_ENEMY_POOLS[sector]?.[getEnemyZone(stage)];
   const pool = zonePool || LEGACY_ENEMY_POOLS[type] || LEGACY_ENEMY_POOLS.combat_easy;
-  const count = type === 'combat_hard'
-    ? 3
-    : type === 'combat_medium'
-      ? 2
-      : 1 + Math.floor(Math.random() * 2);
+  const count = profile.count;
 
   return shuffleArray(pickEnemyNames(pool, count).map(name => mk(name)));
 };
@@ -1131,7 +1179,7 @@ const ItemIcon = React.memo(({ item, className = '', imgClassName = 'w-full h-fu
   const tint = item.tinted ? RARITY_TINT[item.rarity] : null;
   return (
     <div className={`relative ${className}`}>
-      <img src={getItemIconUrl(item.icon)} alt={item.name || ''} className={imgClassName} draggable={false} />
+      <img src={getItemIconUrl(item.icon)} alt={item.name || ''} className={imgClassName} draggable={false} style={{ imageRendering: 'pixelated' }} />
       {tint && (
         <div className="absolute inset-0 pointer-events-none rounded-[inherit]" style={{ backgroundColor: tint, opacity: 0.5 }} />
       )}
@@ -1148,32 +1196,47 @@ const itemForCanvas = (item) => item && {
 };
 
 const ItemTooltip = React.memo(({ item, x, y }) => {
+  const tooltipRef = useRef(null);
+  useLayoutEffect(() => {
+    const node = tooltipRef.current;
+    if (!node) return;
+    // Clamp using actual wrapped content, including long item names/stats.
+    const place = () => {
+      const { width, height } = node.getBoundingClientRect();
+      node.style.left = `${Math.max(8, Math.min(x + 18, window.innerWidth - width - 8))}px`;
+      node.style.top = `${Math.max(8, Math.min(y - 10, window.innerHeight - height - 8))}px`;
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [item, x, y]);
   if (!item) return null;
   const rarity = ITEM_RARITIES[item.rarity] || ITEM_RARITIES.COMMON;
-  const tooltipHeight = 130;
-  const left = Math.min(x + 14, window.innerWidth - 220);
+  const stats = formatItemStatsList(item.stats);
+  const tooltipWidth = Math.min(336, window.innerWidth - 16);
+  const tooltipHeight = 156 + Math.max(1, stats.length) * 28;
+  const left = Math.max(8, Math.min(x + 18, window.innerWidth - tooltipWidth - 8));
   const fitsBelow = y - 10 + tooltipHeight <= window.innerHeight - 8;
   const top = fitsBelow ? Math.max(8, y - 10) : Math.max(8, y - tooltipHeight - 10);
-  const stats = formatItemStatsList(item.stats);
 
   return (
-    <div className="fixed z-[9700] pointer-events-none w-52 bg-slate-950/95 border border-slate-600 rounded-xl p-3 shadow-2xl backdrop-blur-md"
-      style={{ left, top }}>
-      <div className="flex items-center gap-2 mb-2">
-        <ItemIcon item={item} className="w-10 h-10 rounded-lg border border-slate-600 overflow-hidden" />
+    <div ref={tooltipRef} role="tooltip" className="kit-panel kit-item-tooltip fixed z-[9800] pointer-events-none"
+      style={{ left, top, width: tooltipWidth, minHeight: tooltipHeight, maxHeight: window.innerHeight - 16, overflow: 'hidden' }}>
+      <div className="flex items-center gap-3 mb-4">
+        <ItemIcon item={item} className="w-14 h-14 shrink-0" />
         <div>
-          <div className="text-xs font-black text-white uppercase tracking-tight">{item.name}</div>
-          <div className="text-[9px] font-bold uppercase" style={{ color: rarity.color }}>{rarity.name}</div>
+          <div className="kit-item-tooltip-title font-bold">{item.name}</div>
+          <div className="mt-1 text-[18px]" style={{ color: rarity.color }}>{rarity.name}</div>
         </div>
       </div>
       {!stats.length ? (
-        <div className="text-[12px] text-slate-400 leading-relaxed font-medium">Без бонусов</div>
+        <div className="text-[#a8a8aa]">Без бонусов</div>
       ) : (
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-2">
           {stats.map((part) => (
-            <div key={part.label} className="text-[12px] leading-relaxed font-bold flex justify-between">
-              <span className="text-slate-300">{part.label}</span>
-              <span className="text-green-400">{part.display}</span>
+            <div key={part.label} className="flex justify-between gap-3">
+              <span className="text-[#c9c8c3]">{part.label}</span>
+              <span className="text-[#9fc98a] whitespace-nowrap">{part.display}</span>
             </div>
           ))}
         </div>
@@ -1198,10 +1261,10 @@ const EffectTooltip = React.memo(({ badges, x, y }) => {
       <div className="flex flex-col gap-1.5">
         {badges.map((badge) => (
           <div key={badge.id} className="flex items-start gap-1.5 text-left">
-            <span className="text-sm leading-none mt-0.5">{badge.icon}</span>
+            <span className="text-sm leading-none mt-0.5"><SmallIconText>{badge.icon}</SmallIconText></span>
             <div className="flex-1 leading-tight">
-              <div className="text-[10px] font-black uppercase tracking-wide text-slate-200">{badge.label}</div>
-              {badge.desc && <div className="text-[9px] text-slate-400">{badge.desc}</div>}
+              <div className="text-[10px] font-black uppercase tracking-wide text-slate-200"><SmallIconText>{badge.label}</SmallIconText></div>
+              {badge.desc && <div className="text-[9px] text-slate-400"><SmallIconText>{badge.desc}</SmallIconText></div>}
             </div>
           </div>
         ))}
@@ -1241,7 +1304,7 @@ const ItemSlot = React.memo(({ item, selected, emptyLabel, onClick, onMouseEnter
       {item ? (
         <ItemIcon item={item} className="w-full h-full pointer-events-none" imgClassName="w-full h-full object-cover pointer-events-none" />
       ) : (
-        <span className="text-[8px] text-slate-600 font-bold uppercase">{emptyLabel || ''}</span>
+        <span className="text-[8px] text-slate-600 font-bold uppercase"><SmallIconText>{emptyLabel || ''}</SmallIconText></span>
       )}
     </div>
   );
@@ -1298,7 +1361,7 @@ const DamagePopup = React.memo(({ id, value, x, y, isCrit, text, color, onComple
     return (
       <div className={`fixed z-[905] font-black pointer-events-none uppercase tracking-tight ${color || 'text-white'}`}
         style={{ left: x, top: y, fontSize: '15px', opacity, transform: `translate(-50%, ${offset}px) scale(${scale})`, transition: 'all 1400ms cubic-bezier(0.18, 0.89, 0.32, 1.28)', WebkitTextStroke: '1px rgba(0,0,0,0.9)', textShadow: '2px 2px 0 rgba(0,0,0,0.9)' }}>
-        {String(text)}
+        <SmallIconText>{String(text)}</SmallIconText>
       </div>
     );
   }
@@ -1330,8 +1393,8 @@ const FlyingXp = React.memo(({ id, amount, startX, startY, endX, endY, onComplet
   
   return (
     <div className="fixed z-[800] font-black text-yellow-400 text-2xl pointer-events-none drop-shadow-lg"
-      style={{ left: 0, top: 0, transform: `translate(${pos.x - 20}px, ${pos.y - 20}px) scale(${pos.scale})`, opacity: pos.opacity, transition: 'all 700ms ease-in' }}>
-      +{String(amount)}
+      style={{ left: 0, top: 0, transform: `translate(${pos.x - 20}px, ${pos.y - 20}px) scale(${pos.scale})`, opacity: pos.opacity, transition: 'all 700ms ease-in' }}><SmallIconText>
+      +</SmallIconText>{String(amount)}
     </div>
   );
 });
@@ -1367,32 +1430,28 @@ const FlyingItem = React.memo(({ id, item, startX, startY, endX, endY, onComplet
 // правды о балансе на ВСЕХ экранах (бой, таверна, инвентарь героев, ночная
 // встреча) — рендерится один раз в App поверх всего (z 9650).
 const WalletHUD = React.memo(({ gold, soulEmbers }) => (
-  <div
-    className="fixed top-4 right-4 z-[9650] flex items-center gap-3 bg-slate-900/85 border border-slate-700 rounded-xl px-3.5 py-2 backdrop-blur-sm shadow-lg pointer-events-none select-none"
-    style={{ fontFamily: "'Greybeard', sans-serif" }}
-  >
-    <span className="flex items-center gap-1.5 text-amber-300" style={{ fontSize: '13px' }}>
-      <span className="text-base leading-none">🪙</span>{String(gold)}
+  <div className="kit-wallet kit-panel select-none" aria-label="Кошелёк">
+    <span className="text-amber-200">
+      <GameIcon name="coin" size={34} />{String(gold)}
     </span>
-    <span className="w-px h-4 bg-slate-600" />
-    <span className="flex items-center gap-1.5 text-sky-300" style={{ fontSize: '13px' }}>
-      <span className="text-base leading-none">🔥</span>{String(soulEmbers)}
+    <span className="text-sky-200">
+      <GameIcon name="ember" size={34} />{String(soulEmbers)}
     </span>
   </div>
 ));
 
 // Крутящийся символ комбо/синергии справа от арены. Две руны вращаются
 // независимо в разные стороны, в центре — номер карты в цепочке комбо.
-const ComboIndicator = React.memo(({ count }) => {
+const ComboIndicator = React.memo(({ count, embedded = false }) => {
   if (!count) return null;
   return (
-    <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-[45%] z-30 pointer-events-none flex items-center justify-center w-60 h-60 animate-in fade-in zoom-in-75 duration-300">
+    <div className={`pointer-events-none flex items-center justify-center ${embedded ? 'relative h-full w-full' : 'absolute right-0 top-1/2 -translate-y-1/2 translate-x-[45%] w-40 h-40'}`} >
       <img src="./combo_rune_outer.webp" alt="" className="absolute inset-0 w-full h-full object-contain opacity-80"
-        style={{ animation: 'comboSpinCW 9s linear infinite', filter: 'drop-shadow(0 0 10px rgba(245,158,11,0.75))' }} />
+        style={{ animation: 'comboSpinCW 9s linear infinite' }} />
       <img src="./combo_rune_inner.webp" alt="" className="absolute inset-0 w-full h-full object-contain opacity-90"
-        style={{ animation: 'comboSpinCCW 6s linear infinite', filter: 'drop-shadow(0 0 8px rgba(245,158,11,0.9))' }} />
-      <span key={count} className="relative z-10 text-7xl font-black text-amber-200 drop-shadow-[0_0_12px_rgba(245,158,11,1)]"
-        style={{ animation: 'comboNumPop 0.35s ease-out' }}>{count}</span>
+        style={{ animation: 'comboSpinCCW 6s linear infinite' }} />
+      <span key={count} className="relative z-10 font-black text-amber-200"
+        style={{ animation: 'comboNumPop 0.35s ease-out', fontSize: embedded ? 72 : 48, textShadow: '2px 2px 0 #12121a' }}>{count}</span>
     </div>
   );
 });
@@ -1452,31 +1511,13 @@ const StatusVfxEffect = ({ id, sheet, amount, x, y, onComplete }) => {
         <span
           className="absolute top-full -mt-3 font-black text-xl text-white"
           style={{ WebkitTextStroke: '2px rgba(0,0,0,0.95)', textShadow: '0 0 10px rgba(255,255,255,0.9)' }}
-        >
-          +{amount}
+        ><SmallIconText>
+          +</SmallIconText>{amount}
         </span>
       )}
     </div>
   );
 };
-
-// Прицел с цифрой урона на подсвеченной цели
-const TargetReticle = ({ damage, lethal }) => (
-  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[70]">
-    <div className={`relative w-[72px] h-[72px] ${lethal ? 'text-red-500' : 'text-sky-100'}`}>
-      <div className="absolute left-1/2 top-0 bottom-0 w-[2px] -translate-x-1/2 bg-current opacity-90 rounded-full" />
-      <div className="absolute top-1/2 left-0 right-0 h-[2px] -translate-y-1/2 bg-current opacity-90 rounded-full" />
-      <div className={`absolute inset-2 border-2 rounded-full ${lethal ? 'border-red-500' : 'border-current'} opacity-75`} />
-      <div className={`absolute inset-[18px] border border-dashed rounded-full ${lethal ? 'border-red-400/60' : 'border-white/40'} opacity-60`} />
-      <span
-        className={`absolute inset-0 flex items-center justify-center font-black text-xl tabular-nums ${lethal ? 'text-red-400' : 'text-white'}`}
-        style={{ WebkitTextStroke: '2px rgba(0,0,0,0.95)', textShadow: '0 2px 6px rgba(0,0,0,1)' }}
-      >
-        {damage}
-      </span>
-    </div>
-  </div>
-);
 
 // Бейджи мод-эффектов поверх спрайта героя на поле боя (GDD 2.3 / 3.4)
 const HeroFieldBadges = ({ armor, chainBonus }) => {
@@ -1494,7 +1535,7 @@ const HeroFieldBadges = ({ armor, chainBonus }) => {
       {showChain && (
         <div className="flex items-center gap-0.5 bg-slate-950/95 border-2 border-amber-500/70 rounded-xl px-2 py-1 shadow-[0_0_14px_rgba(251,191,36,0.45)] -translate-y-3">
           <span className="text-base leading-none">🔗</span>
-          <span className="text-sm font-black text-amber-200 tabular-nums leading-none">+{chainBonus}</span>
+          <span className="text-sm font-black text-amber-200 tabular-nums leading-none"><SmallIconText>+</SmallIconText>{chainBonus}</span>
         </div>
       )}
     </div>
@@ -1766,8 +1807,10 @@ const CombatVfxLayer = React.forwardRef((_props, ref) => {
   return effects.map(effect => <CombatVfx key={effect.id} vfx={effect} />);
 });
 
-const ShaderBackground = ({ hue = 210, sat = 60, speed = 0, embedded = false }) => {
+const ShaderBackground = ({ hue = 210, sat = 60, speed = 0, embedded = false, active = true }) => {
   const canvasRef = useRef(null);
+  const activeRef = useRef(active);
+  useEffect(() => { activeRef.current = active; }, [active]);
   const targetSpeedRef = useRef(0);
   const speedRef = useRef(0);
   // [dark, bright] цвета небулы. Плавно интерполируются к цвету текущей локации.
@@ -1926,7 +1969,7 @@ const ShaderBackground = ({ hue = 210, sat = 60, speed = 0, embedded = false }) 
       animationFrameId = requestAnimationFrame(render);
       // Скрытая вакладка: браузер замораживает rAF. Сбрасываем тайминги, чтобы кадр
       // после возврата не посчитался гигантским интервалом и не «уронил» оценку.
-      if (document.hidden) { lastRaf = 0; evalAt = 0; intervalSum = 0; intervalCount = 0; return; }
+      if (document.hidden || !activeRef.current) { lastRaf = 0; evalAt = 0; intervalSum = 0; intervalCount = 0; return; }
 
       if (lastRaf) {
         const dt = now - lastRaf;
@@ -1956,7 +1999,13 @@ const ShaderBackground = ({ hue = 210, sat = 60, speed = 0, embedded = false }) 
     if (tier >= TIERS.length - 1) draw();
     animationFrameId = requestAnimationFrame(render);
 
-    return () => { window.removeEventListener('resize', resize); cancelAnimationFrame(animationFrameId); };
+    return () => {
+      window.removeEventListener('resize', resize);
+      cancelAnimationFrame(animationFrameId);
+      gl.deleteBuffer(positionBuffer);
+      gl.getAttachedShaders(program)?.forEach(shader => gl.deleteShader(shader));
+      gl.deleteProgram(program);
+    };
   }, []);
 
   return <canvas ref={canvasRef} className={`${embedded ? 'absolute inset-0 z-0' : 'fixed inset-0 z-[-2]'} w-full h-full pointer-events-none`} />;
@@ -2104,7 +2153,7 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
       <div className="flex-1 flex flex-col items-center justify-center relative p-1 bg-[#373945] min-h-[40px] overflow-visible" style={{ transformStyle: 'preserve-3d' }}>
         {isCandidate && (
           <div className="absolute top-1 left-1 bg-yellow-400 text-black text-[9px] font-black px-1.5 py-0.5 rounded shadow-lg animate-bounce z-10">
-            COMBO{willGiveBonus && comboPct > 0 ? ` +${comboPct}%` : '!'}
+            COMBO<SmallIconText>{willGiveBonus && comboPct > 0 ? ` +${comboPct}%` : '!'}</SmallIconText>
           </div>
         )}
         <span
@@ -2115,7 +2164,7 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
             transition: 'none',
           }}
         >
-          {String(card.icon)}
+          <SmallIconText>{String(card.icon)}</SmallIconText>
         </span>
       </div>
 
@@ -2130,11 +2179,11 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
             <p className="text-[11px] text-slate-100 font-semibold leading-tight">
               {card.modType === 'armor' ? (
                 <>
-                  Броня <span className={`font-black text-[14px] ${willGiveBonus ? 'text-yellow-400' : 'text-sky-300'}`}>+{modAmount}</span>
+                  Броня <span className={`font-black text-[14px] ${willGiveBonus ? 'text-yellow-400' : 'text-sky-300'}`}><SmallIconText>+</SmallIconText>{modAmount}</span>
                 </>
               ) : (
                 <>
-                  След. карта <span className={`font-black text-[14px] ${willGiveBonus ? 'text-yellow-400' : 'text-amber-300'}`}>+{modAmount}</span> урона
+                  След. карта <span className={`font-black text-[14px] ${willGiveBonus ? 'text-yellow-400' : 'text-amber-300'}`}><SmallIconText>+</SmallIconText>{modAmount}</span> урона
                 </>
               )}
             </p>
@@ -2160,7 +2209,7 @@ const AbilityCard = ({ card, owner, mana, maxMana, isDisabled, showOwnerLabel = 
             </p>
             {effectLine && (
               <p className={`text-[10px] font-bold leading-none mt-0.5 ${effectLine.color}`}>
-                {effectLine.icon} {effectLine.label}{effectLine.value ? `: ${effectLine.value}` : ''}
+                <SmallIconText>{effectLine.icon}</SmallIconText> {effectLine.label}<SmallIconText>{effectLine.value ? `: ${effectLine.value}` : ''}</SmallIconText>
               </p>
             )}
           </>
@@ -2276,7 +2325,7 @@ const SquadSlotsBoard = ({ players, pools, newCardId = null, hoveredId = null, o
               if (!card) {
                 return (
                   <div key={i} className="w-16 h-20 rounded-xl border-2 border-dashed border-slate-700 bg-slate-800/30 flex items-center justify-center">
-                    <span className="text-slate-700 text-xl font-black">+</span>
+                    <span className="text-slate-700 text-xl font-black"><SmallIconText>+</SmallIconText></span>
                   </div>
                 );
               }
@@ -2302,7 +2351,7 @@ const SquadSlotsBoard = ({ players, pools, newCardId = null, hoveredId = null, o
                   {isNew && (
                     <div className="absolute -top-2.5 left-1/2 -translate-x-1/2 z-20 bg-amber-500 text-black text-[8px] font-black px-2 py-0.5 rounded-full uppercase whitespace-nowrap shadow-lg pointer-events-none">Новая</div>
                   )}
-                  <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
+                  <span className="text-2xl drop-shadow-lg"><SmallIconText>{String(card.icon)}</SmallIconText></span>
                   <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
                 </div>
               );
@@ -2338,7 +2387,7 @@ const SquadSlotsPopup = ({ players, pools, newCardId, onClose }) => {
   return (
     <div className="absolute inset-0 z-[2600] bg-black/92 flex flex-col items-center justify-center backdrop-blur-xl animate-in fade-in duration-300">
       <h2 className="text-4xl font-black text-amber-400 uppercase italic tracking-tighter mb-1 text-center drop-shadow-2xl">Новая карта в колоде!</h2>
-      <p className="text-slate-500 text-xs uppercase tracking-[0.3em] mb-8 text-center">Пулл карт отряда · {String(CARD_POOL_SIZE)} слота на бойца</p>
+      <p className="text-slate-500 text-xs uppercase tracking-[0.3em] mb-8 text-center"><SmallIconText>Пулл карт отряда · </SmallIconText>{String(CARD_POOL_SIZE)} слота на бойца</p>
 
       <SquadSlotsBoard players={players} pools={pools} newCardId={newCardId} />
 
@@ -2384,11 +2433,9 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
               <span>След. огонёк</span>
               <span>{String(soulProgress)} / {String(emberThreshold)}</span>
             </div>
-            <div className="w-full h-2.5 bg-slate-900/80 rounded-full border border-slate-700 overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-amber-600 to-amber-300 rounded-full transition-all duration-500" style={{ width: `${Math.min(100, (soulProgress / emberThreshold) * 100)}%` }}></div>
-            </div>
+            <KitProgress value={soulProgress} max={emberThreshold} label="Следующий огонёк" />
           </div>
-          <span className="text-xs text-slate-400 uppercase tracking-widest font-black">Следующий слот: {String(slotPrice)} 🔥</span>
+          <span className="text-xs text-slate-400 uppercase tracking-widest font-black">Следующий слот: {String(slotPrice)} <GameIcon name="ember" /></span>
         </div>
 
         <div className="flex flex-col gap-4 mb-10">
@@ -2416,7 +2463,7 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
                             disabled={soulEmbers < PREP_BURN_COST}
                             title={soulEmbers >= PREP_BURN_COST ? 'Сжечь карту (1 🔥)' : 'Нужен 1 огонёк души'}
                             className={`absolute -top-2 -right-2 w-6 h-6 rounded-full border text-[10px] flex items-center justify-center opacity-0 group-hover:opacity-100 hover:scale-110 transition-all shadow-lg z-10 ${soulEmbers >= PREP_BURN_COST ? 'bg-red-900 border-red-500 cursor-pointer' : 'bg-slate-800 border-slate-600 opacity-40 cursor-not-allowed'}`}
-                          >🔥</button>
+                          ><GameIcon name="ember" size={24} /></button>
                           )}
                         </PreparationCardSlot>
                       );
@@ -2430,10 +2477,10 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
                           type="button"
                           onClick={canBuy ? () => buySlot(p.id) : undefined}
                           disabled={!canBuy}
-                          className={`relative w-16 h-20 rounded-xl border-2 flex flex-col items-center justify-center gap-1 transition-all ${canBuy ? 'border-sky-400 bg-sky-950/40 hover:scale-110 hover:shadow-[0_0_20px_rgba(56,189,248,0.5)] cursor-pointer' : 'border-slate-700 bg-slate-800/30 opacity-50 cursor-not-allowed'}`}
+                          className={`kit-card-slot relative w-16 h-20 flex flex-col items-center justify-center gap-1 transition-transform ${canBuy ? 'hover:scale-110 cursor-pointer' : 'opacity-50 cursor-not-allowed'}`}
                         >
-                          <span className="text-xl">🔥</span>
-                          <span className={`text-[10px] font-black uppercase ${canBuy ? 'text-sky-300' : 'text-slate-500'}`}>{String(slotPrice)}</span>
+                          <GameIcon name="ember" size={30} />
+                          <span className={`text-[12px] font-black ${soulEmbers >= slotPrice ? 'text-green-400' : 'text-red-400'}`}>{String(soulEmbers)}/{String(slotPrice)}</span>
                         </button>
                       );
                     }
@@ -2446,9 +2493,9 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
         </div>
 
         {fromTavern ? (
-          <button type="button" onClick={onClose ?? onStart} className="px-16 py-5 bg-white text-slate-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">ОК</button>
+          <button type="button" onClick={onClose ?? onStart} className="kit-button w-56">ОК</button>
         ) : (
-          <button type="button" onClick={onStart} className="px-16 py-5 bg-white text-slate-900 rounded-full font-black text-2xl hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.4)] uppercase tracking-tighter">Старт</button>
+          <button type="button" onClick={onStart} className="kit-button kit-button-red w-56">Старт</button>
         )}
       </div>
 
@@ -2461,9 +2508,9 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
                      rounded-full bg-black/60 hover:bg-black/85 text-white text-3xl font-black
                      border border-white/20 hover:border-white/40 transition-all shadow-lg"
           aria-label="Закрыть"
-        >
+        ><SmallIconText>
           ×
-        </button>
+        </SmallIconText></button>
       )}
     </div>
   );
@@ -2474,12 +2521,14 @@ const PrepScreen = ({ players, pools, soulEmbers, soulProgress = 0, emberThresho
 // (easeInCubic). Фаза 3: на пике карта переворачивается, показывая лицо. Длительность ~3с.
 // GDD 9.3: «snappy» reveal — 0.7 s total, прерываемый кликом/пробелом.
 // 0.00s slam-in (overshoot scale) → 0.25s auto-flip + tier-colored flash → 0.70s settled+interactable.
-const CardRevealOverlay = ({ card, owner, bgHue = 260, bgSat = 60, onDismiss }) => {
+/** Карточка показывается в размере холста 3200×1800, как в бою. */
+const CARD_REVEAL_SIZE = { width: 374, height: 434 };
+
+const CardRevealOverlay = ({ card, owner, onDismiss }) => {
   const [slammed, setSlammed] = useState(false);
   const [flipped, setFlipped] = useState(false);
   const [flash, setFlash] = useState(false);
   const [settled, setSettled] = useState(false);
-  const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const timersRef = useRef([]);
   const skippedRef = useRef(false);
 
@@ -2517,46 +2566,36 @@ const CardRevealOverlay = ({ card, owner, bgHue = 260, bgSat = 60, onDismiss }) 
     return () => { window.removeEventListener('keydown', handler); window.removeEventListener('pointerdown', handler); };
   }, [onDismiss, settled]);
 
-  const handleMove = (e) => {
-    if (!settled) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    const px = e.clientX - r.left, py = e.clientY - r.top;
-    setTilt({ x: ((r.height / 2 - py) / (r.height / 2)) * 9, y: ((px - r.width / 2) / (r.width / 2)) * 9 });
-  };
-
   const glow = CARD_RARITY_GLOW[card.rarity] || '#64748b';
   // Slam-in: 0.6 → 1.08 (overshoot) → 1.0; CSS transition с cubic-bezier даёт «упругий» удар.
   const scale = slammed ? 1 : 0.6;
 
   return (
-    <div className="fixed inset-0 z-[10050] overflow-hidden flex flex-col items-center justify-center animate-in fade-in duration-150">
-      <ShaderBackground hue={bgHue} sat={bgSat} speed={0.6} embedded />
-      <div className="absolute inset-0 bg-black/40 pointer-events-none" />
-      <div className="absolute top-10 text-center drop-shadow-[0_0_16px_rgba(0,0,0,0.95)]">
-        <p className="text-amber-300 text-xl uppercase tracking-[0.28em] font-black">
-          Карта разблокирована
-        </p>
-        <p className="mt-2 text-slate-100 text-sm uppercase tracking-[0.2em] font-black">
-          {owner ? `Герой: ${owner.name}` : 'Общая карта отряда'}
-        </p>
-      </div>
-      <div className="relative" style={{ perspective: '1400px' }} onMouseMove={handleMove} onMouseLeave={() => setTilt({ x: 0, y: 0 })}>
-        {/* Tier-colored flash burst — расширяющееся кольцо в момент переворота */}
+    <ModalWindow
+      title="Карта разблокирована"
+      message={owner ? `Герой: ${owner.name}` : 'Общая карта отряда'}
+      // Пока анимация идёт, клик мимо её проматывает, а не закрывает окно.
+      onDismiss={settled ? onDismiss : skipAnimation}
+      buttons={[{ id: 'take', label: 'Забрать', onClick: onDismiss, disabled: !settled }]}
+      zIndex={10050}
+    >
+      <div className="relative mx-auto" style={{ ...CARD_REVEAL_SIZE, marginTop: 40, perspective: '2800px' }}>
+        {/* Вспышка цвета редкости — расширяющееся кольцо в момент переворота */}
         {flash && (
           <>
             <div
               className="absolute left-1/2 top-1/2 pointer-events-none rounded-full"
               style={{
-                width: 24, height: 24, marginLeft: -12, marginTop: -12,
-                border: `6px solid ${glow}`,
-                boxShadow: `0 0 60px ${glow}`,
+                width: 44, height: 44, marginLeft: -22, marginTop: -22,
+                border: `11px solid ${glow}`,
+                boxShadow: `0 0 110px ${glow}`,
                 animation: 'modStampRing 380ms ease-out forwards',
               }}
             />
             <div
               className="absolute left-1/2 top-1/2 pointer-events-none rounded-full"
               style={{
-                width: 220, height: 220, marginLeft: -110, marginTop: -110,
+                width: 400, height: 400, marginLeft: -200, marginTop: -200,
                 background: `radial-gradient(circle, ${glow}55 0%, transparent 70%)`,
                 animation: 'modStampSlam 350ms ease-out forwards',
               }}
@@ -2565,37 +2604,26 @@ const CardRevealOverlay = ({ card, owner, bgHue = 260, bgSat = 60, onDismiss }) 
         )}
         <div
           style={{
+            ...CARD_REVEAL_SIZE,
             transformStyle: 'preserve-3d',
-            transform: `rotateX(${tilt.x}deg) rotateY(${tilt.y}deg) scale(${scale})`,
-            transition: 'transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+            transform: `rotateY(${flipped ? 0 : 180}deg) scale(${scale})`,
+            transition: 'transform 350ms cubic-bezier(0.34, 1.2, 0.64, 1)',
           }}
         >
+          <div className="absolute inset-0" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', filter: `drop-shadow(0 0 50px ${glow})` }}>
+            <MagicCard {...toMagicCard(card, owner)} />
+          </div>
+          {/* Рубашка — та же подложка карты из атласа, только со знаком вместо умения */}
           <div
-            className="w-52 h-[290px] relative"
-            style={{
-              transformStyle: 'preserve-3d',
-              transform: `rotateY(${flipped ? 0 : 180}deg)`,
-              transition: 'transform 350ms cubic-bezier(0.34, 1.2, 0.64, 1)',
-            }}
+            className="absolute inset-0 flex items-center justify-center"
+            style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)' }}
           >
-            <div className="absolute inset-0 rounded-2xl overflow-hidden" style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', boxShadow: `0 0 55px ${glow}` }}>
-              <AbilityCard card={card} owner={owner} mana={5} maxMana={5} isDisabled={false} showOwnerLabel={Boolean(owner)} comboState={{ isCandidate: false, willGiveBonus: false }} />
-            </div>
-            <div
-              className="absolute inset-0 rounded-2xl border-2 border-slate-600 bg-gradient-to-br from-slate-800 to-slate-950 flex items-center justify-center"
-              style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden', transform: 'rotateY(180deg)', boxShadow: 'inset 0 0 40px rgba(0,0,0,0.7)' }}
-            >
-              <img src="./corner.webp" alt="" aria-hidden="true" className="absolute top-1.5 left-1.5 w-16 h-16 opacity-40 pointer-events-none" />
-              <img src="./corner.webp" alt="" aria-hidden="true" className="absolute bottom-1.5 right-1.5 w-16 h-16 opacity-40 pointer-events-none" style={{ transform: 'scale(-1)' }} />
-              <span className="text-7xl opacity-25 select-none">✦</span>
-            </div>
+            <NineSlice name="card_bg" {...CARD_REVEAL_SIZE} />
+            <span className="absolute select-none" style={{ fontSize: 160, opacity: 0.25 }}><SmallIconText>✦</SmallIconText></span>
           </div>
         </div>
       </div>
-      <p className="absolute bottom-16 text-slate-200 text-xs uppercase tracking-[0.35em] font-black drop-shadow-[0_0_12px_rgba(0,0,0,0.95)] opacity-70">
-        {settled ? 'Клик / пробел — продолжить' : 'Клик / пробел — пропустить'}
-      </p>
-    </div>
+    </ModalWindow>
   );
 };
 
@@ -2640,10 +2668,10 @@ const DeckWindow = ({ players, pools, drawPile, maxMana, onClose }) => {
         <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/50">
            <div>
              <h2 className="text-3xl font-black text-white uppercase tracking-tighter italic">Колода</h2>
-             <p className="text-xs text-slate-500 uppercase tracking-widest mt-1">Пулл карт отряда · {String(CARD_POOL_SIZE)} слота на бойца · карт {String(Object.values(pools).reduce((a, arr) => a + arr.length, 0))}</p>
+             <p className="text-xs text-slate-500 uppercase tracking-widest mt-1"><SmallIconText>Пулл карт отряда · </SmallIconText>{String(CARD_POOL_SIZE)}<SmallIconText> слота на бойца · карт </SmallIconText>{String(Object.values(pools).reduce((a, arr) => a + arr.length, 0))}</p>
            </div>
            <button onClick={onClose} className="w-12 h-12 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center text-white hover:bg-red-900 hover:border-red-500 transition-all group">
-             <span className="text-2xl group-hover:scale-125 transition-transform">✕</span>
+             <span className="text-2xl group-hover:scale-125 transition-transform"><SmallIconText>✕</SmallIconText></span>
            </button>
         </div>
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar flex flex-col items-center gap-8">
@@ -2686,7 +2714,7 @@ const DeckWindow = ({ players, pools, drawPile, maxMana, onClose }) => {
                          style={{ borderColor: isHover ? '#ffffff' : accent, boxShadow: isHover ? `0 0 25px ${accent}` : `inset 0 0 12px ${glow}55` }}
                        >
                          {numBadge()}
-                         <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
+                         <span className="text-2xl drop-shadow-lg"><SmallIconText>{String(card.icon)}</SmallIconText></span>
                          <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
                        </div>
                      );
@@ -2739,7 +2767,7 @@ const DeckWindow = ({ players, pools, drawPile, maxMana, onClose }) => {
                      style={{ borderColor: isHover ? '#ffffff' : glow, boxShadow: isHover ? `0 0 25px ${glow}` : `inset 0 0 12px ${glow}33` }}
                    >
                      {numBadge(glow, glow)}
-                     <span className="text-2xl drop-shadow-lg">{String(card.icon)}</span>
+                     <span className="text-2xl drop-shadow-lg"><SmallIconText>{String(card.icon)}</SmallIconText></span>
                      <span className="text-[9px] font-black uppercase" style={{ color: glow }}>ур.{String(getCardLevel(card))}</span>
                    </div>
                  );
@@ -2767,71 +2795,11 @@ const DeckWindow = ({ players, pools, drawPile, maxMana, onClose }) => {
   );
 };
 
-// --- Нарративные вставки между секторами ---
-const SECTOR_NARRATIVES = [
-  'Путник спускался во всё более мрачные катакомбы, где даже эхо боялось своего голоса.',
-  'Воздух стал гуще, пропитанный пеплом и тысячелетней пылью забытых сражений.',
-  'За спиной отряда обрушился последний мост в мир живых. Назад дороги больше нет.',
-  'Стены нового сектора шептали имена тех, кто рискнул пройти здесь до вас.',
-  'Холод подземелья сменился жаром: где-то впереди билось огненное сердце бездны.',
-  'Отряд переступил порог, и тьма сомкнулась за ними, словно пасть голодного зверя.',
-  'Кости павших устилали путь вперёд — немое предупреждение всем, кто идёт следом.',
-  'Чем глубже спускался отряд, тем тише становился мир и громче — стук собственного сердца.',
-  'Древние руны вспыхнули на сводах, признавая в пришедших достойных противников.',
-  'Здесь время текло иначе. Каждый шаг отдалял от дома на целую вечность.',
-  'Сквозь трещины в реальности сочился чужой свет — впереди ждал новый круг испытаний.',
-  'Запах гари и металла усилился. Сектор глубже — и враги в нём свирепее прежних.',
-];
-
-const SectorSplashScreen = ({ text, sector, onContinue }) => {
-  const [showPrompt, setShowPrompt] = useState(false);
-  const onContinueRef = useRef(onContinue);
-  useEffect(() => { onContinueRef.current = onContinue; }, [onContinue]);
-
-  useEffect(() => {
-    const t = setTimeout(() => setShowPrompt(true), 2000);
-    return () => clearTimeout(t);
-  }, []);
-
-  useEffect(() => {
-    if (!showPrompt) return;
-    const advance = () => onContinueRef.current();
-    window.addEventListener('keydown', advance);
-    window.addEventListener('pointerdown', advance);
-    return () => {
-      window.removeEventListener('keydown', advance);
-      window.removeEventListener('pointerdown', advance);
-    };
-  }, [showPrompt]);
-
-  return (
-    <div className="absolute inset-0 z-[2700] bg-[#0a0a0f] flex flex-col items-center justify-center overflow-hidden animate-in fade-in duration-700">
-      <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 left-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" />
-      <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute top-0 right-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" style={{ transform: 'scaleX(-1)' }} />
-      <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 left-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" style={{ transform: 'scaleY(-1)' }} />
-      <img src="./corner.webp" alt="" aria-hidden="true" className="pointer-events-none select-none absolute bottom-0 right-0 w-[340px] h-[340px] opacity-80 drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]" style={{ transform: 'scale(-1, -1)' }} />
-
-      <div className="max-w-2xl px-10 text-center relative z-10">
-        <p className="text-amber-500/70 text-sm font-black uppercase tracking-[0.5em] mb-8 animate-in fade-in slide-in-from-top-4 duration-1000">Сектор {String(sector)}</p>
-        <p className="text-slate-100 text-2xl md:text-3xl font-semibold leading-relaxed italic drop-shadow-[0_0_20px_rgba(0,0,0,0.9)] animate-in fade-in slide-in-from-bottom-4 duration-1000">
-          «{text}»
-        </p>
-      </div>
-
-      {showPrompt && (
-        <div className="absolute bottom-12 left-0 right-0 flex justify-center animate-in fade-in duration-700">
-          <p className="text-slate-300 text-sm uppercase tracking-[0.3em] font-black animate-pulse drop-shadow-[0_0_10px_rgba(0,0,0,0.9)]">Нажмите любую клавишу чтобы продолжить</p>
-        </div>
-      )}
-    </div>
-  );
-};
-
 // --- Экран загрузки (прогрев звуков и ассетов) ---
 const Preloader = ({ assets, onEnter }) => {
   const [sfxLoaded, setSfxLoaded] = useState(0);
   const totalUnits = assets.length;
-  const pct = Math.min(100, Math.round((sfxLoaded / totalUnits) * 100));
+  const pct = totalUnits ? Math.min(100, Math.round((sfxLoaded / totalUnits) * 100)) : 100;
   const ready = sfxLoaded >= assets.length;
   const splash = useMemo(() => pickColdSplash(), []);
 
@@ -2844,14 +2812,27 @@ const Preloader = ({ assets, onEnter }) => {
       setSfxLoaded(sfxCount);
     };
 
-    assets.forEach((src) => {
+    const cleanups = assets.map((src) => {
+      let settled = false;
+      let removeListeners = () => {};
+      // A stalled media request must not strand the entry screen forever.
+      const timeout = setTimeout(() => finish(), 15000);
+      const finish = () => {
+        if (settled || cancelled) return;
+        settled = true;
+        clearTimeout(timeout);
+        removeListeners();
+        bumpSfx();
+      };
       const isAudio = /\.(wav|mp3|ogg)$/i.test(src);
       if (isAudio) {
         const a = new Audio();
         a.preload = 'auto';
-        const fin = () => bumpSfx();
-        a.addEventListener('canplaythrough', fin, { once: true });
-        a.addEventListener('error', fin, { once: true });
+        // A decoded first chunk is enough for SFX. canplaythrough is only an
+        // estimate and some browsers never dispatch it for short cached audio.
+        const events = ['loadeddata', 'canplaythrough', 'error', 'abort'];
+        events.forEach(event => a.addEventListener(event, finish));
+        removeListeners = () => events.forEach(event => a.removeEventListener(event, finish));
         a.src = src;
         a.load();
         _audioCache[src] = a;
@@ -2859,16 +2840,18 @@ const Preloader = ({ assets, onEnter }) => {
         const img = new Image();
         img.onload = () => {
           const decoded = img.decode?.();
-          if (decoded?.then) decoded.then(bumpSfx, bumpSfx);
-          else bumpSfx();
+          if (decoded?.then) decoded.then(finish, finish);
+          else finish();
         };
-        img.onerror = bumpSfx;
+        img.onerror = finish;
+        removeListeners = () => { img.onload = null; img.onerror = null; };
         img.src = src;
         _imageCache[src] = img;
       }
+      return () => { clearTimeout(timeout); removeListeners(); };
     });
 
-    return () => { cancelled = true; };
+    return () => { cancelled = true; cleanups.forEach(cleanup => cleanup()); };
   }, [assets]);
 
   return (
@@ -2884,14 +2867,9 @@ const Preloader = ({ assets, onEnter }) => {
       <p className="text-slate-500 text-xs uppercase tracking-[0.5em] mb-12">Подготовка к спуску</p>
 
       <div className="w-[min(80vw,420px)]">
-        <div className="h-3 w-full bg-slate-800/80 rounded-full overflow-hidden border border-slate-700 shadow-inner">
-          <div
-            className="h-full bg-white transition-all duration-300 ease-out"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
+        <KitProgress value={pct} label="Загрузка игры" />
         <div className="flex justify-between mt-3 text-[11px] uppercase tracking-widest font-black">
-          <span className="text-slate-500">{ready ? 'Готово' : 'Загрузка ассетов…'}</span>
+          <span className="text-slate-500"><SmallIconText>{ready ? 'Готово' : 'Загрузка ассетов…'}</SmallIconText></span>
           <span className="text-slate-300">{pct}%</span>
         </div>
       </div>
@@ -2900,12 +2878,13 @@ const Preloader = ({ assets, onEnter }) => {
         {ready && pct >= 100 ? (
           <button
             onClick={onEnter}
-            className="px-14 py-5 bg-white text-slate-900 rounded-full font-black text-xl uppercase tracking-tighter hover:scale-110 active:scale-95 transition-all shadow-[0_0_30px_rgba(255,255,255,0.45)] animate-in fade-in zoom-in-90 duration-500"
+            className="kit-button kit-button-red w-60 animate-in fade-in duration-500"
+            style={{ height: 62.4 }}
           >
             Войти
           </button>
         ) : (
-          <div className="w-10 h-10 border-4 border-slate-700 border-t-amber-500 rounded-full animate-spin" />
+          <span className="text-2xl animate-pulse"><SmallIconText>⏳</SmallIconText></span>
         )}
       </div>
     </div>
@@ -3277,10 +3256,12 @@ export default function App({
   dungeonEncounter = null,
   onDungeonEncounterEnd,
   dungeonMode = false,
-  dungeonTools = null,
+  dungeonTools = PRODUCTION_DUNGEON_TOOLS,
 }) {
   const isolatedBattle = combatLab || Boolean(dungeonEncounter);
-  const activeDungeonMode = dungeonMode && Boolean(dungeonTools);
+  // Основной забег всегда использует физическую dungeon-карту. dungeonMode
+  // остаётся только dev-shortcut, который пропускает прелоадер и таверну.
+  const activeDungeonMode = !isolatedBattle && Boolean(dungeonTools);
   // Мета-прогресс между перезапусками пока не сохраняем — чистим хвосты localStorage.
   useEffect(() => {
     if (isolatedBattle) return;
@@ -3350,6 +3331,8 @@ export default function App({
   ));
   const [discardPile, setDiscardPile] = useState([]);
   const [xp, setXp] = useState(0);
+  const [onboardingWins, setOnboardingWins] = useState(0);
+  const onboardingWinsRef = useRef(0);
   const [playerLevel, setPlayerLevel] = useState(1); 
   const [xpToNext, setXpToNext] = useState(XP_BASE_THRESHOLD);
   // Мета-валюта: переживает смерть, тратится на стартовые карты на экране подготовки
@@ -3397,12 +3380,22 @@ export default function App({
   const creditedDungeonCoinsRef = useRef(new Set());
   const [currentStage, setCurrentStage] = useState(combatLab ? 5 : dungeonEncounter ? 1 : 0);
   const [sector, setSector] = useState(1);
-  const [sectorSplash, setSectorSplash] = useState(null);
+  const [sectorSelection, setSectorSelection] = useState(null);
   // Лучший достигнутый сектор (переживает смерть и перезапуск) — мета-прогресс
   // для условий разблокировки («Дойдите до пыточных» = сектор 2, torture).
   const [maxSectorReached, setMaxSectorReached] = useState(() => {
     try { return Math.max(1, Number(localStorage.getItem('idler_maxSectorReached')) || 1); } catch { return 1; }
   });
+  const [maxSectorCompleted, setMaxSectorCompleted] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem('idler_maxSectorCompleted'));
+      return Math.max(0, Number.isFinite(saved) ? saved : 0, maxSectorReached - 1);
+    } catch { return Math.max(0, maxSectorReached - 1); }
+  });
+  useEffect(() => {
+    if (isolatedBattle) return;
+    try { localStorage.setItem('idler_maxSectorCompleted', String(maxSectorCompleted)); } catch { /* quota */ }
+  }, [isolatedBattle, maxSectorCompleted]);
   useEffect(() => {
     if (isolatedBattle) return;
     try { localStorage.setItem('idler_maxSectorReached', String(maxSectorReached)); } catch { /* quota */ }
@@ -3443,7 +3436,10 @@ export default function App({
   // живут в собственном компоненте FxLayer и обновляются через imperative API.
   // Их частые setState'ы НЕ перерисовывают App.
   const fxRef = useRef(null);
-  const [inventory, setInventory] = useState([]);
+  const [inventoryState, setInventory] = useReducer(inventoryReducer, EMPTY_INVENTORY);
+  const inventory = inventoryState.items;
+  const creditedOverflowRef = useRef({ xp: 0, count: 0 });
+  const [inventoryNotice, setInventoryNotice] = useState(null);
   const [equipped, setEquipped] = useState({ p1: null, p2: null, p3: null });
   const [dragSrcIdx, setDragSrcIdx] = useState(null);
   const [dragOverPlayerId, setDragOverPlayerId] = useState(null);
@@ -3457,10 +3453,10 @@ export default function App({
   const [rewardTitle, setRewardTitle] = useState('УРОВЕНЬ ПОВЫШЕН!');
   // Попап «слоты отряда» устарел — заменён на CardRevealOverlay (cardReveal).
   const [showReserve, setShowReserve] = useState(false);
-  const [appReady, setAppReady] = useState(isolatedBattle || activeDungeonMode);
+  const [appReady, setAppReady] = useState(isolatedBattle || dungeonMode);
   // Стартовый экран Таверны-Хаба: показывается один раз после прелоадера,
   // закрывается по клику на дверь → отряд попадает на карту сектора.
-  const [showTavern, setShowTavern] = useState(!isolatedBattle && !activeDungeonMode);
+  const [showTavern, setShowTavern] = useState(!isolatedBattle && !dungeonMode);
   const [combatLabBossName, setCombatLabBossName] = useState(COMBAT_LAB_DEFAULT_BOSS);
   const [combatLabCardId, setCombatLabCardId] = useState(COMBAT_LAB_DEFAULT_CARD_ID);
   const [combatLabEnemyCount, setCombatLabEnemyCount] = useState(1);
@@ -4150,8 +4146,8 @@ export default function App({
     setHoveredTargetIds(targetIndices.map(idx => enemies[idx].id));
   };
 
-  const resetGame = (fullReset = false, advanceSector = false, fromDeath = false) => {
-    const nextSector = (fullReset || fromDeath) ? 1 : advanceSector ? sector + 1 : sector;
+  const resetGame = (fullReset = false, advanceSector = false, fromDeath = false, selectedSector = null) => {
+    const nextSector = (fullReset || fromDeath) ? 1 : selectedSector ?? (advanceSector ? sector + 1 : sector);
     setSector(nextSector);
     // Мета-прогресс «лучший сектор» только растёт (смерть его не откатывает).
     setMaxSectorReached(prev => Math.max(prev, nextSector));
@@ -4237,7 +4233,7 @@ export default function App({
     setDefenseRipple(null);
     setEnemyHitStopIds([]);
     setHeroHitStopIds([]);
-    setSectorSplash(null);
+    setSectorSelection(null);
     pendingTransitionRef.current = null;
     if (victoryPauseRef.current) { clearTimeout(victoryPauseRef.current); victoryPauseRef.current = null; }
     dealCounterRef.current = 0;
@@ -4681,6 +4677,21 @@ export default function App({
     });
   }, []);
 
+  useEffect(() => {
+    const amount = inventoryState.overflowXp - creditedOverflowRef.current.xp;
+    const count = inventoryState.overflowCount - creditedOverflowRef.current.count;
+    creditedOverflowRef.current = { xp: inventoryState.overflowXp, count: inventoryState.overflowCount };
+    if (count <= 0) return;
+    gainXp(amount);
+    setInventoryNotice(`Инвентарь заполнен: ${count} предм. → +${Math.max(1, Math.round(amount * 0.25))} опыта`);
+  }, [inventoryState.overflowXp, inventoryState.overflowCount, gainXp]);
+
+  useEffect(() => {
+    if (!inventoryNotice) return;
+    const timer = setTimeout(() => setInventoryNotice(null), 3500);
+    return () => clearTimeout(timer);
+  }, [inventoryNotice]);
+
   // Драйвер очереди левелапов: пока есть невыбранные уровни и не открыт другой попап —
   // показываем выбор награды (каждый уровень — отдельный выбор, поочерёдно).
   useEffect(() => {
@@ -4992,6 +5003,20 @@ export default function App({
     setInventory((previous) => sortUniqueItemsByRarity([...previous, item]));
   };
 
+  // Огонёк на кнопке слияния: горит, когда слить действительно есть что — три
+  // предмета одной редкости, которую ещё можно повысить. Предметы, уже лежащие
+  // в гнёздах панели, считаются вместе с инвентарём: иначе огонь гас бы ровно в
+  // тот момент, когда игрок начал собирать тройку.
+  const mergeReady = useMemo(() => {
+    const byRarity = {};
+    for (const item of [...inventory, ...craftSlots]) {
+      if (!item || !getNextRarity(item.rarity)) continue;
+      byRarity[item.rarity] = (byRarity[item.rarity] || 0) + 1;
+      if (byRarity[item.rarity] >= 3) return true;
+    }
+    return false;
+  }, [inventory, craftSlots]);
+
   const doCraft = () => {
     const items = craftSlots.filter(Boolean);
     if (items.length < 3) {
@@ -5012,7 +5037,6 @@ export default function App({
     setInventory(prev => sortUniqueItemsByRarity([...prev, result]));
     setCraftSlots([null, null, null]);
     playSound('./assets/sfx/events/powerup_select.wav', 0.6);
-    setShowCraft(false);
     setCraftWarning('');
   };
 
@@ -5064,10 +5088,31 @@ export default function App({
     return shuffleArray(candidates).slice(0, 3);
   };
 
-  // Босс повержен: сразу заставка следующего сектора (отдельного экрана победы нет)
+  // Завершение сектора открывает промежуточную карту. Вход в комнату отдельно
+  // выполняет штатный resetGame, сохраняя отряд, колоду и инвентарь.
   const startNextSector = () => {
     playSound('./assets/sfx/game/victory.wav');
-    setSectorSplash({ text: SECTOR_NARRATIVES[Math.floor(Math.random() * SECTOR_NARRATIVES.length)], sector: sector + 1 });
+    setMaxSectorCompleted(previous => Math.max(previous, sector));
+    setMaxSectorReached(previous => Math.max(previous, sector + 1));
+    setSectorSelection({ sector: sector + 1, restart: true });
+  };
+
+  const selectExpeditionSector = (selectedSector) => {
+    if (!sectorSelection || !canEnterSector(selectedSector, maxSectorReached)) return;
+    playSound('./assets/sfx/map/node_click.wav', 0.55);
+    if (sectorSelection.restart || selectedSector !== sector) resetGame(false, false, false, selectedSector);
+    setSectorSelection(null);
+    retreatInProgressRef.current = false;
+    setTavernRested(false);
+    setShowTavern(false);
+  };
+
+  const closeSectorSelection = () => {
+    // The exit has already been consumed: establish the next sector's base
+    // before returning to the tavern, so coming back cannot resume a spent exit.
+    if (sectorSelection?.restart) resetGame(false, false, false, sectorSelection.sector);
+    setSectorSelection(null);
+    setShowTavern(true);
   };
 
   // Вход в фазу карты: поле боя полностью очищается — трупы врагов, комбо-руна,
@@ -5094,8 +5139,19 @@ export default function App({
   };
 
   // Пост-бой: смерть последнего врага → короткая пауза (анимация смерти доигрывает),
-  // затем очистка поля и дизолв карты поверх боя (MapOverlay). Босс — заставка
+  // затем очистка поля и дизолв карты поверх боя (MapOverlay). Босс — выбор
   // нового сектора. Открытый level-up откладывает переход.
+  const recordOnboardingWin = () => {
+    if (isolatedBattle || onboardingWinsRef.current >= 3) return;
+    onboardingWinsRef.current += 1;
+    setOnboardingWins(onboardingWinsRef.current);
+    if (onboardingWinsRef.current === 1) {
+      addItemToInventory(generateItemOfRarity('COMMON'));
+      // gainXp applies x0.25: +40 actual XP, once per session, toward the first upgrade.
+      gainXp(160);
+    }
+  };
+
   const triggerVictoryTransition = () => {
     if (dungeonEncounter) {
       if (!victoryPauseRef.current) {
@@ -5107,6 +5163,7 @@ export default function App({
       const victoryKey = `${currentMapNodeId}:${dungeonRun.encounter.id}`;
       if (!questVictoryNodesRef.current.has(victoryKey)) {
         questVictoryNodesRef.current.add(victoryKey);
+        recordOnboardingWin();
         recordTaskProgress(TASK_METRICS.BATTLES_WON, 1);
       }
       if (showLevelUpRef.current) {
@@ -5118,6 +5175,7 @@ export default function App({
     }
     if (!questVictoryNodesRef.current.has(currentMapNodeId)) {
       questVictoryNodesRef.current.add(currentMapNodeId);
+      recordOnboardingWin();
       recordTaskProgress(TASK_METRICS.BATTLES_WON, 1);
     }
     setCompletedNodes(prev => prev.includes(currentMapNodeId) ? prev : [...prev, currentMapNodeId]);
@@ -5555,7 +5613,7 @@ export default function App({
           },
           targetNodes,
           card: { icon: card.icon, name: card.name },
-          onHorseImpact: (targetNode) => applyHorseImpact(targetNode),
+          onHorseImpact: (targetNode, active) => applyHorseImpact(targetNode, active),
           resolve,
         })).then((mult) => {
           setQteHeroId(prev => prev === player.id ? null : prev);
@@ -5735,6 +5793,7 @@ export default function App({
       qteMult,
       {
         damageScale = 1,
+        damageOverride = null,
         applySecondary = true,
         bloodScale = 1,
         impactRealTime = false,
@@ -5753,6 +5812,7 @@ export default function App({
       // QTE «Perfect Hit»: множитель тайминга применяется к итоговому урону карты
       if (qteMult > 1) baseDamage = Math.round(baseDamage * qteMult);
       if (damageScale !== 1) baseDamage = Math.max(1, Math.round(baseDamage * damageScale));
+      if (damageOverride != null) baseDamage = damageOverride;
       // База — актуальное состояние врагов из рефа (важно при параллельных розыгрышах)
       const newEnemies = enemiesRef.current.map(e => ({...e})); let xpToSpawn = []; let lootToSpawn = [];
 
@@ -5889,12 +5949,13 @@ export default function App({
       });
     };
 
-    // Каждый зажжённый конь — самостоятельный полноценный импакт. Используем
-    // общий пайплайн applyStrike, поэтому у каждого попадания есть цифра урона,
-    // вспышка/увеличение врага, кровь, звук, тряска, крит и обработка смерти.
-    // Если выбранная при старте цель уже мертва, перенаправляем коня на ближайшую
-    // к его линии живую цель.
-    applyHorseImpact = (requestedTarget) => {
+    // The entire herd shares one damage budget, including the chain bonus.
+    const horseDamage = createHorseDamageBudget(
+      computeCardDamage(effectivePlayer, card, comboDamageMult).damage + chainBonusAtPlay,
+    );
+    applyHorseImpact = (requestedTarget, active = false) => {
+      const damage = horseDamage(active);
+      if (damage <= 0) return null;
       const liveEnemies = enemiesRef.current.filter(enemy => !enemy.isDead && enemy.hp > 0);
       if (liveEnemies.length === 0) return null;
 
@@ -5913,7 +5974,7 @@ export default function App({
       const targetIndex = enemiesRef.current.findIndex(enemy => enemy.id === target.id);
       const rect = enemyRefs.current[target.id]?.getBoundingClientRect();
       if (targetIndex < 0) return null;
-      applyStrike([targetIndex], 1, { impactRealTime: true });
+      applyStrike([targetIndex], 1, { impactRealTime: true, damageOverride: damage });
       return rect ? {
         id: target.id,
         x: rect.left + rect.width / 2,
@@ -6090,7 +6151,15 @@ export default function App({
         } else {
           clearOwnVfx();
         }
-        if (!isHorseHerd && !mashMounted && !volleyMounted) {
+        if (isHorseHerd && !qteRingMounted) {
+          // A missing arena/QTE must still deliver the ordinary herd budget once.
+          const total = computeCardDamage(effectivePlayer, card, comboDamageMult).damage + chainBonusAtPlay;
+          targetIndices.forEach((targetIndex, index) => {
+            const damage = Math.floor(total * (index + 1) / targetIndices.length)
+              - Math.floor(total * index / targetIndices.length);
+            if (damage > 0) applyStrike([targetIndex], 1, { damageOverride: damage });
+          });
+        } else if (!isHorseHerd && !mashMounted && !volleyMounted) {
           if (targetIndices.length > 0) applyStrike(targetIndices, qteMult);
         } else if (chainBonusAtPlay > 0 && !chainBonusConsumed) {
           // Карта уже разыграна: усиление цепи тратится даже если ни одного коня
@@ -6315,7 +6384,7 @@ export default function App({
         return;
       }
 
-      const base = Math.floor((Math.random() * 8 + 8 + (currentStage * 3)) * ENEMY_POWER_MULT);
+      const base = Math.floor((Math.random() * 8 + 8 + (currentStage * 3)) * (enemy.attackPower ?? 0.5));
       const weakenAtk = statuses.weaken?.atk || 0;
       const damage = Math.max(1, Math.round(base * (enemy.dmgMult || 1) * (1 - weakenAtk)));
       const style = enemy.attackStyle || 'melee';
@@ -7011,7 +7080,7 @@ export default function App({
     setComboStreak(0);
     setComboCount(0);
     setShowLevelUp(false);
-    setSectorSplash(null);
+    setSectorSelection(null);
     fxRef.current?.clearAll();
   }, [combatLabBossName, combatLabCardId, combatLabEnemyCount]);
 
@@ -7084,7 +7153,12 @@ export default function App({
     hoveredTargetIds.forEach(id => {
       const enemy = enemies.find(e => e.id === id);
       if (enemy && !enemy.isDead) {
-        map[id] = computePreviewDamageOnEnemy(eff, player.currentCard, enemy, comboMult, chainAttackBonus);
+        const preview = computePreviewDamageOnEnemy(eff, player.currentCard, enemy, comboMult, chainAttackBonus);
+        if (player.currentCard.qte?.mechanic === 'HORSE_HERD') {
+          preview.damage = Math.floor(preview.damage / Math.max(1, hoveredTargetIds.length));
+          preview.isLethal = preview.damage >= enemy.hp;
+        }
+        map[id] = preview;
       }
     });
     return map;
@@ -7141,11 +7215,7 @@ export default function App({
     dispatchDungeon({ type: 'consume-exit' });
     setCompletedNodes(previous => previous.includes(currentNode.id) ? previous : [...previous, currentNode.id]);
     if (currentNode.type === 'boss' || currentNode.stage === 5) {
-      playSound('./assets/sfx/game/victory.wav');
-      setSectorSplash({
-        text: SECTOR_NARRATIVES[Math.floor(Math.random() * SECTOR_NARRATIVES.length)],
-        sector: sector + 1,
-      });
+      startNextSector();
       return;
     }
     const targets = currentNode.next
@@ -7239,6 +7309,10 @@ export default function App({
     drawCount: liveDrawCount,
     discardCount: discardPile.length,
     background: bgLocation,
+    onboardingHint: isolatedBattle ? null : getOnboardingHint({
+      wins: onboardingWins, turnState, mana,
+      cards: players.filter(player => player.hp > 0 && !player.hasActed && player.currentCard).map(player => player.currentCard),
+    }),
     shake,
     flashingTargets,
     animatingTargetIds,
@@ -7270,7 +7344,6 @@ export default function App({
       const isDead = player.hp <= 0;
       const isDisabled = turnState !== 'player' || mana < (card?.cost || 0) || isDead
         || player.hasActed || showLevelUp || turnState === 'map';
-      const effect = card ? getCardDescription(eff, card).effectLine : null;
       const anim = attackAnims[player.id];
       return {
         id: player.id,
@@ -7296,14 +7369,7 @@ export default function App({
           : null,
         colorize: getHeroColorize(player.id),
         qteGlow: CHAR_QTE_GLOW[player.id],
-        card: card && {
-          source: card,
-          name: card.name,
-          icon: card.icon,
-          cost: card.cost,
-          rarity: card.rarity,
-          description: effect ? `${effect.label} ${effect.value}` : getTargetingLabel(getCardTargeting(card)),
-        },
+        card: card && { source: card, ...toMagicCard(card, eff, { comboMult: COMBO_DAMAGE_MULT[getCardComboStatus(player.id, card).comboStep], chainBonus: turnState === 'player' ? chainAttackBonus : 0 }) },
       };
     }),
 
@@ -7315,7 +7381,7 @@ export default function App({
       badges: enemyBadges(enemy),
     })),
 
-    items: [...inventory.slice(0, 9), ...Array(Math.max(0, 9 - inventory.length)).fill(null)]
+    items: inventorySlots(inventory)
       .map(itemForCanvas),
 
     // Узлы отдаём функциями, а не самими рефами: от этих боксов VFX и QTE
@@ -7347,6 +7413,7 @@ export default function App({
       open: showCraft,
       slots: craftSlots.map(itemForCanvas),
       warning: craftWarning,
+      ready: mergeReady,
     },
     onMergeSlotClick: removeFromCraft,
     onMergeConfirm: doCraft,
@@ -7371,14 +7438,18 @@ export default function App({
     arenaVeilVisible: !activeDungeonMode && arenaUiPhase !== 'idle',
 
     render: {
-      combo: () => <ComboIndicator count={comboCount} />,
+      combo: () => <ComboIndicator count={comboCount} embedded />,
       mapPanel: () => mapPanelNode(0),
       arenaVeil: () => arenaVeilNode(0),
       // Значки эффектов и полоска HP сюда не входят: они рисуются в пикселях
       // холста, а этот слой, наоборот, компенсирует масштаб сцены и живёт в
       // экранных.
-      enemyOverlay: (enemy, { isHoveredTarget }) => {
+      enemyReticle: (enemy, { isHoveredTarget }) => {
         const preview = hoverTargetPreview[enemy.id];
+        return isHoveredTarget && !isAnimating && preview
+          ? <TargetReticle damage={preview.damage} lethal={preview.isLethal} /> : null;
+      },
+      enemyOverlay: (enemy) => {
         return (
           <>
             {speakingEnemy?.id === enemy.id && !enemy.isDead && (
@@ -7387,9 +7458,6 @@ export default function App({
                 name={speakingEnemy.name || enemy.name}
                 onTypingDone={() => finishEnemySpeech(enemy.id)}
               />
-            )}
-            {isHoveredTarget && !isAnimating && preview && (
-              <TargetReticle damage={preview.damage} lethal={preview.isLethal} />
             )}
           </>
         );
@@ -7452,6 +7520,8 @@ export default function App({
   // свою колонку от вьюпорта, холст — в бокс сцены. Отличается только отступ
   // сверху: на холсте бокс сам задаёт геометрию, поэтому topPx там нулевой.
   const mapPanelNode = (topPx) => {
+    // Unmount movement handlers while the sector selection covers the dungeon.
+    if (sectorSelection) return null;
     if (activeDungeonMode && dungeonRun) {
       const DungeonMap = dungeonTools.Map;
       const branchNodes = (currentNode?.next || [])
@@ -7461,14 +7531,17 @@ export default function App({
       const dungeonBranches = branchNodes.length > 0
         ? branchNodes.map((node, index) => {
           const info = getNodeInfo(node.type);
-          return { icon: info.icon, label: `Ветка ${index + 1}: ${info.label}` };
+          return { type: node.type, icon: info.icon, label: `Ветка ${index + 1}: ${info.label}` };
         })
-        : [{ icon: NODE_INFO.base.icon, label: 'Выход в следующий сектор' }];
+        : [{ type: 'exit', icon: NODE_INFO.base.icon, label: 'Выход в следующий сектор' }];
       return (
         <DungeonMap
           run={dungeonRun}
           dispatch={dispatchDungeon}
           branches={dungeonBranches}
+          sector={sector}
+          stage={currentNode?.stage || 1}
+          locationTint={bgLocation}
           onEncounter={handleDungeonEncounter}
           onChest={handleDungeonChest}
           onExit={handleDungeonExit}
@@ -7564,7 +7637,7 @@ export default function App({
         />
       )}
 
-      {appReady && showTavern && !cardReveal && (
+      {appReady && showTavern && !sectorSelection && !cardReveal && (
         <TavernHubScreen
           activeParty={players.map(p => ({
             id: p.id,
@@ -7592,9 +7665,7 @@ export default function App({
             }
             if (payload.action === 'OPEN_MAP') {
               playSound('./assets/sfx/map/node_click.wav', 0.55);
-              retreatInProgressRef.current = false;
-              setTavernRested(false);
-              setShowTavern(false);
+              setSectorSelection({ sector, restart: false });
               return;
             }
             if (payload.action === 'DIALOGUE_COMMAND') {
@@ -7680,7 +7751,7 @@ export default function App({
       )}
       {!showHeroInventory && (
         <>
-          <ShaderBackground hue={bgLocation.hue} sat={bgLocation.sat} speed={bgSpeed} />
+          <ShaderBackground hue={bgLocation.hue} sat={bgLocation.sat} speed={bgSpeed} active={!showTavern && !sectorSelection} />
           <ImageBackground imageUrl={bgLocation.url} hue={bgLocation.hue} sat={bgLocation.sat} />
 
           {/* Декоративные уголки сцены боя: слой над фоном, но под HUD; не пересекают
@@ -7715,18 +7786,11 @@ export default function App({
           50% { filter: brightness(0.6) sepia(1) hue-rotate(-32deg) saturate(250%); }
         }
         @keyframes enemyHitStopImpact {
-          0%   { transform: translate(0, 0) rotate(0deg) scale(1.4); }
-          8%   { transform: translate(-4px, 2px) rotate(-0.5deg) scale(1.4); }
-          17%  { transform: translate(7px, -3px) rotate(0.8deg) scale(1.4); }
-          26%  { transform: translate(-10px, 4px) rotate(-1.1deg) scale(1.4); }
-          34%  { transform: translate(14px, -5px) rotate(1.5deg) scale(1.4); }
-          43%  { transform: translate(-20px, 7px) rotate(-2deg) scale(1.4); }
-          50%  { transform: translate(16px, -6px) rotate(1.7deg) scale(1.4); }
-          58%  { transform: translate(-12px, 4px) rotate(-1.25deg) scale(1.4); }
-          67%  { transform: translate(8px, -3px) rotate(0.85deg) scale(1.4); }
-          77%  { transform: translate(-5px, 2px) rotate(-0.5deg) scale(1.4); }
-          88%  { transform: translate(2px, -1px) rotate(0.2deg) scale(1.4); }
-          100% { transform: translate(0, 0) rotate(0deg) scale(1.4); }
+          0% { transform: translateX(0); }
+          12% { transform: translateX(-5px); }
+          28% { transform: translateX(4px); }
+          45% { transform: translateX(-2px); }
+          65%, 100% { transform: translateX(0); }
         }
         @keyframes modStampSlam {
           0%   { opacity: 0; transform: scale(2.6) rotate(-14deg); }
@@ -7781,38 +7845,34 @@ export default function App({
       )}
 
       <audio ref={audioRef} loop preload="auto" />
+      {inventoryNotice && <div role="status" className="fixed left-1/2 top-16 -translate-x-1/2 z-[9600] pointer-events-none border border-amber-700 bg-slate-950 px-4 py-2 text-amber-200">
+        {inventoryNotice}
+      </div>}
+
 
       {/* Глобальный кошелёк — поверх всех экранов, правый верхний угол */}
-      {appReady && !isolatedBattle && <WalletHUD gold={gold} soulEmbers={soulEmbers} />}
+      {appReady && <WalletHUD gold={gold} soulEmbers={soulEmbers} />}
 
       {appReady && !isolatedBattle && (isActiveCombat || isSelectingMapNode) && (
         <button
           type="button"
           onClick={() => handleExitExpedition(isAtSectorBase)}
-          className={`absolute left-4 top-14 z-[9300] flex min-w-[150px] items-center justify-center gap-2 rounded-xl border px-4 py-2 text-[11px] font-black uppercase tracking-wider text-white shadow-xl backdrop-blur-sm transition-all hover:scale-105 active:scale-95 ${
-            isAtSectorBase
-              ? 'border-emerald-500/70 bg-emerald-950/90 hover:bg-emerald-900'
-              : 'border-red-500/70 bg-red-950/90 hover:bg-red-900'
-          }`}
+          className={`kit-button absolute left-4 top-16 z-[9300] flex items-center justify-center gap-2 ${isAtSectorBase ? '' : 'kit-button-red'}`}
           title={isAtSectorBase ? 'Вернуться в таверну без потерь' : 'Завершить забег и потерять 30% предметов общего инвентаря'}
         >
-          <span>↩</span>
+          <span><SmallIconText>↩</SmallIconText></span>
           <span>
             {isAtSectorBase ? 'В ТАВЕРНУ' : isActiveCombat ? 'ВЫЙТИ ИЗ БОЯ' : 'ВЫЙТИ ИЗ ПОХОДА'}
           </span>
-          {!isAtSectorBase && <span className="text-amber-300">−30% ПРЕДМЕТОВ</span>}
+          {!isAtSectorBase && <span className="text-amber-300 text-[12px]"><SmallIconText>−30% ПРЕДМЕТОВ</SmallIconText></span>}
         </button>
       )}
 
       {/* Музыка + SFX + полноэкран (сдвинуты под кошелёк) */}
-      <div className={`${isolatedBattle ? 'hidden ' : ''}absolute top-14 right-[52px] z-[9000] flex items-center gap-3 bg-slate-900/80 border border-slate-700 rounded-xl px-3 py-2 backdrop-blur-sm shadow-lg`}>
+      <div className={`${isolatedBattle ? 'hidden ' : ''}kit-panel kit-toolbar absolute top-[72px] right-[52px] z-[9000] flex items-center gap-3`}>
         {/* Кнопка вкл/выкл музыки */}
         <button onClick={toggleMusic} className="text-slate-400 hover:text-white transition-colors flex items-center" title={musicOn ? "Выключить музыку" : "Включить музыку"}>
-          {musicOn ? (
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M9 3v10.55A4 4 0 1 0 11 17V7h4V3z"/></svg>
-          ) : (
-            <svg className="w-5 h-5 opacity-40" fill="currentColor" viewBox="0 0 24 24"><path d="M9 3v10.55A4 4 0 1 0 11 17V7h4V3z"/><line x1="2" y1="2" x2="22" y2="22" stroke="currentColor" strokeWidth="2"/></svg>
-          )}
+          <SmallIconText>{musicOn ? '🔉' : '🔇'}</SmallIconText>
         </button>
         {/* Громкость музыки */}
         <input type="range" min="0" max="1" step="0.05" value={musicVolume}
@@ -7820,23 +7880,20 @@ export default function App({
           className="w-14 h-1 accent-purple-400 cursor-pointer" title="Громкость музыки" />
         <div className="w-px h-4 bg-slate-600" />
         {/* Громкость SFX */}
-        <span className="text-slate-400 text-sm select-none">{sfxVolume === 0 ? '🔇' : sfxVolume < 0.5 ? '🔉' : '🔊'}</span>
+        <span className="text-slate-400 text-sm select-none"><SmallIconText>{sfxVolume === 0 ? '🔇' : sfxVolume < 0.5 ? '🔉' : '🔊'}</SmallIconText></span>
         <input type="range" min="0" max="1" step="0.05" value={sfxVolume}
           onChange={e => setSfxVolume(parseFloat(e.target.value))}
           className="w-14 h-1 accent-[#1E88E5] cursor-pointer" title="Громкость SFX" />
       </div>
 
-      <button onClick={toggleFullscreen} className={`${combatLab ? 'hidden ' : ''}absolute top-14 right-4 z-[9100] bg-slate-900/80 border border-slate-700 text-slate-400 hover:text-white hover:border-[#1E88E5] p-2 rounded-xl backdrop-blur-sm transition-all shadow-lg flex items-center justify-center group`} title={isFullscreen ? "Выйти из полноэкранного режима" : "Развернуть игру на всё окно"}>
-        {isFullscreen ? (
-          <svg className="w-5 h-5 group-hover:scale-110 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /></svg>
-        ) : (
-          <svg className="w-5 h-5 group-hover:scale-110 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" /></svg>
-        )}
+      <button onClick={toggleFullscreen} className={`${combatLab ? 'hidden ' : ''}kit-icon-button absolute top-[72px] right-4 z-[9100] flex items-center justify-center`} title={isFullscreen ? "Выйти из полноэкранного режима" : "Развернуть игру на всё окно"}>
+        <SmallIconText>↔</SmallIconText>
       </button>
 
-      <div className={`${combatLab ? 'hidden ' : ''}w-full h-6 shrink-0 bg-slate-900 border-b border-amber-600/30 relative shadow-2xl z-[150] flex items-center`} ref={xpBarRef}>
-        <div className="h-full bg-gradient-to-r from-yellow-700 via-amber-500 to-yellow-300 transition-all duration-1000 ease-out shadow-xl" style={{ width: `${(xp / xpToNext) * 100}%` }}></div>
-        <div className="absolute inset-0 flex items-center justify-center"><div className="text-[10px] font-black tracking-[0.2em] text-white drop-shadow-md uppercase">ПРОГРЕСС ОТРЯДА: {String(xp)} / {String(xpToNext)} XP (LVL {String(playerLevel)})</div></div>
+      <div className={`${combatLab ? 'hidden ' : ''}w-full shrink-0 relative z-[150]`} ref={xpBarRef}>
+        <KitProgress value={xp} max={xpToNext} label="Прогресс отряда">
+          ПРОГРЕСС ОТРЯДА: {String(xp)} / {String(xpToNext)} XP (LVL {String(playerLevel)})
+        </KitProgress>
       </div>
 
       <CombatVfxLayer ref={combatVfxLayerRef} />
@@ -7860,7 +7917,7 @@ export default function App({
           <div className="bg-slate-950/60 py-10 px-16 rounded-[40px] border border-slate-800/60 shadow-[0_0_30px_rgba(0,0,0,0.5)] flex justify-between items-center relative h-[355px] overflow-visible backdrop-blur-md">
             <ComboIndicator count={comboCount} />
             <div className="absolute top-2 left-1/2 -translate-x-1/2 flex flex-col items-center">
-               <div className="bg-slate-700 text-white px-6 py-1 rounded-full font-black text-sm shadow-[0_0_20px_rgba(0,0,0,0.5)] border-2 border-slate-500 uppercase italic tracking-tighter flex items-center gap-2"><span className="not-italic">{currentNodeInfo.icon}</span>{currentNodeInfo.label}</div>
+               <div className="bg-slate-700 text-white px-6 py-1 rounded-full font-black text-sm shadow-[0_0_20px_rgba(0,0,0,0.5)] border-2 border-slate-500 uppercase italic tracking-tighter flex items-center gap-2"><span className="not-italic"><SmallIconText>{currentNodeInfo.icon}</SmallIconText></span>{currentNodeInfo.label}</div>
                <div className="w-[120px] h-[2px] bg-gradient-to-r from-transparent via-slate-500/50 to-transparent mt-2"></div>
             </div>
             <div className="relative w-1/2 z-20 h-full overflow-visible">
@@ -7894,7 +7951,7 @@ export default function App({
                 return (
                   <div key={`field-${player.id}`} ref={el => setAvatarRef(player.id, el)} className={`absolute flex items-center ${transitionClass} ${player.hp <= 0 ? 'opacity-30 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(59,130,246,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`} style={{ transform: avatarTransform, left: pos.left, top: pos.top }}>
                     <div
-                      className={`relative ${getHeroAtlas(player.id) ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'drop-shadow-[0_0_25px_rgba(59,130,246,0.4)]' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''} ${isDefenseWindowFlash ? 'brightness-0 invert scale-150 z-[2000]' : ''}`}
+                      className={`relative ${getHeroAtlas(player.id) ? '' : 'text-6xl'} ${isHovered && !isAnimating ? 'brightness-110' : ''} ${flashingTargets.includes(player.id) ? 'brightness-0 invert z-[2000]' : ''} ${isDefenseWindowFlash ? 'brightness-0 invert z-[2000]' : ''}`}
                       style={{
                         transition: isDefenseWindowFlash
                           ? 'filter 80ms ease-out, transform 100ms ease-out'
@@ -7982,7 +8039,7 @@ export default function App({
                     key={String(enemy.id)}
                     ref={(el) => setEnemyRef(enemy.id, el)}
                     data-qte-realtime={isAttacking && (enemy.attackStyle === 'melee' || !enemy.attackStyle) ? 'true' : undefined}
-                    className={`absolute ${transitionClass} ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isAttacking ? 'z-50 drop-shadow-[0_0_40px_rgba(239,68,68,1)]' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`}
+                    className={`absolute ${transitionClass} ${enemy.isDead ? 'opacity-20 grayscale scale-75' : ''} ${isAttacking ? 'z-50' : ''} ${isBeingAttacked && shake.x === 0 ? 'brightness-150 animate-pulse' : ''}`}
                     style={{
                       transform: moveTransform,
                       right: pos.right,
@@ -8004,7 +8061,7 @@ export default function App({
                           const def = SECONDARY_EFFECTS[key]; if (!def) return null;
                           return (
                             <div key={key} className="flex items-center bg-slate-900/85 border border-slate-600 rounded-md px-1 py-0.5 text-[11px] leading-none shadow-lg">
-                              <span>{def.icon}</span>
+                              <span><SmallIconText>{def.icon}</SmallIconText></span>
                               {val.remaining ? <span className="ml-0.5 font-black text-white text-[9px]">{val.remaining}</span> : null}
                             </div>
                           );
@@ -8016,10 +8073,10 @@ export default function App({
                               const def = SECONDARY_EFFECTS[key]; if (!def) return null;
                               return (
                                 <div key={key} className="flex items-start gap-1.5 text-left">
-                                  <span className="text-sm leading-none mt-0.5">{def.icon}</span>
+                                  <span className="text-sm leading-none mt-0.5"><SmallIconText>{def.icon}</SmallIconText></span>
                                   <div className="flex-1 leading-tight">
-                                    <div className={`text-[10px] font-black uppercase tracking-wide ${def.color}`}>{def.label}{val.remaining ? ` · ${val.remaining} х.` : ''}</div>
-                                    <div className="text-[9px] text-slate-300">{describeStatus(key, val)}</div>
+                                    <div className={`text-[10px] font-black uppercase tracking-wide ${def.color}`}>{def.label}<SmallIconText>{val.remaining ? ` · ${val.remaining} х.` : ''}</SmallIconText></div>
+                                    <div className="text-[9px] text-slate-300"><SmallIconText>{describeStatus(key, val)}</SmallIconText></div>
                                   </div>
                                 </div>
                               );
@@ -8032,7 +8089,7 @@ export default function App({
                     {!enemy.isDead && <EnemyHpBar hp={enemy.hp} maxHp={enemy.maxHp} />}
                     <div className="relative" style={{ transform: spineUnit ? undefined : 'scaleX(-1)' }}>
                       <div
-                        className={`relative ${enemyAtlas ? '' : 'text-6xl'} ${isHoveredTarget || isBeingAttacked ? 'drop-shadow-[0_0_25px_rgba(239,68,68,0.4)]' : ''} ${flashingTargets.includes(enemy.id) && !isHitStopped ? 'brightness-0 invert drop-shadow-[0_0_40px_white] scale-150 -translate-y-4 z-[2000]' : ''} ${isHitStopped ? 'brightness-0 invert drop-shadow-[0_0_70px_white] scale-[1.4] z-[2000]' : ''}`}
+                        className={`relative ${enemyAtlas ? '' : 'text-6xl'} ${isHoveredTarget || isBeingAttacked ? 'brightness-110' : ''} ${flashingTargets.includes(enemy.id) && !isHitStopped ? 'brightness-0 invert z-[2000]' : ''} ${isHitStopped ? 'brightness-0 invert z-[2000]' : ''}`}
                         style={{
                           animation: isHitStopped
                             ? 'enemyHitStopImpact 700ms linear both'
@@ -8041,7 +8098,7 @@ export default function App({
                               : lowHp && !isBeingAttacked && !isAttacking && !flashingTargets.includes(enemy.id)
                                 ? 'lowHpPulse 0.9s ease-in-out infinite'
                                 : 'none',
-                          transition: isHitStopped ? 'none' : 'all 0.15s ease-out',
+                          transition: 'transform 0.15s ease-out',
                           transformOrigin: 'center',
                         }}
                       >
@@ -8070,7 +8127,7 @@ export default function App({
                           <CharSprite atlas={enemyAtlas} size={enemySize} paused={isHitStopped} />
                         ) : String(enemy.icon)}
                         {isHoveredTarget && !isAnimating && targetPreview && (
-                          <TargetReticle damage={targetPreview.damage} lethal={targetPreview.isLethal} />
+                          <div className="absolute left-1/2 top-[44%] -translate-x-1/2 -translate-y-1/2" style={{ width: 88, height: 88, fontSize: 88 }}><TargetReticle damage={targetPreview.damage} lethal={targetPreview.isLethal} /></div>
                         )}
                       </div>
                     </div>
@@ -8119,11 +8176,11 @@ export default function App({
                   <div className={`card-nudge-wrap w-52 ${slotNeighborClass}`}>
                   <TiltWrapper isDisabled={isDisabled} globalShake={shake} className={`w-52 h-[290px] relative z-10 rounded-2xl transition-shadow duration-300 ${comboStatus.willGiveBonus && !isDisabled ? 'shadow-[0_0_34px_8px_rgba(250,204,21,0.65)] animate-pulse' : ''}`}>
                     <div ref={(el) => setSlotRef(p.id, el)} onClick={() => !isDisabled && card && playCard(i, card)} onMouseEnter={() => handleCardHover(i)} onMouseLeave={() => { setHoveredPlayerId(null); setHoveredTargetIds([]); }} className={`w-full h-full bg-slate-800 border-2 rounded-2xl flex flex-col overflow-hidden relative group ${isDead ? 'border-slate-700 opacity-40 grayscale scale-95' : 'border-slate-600 shadow-2xl shadow-black/80'} ${!isDisabled ? 'cursor-pointer hover:border-[#1E88E5]' : ''}`}>
-                      <div className={`${p.bg} py-1.5 px-3 border-b border-white/10 flex justify-between items-center`}><span className="text-sm">{String(p.icon)}</span><span className="font-black uppercase tracking-tighter text-[10px] text-white">{String(p.name)}</span><span className="text-[8px] font-mono text-red-400">{String(p.hp)}/{String(eff.maxHp)} HP</span></div>
+                      <div className={`${p.bg} py-1.5 px-3 border-b border-white/10 flex justify-between items-center`}><span className="text-sm"><SmallIconText>{String(p.icon)}</SmallIconText></span><span className="font-black uppercase tracking-tighter text-[10px] text-white">{String(p.name)}</span><span className="text-[8px] font-mono text-red-400">{String(p.hp)}/{String(eff.maxHp)} HP</span></div>
                       <div className="p-1.5 bg-slate-900/50"><div className="h-1.5 bg-slate-950 rounded-full overflow-hidden shadow-inner"><div className="h-full bg-[#D32F2F] transition-all duration-500" style={{ width: `${(p.hp/eff.maxHp)*100}%` }}></div></div></div>
                       <div className="p-1.5 bg-slate-950 relative flex flex-col items-center justify-center flex-1 min-h-[190px] overflow-visible" style={{ transformStyle: 'preserve-3d' }}>
                         {isDead ? <span className="text-[9px] uppercase text-slate-600 font-black tracking-widest">Павший</span> : !card && p.hasActed ? (
-                          <div className="flex flex-col items-center opacity-30 animate-pulse"><span className="text-4xl text-[#1E88E5]">⏳</span><span className="text-[8px] uppercase font-black mt-2 tracking-widest text-center leading-tight text-white">Ход завершен</span></div>
+                          <div className="flex flex-col items-center opacity-30 animate-pulse"><span className="text-4xl text-[#1E88E5]"><SmallIconText>⏳</SmallIconText></span><span className="text-[8px] uppercase font-black mt-2 tracking-widest text-center leading-tight text-white">Ход завершен</span></div>
                         ) : card ? (
                           <AbilityCard card={card} owner={eff} mana={mana} maxMana={maxMana} isDisabled={isDisabled} comboState={comboStatus} chainBonus={chainAttackBonus} />
                         ) : <div className="w-full h-full border-2 border-dashed border-slate-800 rounded-xl flex items-center justify-center text-[#1E88E5]/40 font-black italic">...</div>}
@@ -8167,7 +8224,7 @@ export default function App({
           {/* Инвентарь — горизонтальная полоса под карточками + кнопка крафта справа.
               Во время карты сектора скрыт (карта занимает его место), ref остаётся смонтирован. */}
           <div ref={inventoryRef} className={`relative flex items-center justify-center gap-1.5 rounded-2xl px-[55px] py-3 w-fit mx-auto transition-opacity duration-200 ${turnState === 'map' ? 'opacity-0 pointer-events-none' : 'opacity-100'}`} style={{ marginTop: '33px', background: 'linear-gradient(to right, rgba(15,23,42,0) 0%, rgba(15,23,42,0.6) 50%, rgba(15,23,42,0) 100%)' }}>
-            {[...inventory.slice(0, 9), ...Array(Math.max(0, 9 - inventory.length)).fill(null)].map((item, idx) => (
+            {inventorySlots(inventory).map((item, idx) => (
               <ItemSlot
                 key={idx}
                 item={item}
@@ -8300,7 +8357,7 @@ export default function App({
           targetNodes={qte.targetNodes}
           card={qte.card}
           onActivate={() => playSound('./assets/sfx/ui/click.wav', 0.5)}
-          onImpact={(targetNode) => qte.onHorseImpact?.(targetNode)}
+          onImpact={(targetNode, active) => qte.onHorseImpact?.(targetNode, active)}
           onResolve={(multiplier) => {
             qteSlowMo.end();
             qte.resolve(multiplier);
@@ -8366,7 +8423,7 @@ export default function App({
       {showCraft && !canvasBattle && (
         <div className="fixed inset-0 z-[6000] bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center animate-in fade-in duration-300" onClick={closeCraft}>
           <div className="relative flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
-            <button onClick={closeCraft} className="absolute -top-12 -right-12 w-10 h-10 rounded-full bg-slate-800 border border-slate-600 text-slate-300 hover:text-white hover:border-red-500 hover:bg-red-900/40 transition-all flex items-center justify-center font-black text-lg">✕</button>
+            <button onClick={closeCraft} className="absolute -top-12 -right-12 w-10 h-10 rounded-full bg-slate-800 border border-slate-600 text-slate-300 hover:text-white hover:border-red-500 hover:bg-red-900/40 transition-all flex items-center justify-center font-black text-lg"><SmallIconText>✕</SmallIconText></button>
 
             <p className="text-slate-300 text-[11px] uppercase tracking-[0.3em] text-center mb-6 font-black drop-shadow-md">Перетащите 3 предмета одной редкости из инвентаря</p>
 
@@ -8384,10 +8441,10 @@ export default function App({
                     {slot ? (
                       <ItemIcon item={slot} className="w-full h-full" />
                     ) : (
-                      <span className="text-slate-600 text-4xl font-black">+</span>
+                      <span className="text-slate-600 text-4xl font-black"><SmallIconText>+</SmallIconText></span>
                     )}
                   </div>
-                  {i < 2 && <span className="text-amber-500 text-3xl font-black drop-shadow-md">+</span>}
+                  {i < 2 && <span className="text-amber-500 text-3xl font-black drop-shadow-md"><SmallIconText>+</SmallIconText></span>}
                 </React.Fragment>
               ))}
             </div>
@@ -8406,7 +8463,7 @@ export default function App({
           {/* Инвентарь внутри оверлея — источник предметов для перетаскивания */}
           <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center justify-center gap-1.5 rounded-2xl px-8 py-3 bg-slate-900/80 border border-slate-700/70 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <span className="text-[8px] uppercase font-black tracking-widest text-amber-500 mr-2 whitespace-nowrap">Инвентарь</span>
-            {[...inventory.slice(0, 9), ...Array(Math.max(0, 9 - inventory.length)).fill(null)].map((item, idx) => (
+            {inventorySlots(inventory).map((item, idx) => (
               <ItemSlot
                 key={`craft-inv-${idx}`}
                 item={item}
@@ -8441,7 +8498,7 @@ export default function App({
                        onClick={() => handleEventChoice(opt.id)}
                        className="flex-1 bg-slate-800 border border-slate-600 hover:border-indigo-400 rounded-2xl p-6 cursor-pointer hover:-translate-y-2 transition-all hover:shadow-[0_0_30px_rgba(99,102,241,0.4)] group flex flex-col items-center"
                     >
-                       <div className="text-6xl mb-4 group-hover:scale-110 transition-transform">{opt.icon}</div>
+                       <div className="text-6xl mb-4 group-hover:scale-110 transition-transform"><SmallIconText>{opt.icon}</SmallIconText></div>
                        <h3 className="text-xl font-bold text-white mb-2">{opt.title}</h3>
                        <p className="text-sm text-slate-400 leading-tight">{opt.desc}</p>
                     </div>
@@ -8500,16 +8557,8 @@ export default function App({
           onUpgrade={upgradeHeroInventoryCard}
           onEquip={equipFromHeroInventory}
           onUnequip={handleUnequip}
-          renderCardPreview={(card, heroId) => (
-            <AbilityCard
-              card={card}
-              owner={players.find((player) => player.id === heroId)}
-              mana={maxMana}
-              maxMana={maxMana}
-              isDisabled={false}
-              showOwnerLabel={true}
-              comboState={{ isCandidate: false, willGiveBonus: false }}
-            />
+          renderCardPreview={(card, heroId, { animated = true } = {}) => (
+            <MagicCard {...toMagicCard(card, players.find(player => player.id === heroId))} animated={animated} />
           )}
           renderBackground={() => (
             <ShaderBackground hue={0} sat={0} speed={0} embedded />
@@ -8528,51 +8577,54 @@ export default function App({
         <CardRevealOverlay
           card={cardReveal.card}
           owner={cardReveal.owner}
-          bgHue={bgLocation.hue}
-          bgSat={bgLocation.sat}
           onDismiss={dismissCardReveal}
         />
       )}
 
-      {/* Экрана «СЕКТОР ЗАЧИЩЕН» больше нет: босс → сразу заставка нового сектора */}
-      {sectorSplash && (
-        <SectorSplashScreen
-          text={sectorSplash.text}
-          sector={sectorSplash.sector}
-          onContinue={() => { setSectorSplash(null); resetGame(false, true); }}
+      {appReady && sectorSelection && !cardReveal && (
+        <SectorSelectScreen
+          key={sectorSelection.sector}
+          currentSector={sectorSelection.sector}
+          maxSectorReached={maxSectorReached}
+          maxSectorCompleted={maxSectorCompleted}
+          onSelect={selectExpeditionSector}
+          onBack={closeSectorSelection}
         />
       )}
 
+
       {showLevelUp && (
-        <div className="absolute inset-0 z-[2500] bg-black/80 flex flex-col items-center justify-center backdrop-blur-md animate-in fade-in duration-500">
-          <h2 className="text-6xl font-black text-amber-500 drop-shadow-2xl mb-8 uppercase italic tracking-tighter text-center">{String(rewardTitle)}</h2>
-          <div className="relative border-2 border-indigo-500/30 rounded-2xl p-10 pt-12 pb-10 bg-slate-900/60 shadow-[0_0_80px_rgba(99,102,241,0.15)] flex flex-col items-center">
-            <div className="absolute -top-3 px-4 bg-[#1e1f2e] text-slate-400 text-sm tracking-[0.3em] uppercase whitespace-nowrap">ВЫБЕРИТЕ НАГРАДУ:</div>
-            <div className="flex gap-6 items-center">
-              {rewardOptions.map((option, idx) => {
-                const { card, kind } = option;
-                const isUpgrade = kind === 'upgrade';
-                const preview = isUpgrade ? { ...card, level: getCardLevel(card) + 1 } : card;
-                return (
-                <div key={`${card.id}-${kind}-${idx}`} className="relative">
-                  <TiltWrapper className={`w-48 h-[270px] ${isUpgrade ? 'drop-shadow-[0_0_25px_rgba(245,158,11,0.5)]' : 'drop-shadow-[0_0_25px_rgba(14,165,233,0.4)]'}`}>
-                    <div onClick={() => selectReward(option)} className="w-full h-full cursor-pointer">
-                      <AbilityCard card={preview} owner={players.find(p=>p.id===card.ownerId)} mana={maxMana} isDisabled={false} showOwnerLabel={true} comboState={{isCandidate: false, willGiveBonus: false}} />
-                    </div>
-                    {/* Плашка — последний ребёнок TiltWrapper: масштабируется вместе с карточкой
-                        (общий transform) и всегда поверх неё (порядок отрисовки + высокий z) */}
-                    {isUpgrade ? (
-                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-[80] bg-amber-500 text-black text-[10px] font-black px-3 py-1 rounded-full shadow-[0_0_20px_rgba(245,158,11,0.8)] uppercase tracking-widest whitespace-nowrap pointer-events-none">▲ Улучшение · ур.{String(getCardLevel(card))} → {String(getCardLevel(card) + 1)}</div>
-                    ) : (
-                      <div className="absolute -top-3 left-1/2 -translate-x-1/2 z-[80] bg-sky-500 text-white text-[10px] font-black px-3 py-1 rounded-full shadow-[0_0_20px_rgba(14,165,233,0.8)] uppercase tracking-widest whitespace-nowrap pointer-events-none">✦ Новая карта</div>
-                    )}
-                  </TiltWrapper>
-                </div>
-                );
-              })}
-            </div>
+        <ModalWindow title={String(rewardTitle)}>
+          <div className="flex items-end justify-center" style={{ gap: 38, marginBottom: 40 }}>
+            {rewardOptions.map((option, idx) => {
+              const { card, kind } = option;
+              const isUpgrade = kind === 'upgrade';
+              const preview = isUpgrade ? { ...card, level: getCardLevel(card) + 1 } : card;
+              return (
+                <button
+                  key={`${card.id}-${kind}-${idx}`}
+                  type="button"
+                  onClick={() => selectReward(option)}
+                  className="block transition-transform hover:scale-105 active:scale-95"
+                >
+                  <p
+                    className="whitespace-nowrap"
+                    style={{
+                      fontSize: 40,
+                      fontWeight: 700,
+                      marginBottom: 16,
+                      color: isUpgrade ? '#f59e0b' : '#38bdf8',
+                      textShadow: '0px 4px 0px black',
+                    }}
+                  >
+                    {isUpgrade ? 'Новый уровень' : 'Новая карта'}
+                  </p>
+                  <MagicCard {...toMagicCard(preview, players.find(p => p.id === card.ownerId))} />
+                </button>
+              );
+            })}
           </div>
-        </div>
+        </ModalWindow>
       )}
 
       {showReserve && (

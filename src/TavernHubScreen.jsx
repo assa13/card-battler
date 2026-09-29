@@ -1,6 +1,9 @@
+import SmallIconText from './ui/SmallIconText';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { NIGHT_HIDDEN_ENTITY_TYPES, TAVERN_ENTITIES, TAVERN_STAGE_RATIO } from './TavernSceneConfig';
 import ScreenStage from './ScreenStage';
+import TavernLighting, { TavernShadows } from './TavernLighting';
+import { computeTavernSpriteLight } from './tavernLight';
 import ShaderOutlineWrapper from './ShaderOutlineWrapper';
 import DialogueOverlay from './DialogueOverlay';
 import { getBarkeepHint, getDialogueForTrigger } from './DialogueConfig';
@@ -28,9 +31,9 @@ const LockedBadge = ({ minSector }) => (
     className="absolute left-1/2 -top-3 -translate-x-1/2 px-2 py-0.5 text-[10px] font-black uppercase
                tracking-wider rounded bg-black/85 text-amber-300 border border-amber-500/60 pointer-events-none"
     style={{ zIndex: 200 }}
-  >
-    🔒 Сектор {minSector}+
-  </div>
+  ><SmallIconText>
+    🔒 Сектор </SmallIconText>{minSector}<SmallIconText>+
+  </SmallIconText></div>
 );
 
 // ─── Ночной стук в дверь ─────────────────────────────────────────────────
@@ -117,18 +120,16 @@ const NotifierBadge = ({ hint }) => (
     title={hint}
   >
     <div
-      className="flex items-center justify-center rounded-full bg-amber-400 text-black font-black
-                 border-2 border-amber-100"
+      className="kit-item-slot flex items-center justify-center font-black"
       style={{
         width: 'clamp(18px, 2.1vw, 34px)',
         height: 'clamp(18px, 2.1vw, 34px)',
         fontSize: 'clamp(12px, 1.5vw, 24px)',
         lineHeight: 1,
-        boxShadow: '0 0 18px rgba(245,158,11,0.85), 0 2px 6px rgba(0,0,0,0.7)',
       }}
-    >
+    ><SmallIconText>
       !
-    </div>
+    </SmallIconText></div>
     <style>{`@keyframes tavernNotifierBob {
       0%, 100% { transform: translate(-50%, 0) scale(1); }
       50%      { transform: translate(-50%, -18%) scale(1.14); }
@@ -136,15 +137,18 @@ const NotifierBadge = ({ hint }) => (
   </div>
 );
 
-const ActionLabel = ({ children }) => (
-  <div
-    className="absolute left-1/2 -top-4 -translate-x-1/2 px-2 py-0.5 text-[11px] font-black uppercase
-               tracking-wider rounded bg-amber-500 text-black shadow-[0_0_12px_rgba(245,158,11,0.7)] pointer-events-none whitespace-nowrap"
-    style={{ zIndex: 200 }}
-  >
-    {children}
-  </div>
-);
+const PortalMarker = ({ action, label }) => {
+  const rest = action === 'OPEN_SLEEP_MODAL';
+  return <div className="absolute flex items-center justify-center gap-1 pointer-events-none"
+    title={label} aria-label={label}
+    style={{ left: '50%', top: rest ? '60%' : '45%', transform: 'translate(-50%, -50%)', zIndex: 200 }}>
+    <img src={`./assets/ui/combat/${rest ? 'bed' : 'crossed-swords'}.png`} alt=""
+      style={{ width: 'clamp(28px, 3.3vw, 58px)', height: 'auto', imageRendering: 'pixelated' }} />
+    <img src="./assets/ui/combat/arrow-up.png" alt=""
+      style={{ width: 'clamp(22px, 2.5vw, 44px)', height: 'auto', imageRendering: 'pixelated',
+        transform: rest ? undefined : 'rotate(90deg)' }} />
+  </div>;
+};
 
 const renderEntityContent = ({ entity, activeParty, recruitsPool }) => {
   switch (entity.type) {
@@ -165,6 +169,7 @@ const renderEntityContent = ({ entity, activeParty, recruitsPool }) => {
           alt={hero.name}
           hue={hero.hue}
           sat={hero.sat}
+          light={entity.light}
         />
       );
     }
@@ -177,6 +182,7 @@ const renderEntityContent = ({ entity, activeParty, recruitsPool }) => {
           alt={entity.id}
           hue={recruit?.hue}
           sat={recruit?.sat}
+          light={entity.light}
         />
       );
     }
@@ -188,6 +194,7 @@ const renderEntityContent = ({ entity, activeParty, recruitsPool }) => {
           alt={entity.id}
           hue={entity.colorize?.hue}
           sat={entity.colorize?.sat}
+          light={entity.light}
         />
       );
   }
@@ -289,7 +296,7 @@ const TavernEntity = React.memo(function TavernEntity({ entity, locked, activePa
       data-entity-id={entity.id}
     >
       {isPortal && interactive && entity.payload?.label && (
-        <ActionLabel>{entity.payload.label}</ActionLabel>
+        <PortalMarker action={entity.payload.action} label={entity.payload.label} />
       )}
       {locked && entity.minSectorRequired && (
         <LockedBadge minSector={entity.minSectorRequired} />
@@ -385,8 +392,16 @@ export default function TavernHubScreen({
         }
         return e;
       })
+      // Свет камина на спрайт считается после подмен (у Незнакомца свой flipX).
+      .map(e => ({ ...e, light: computeTavernSpriteLight(e, isNight) }))
       .sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0)),
     [isNight, strangerInTavern, taskMasterVisible, taskMasterActive]
+  );
+
+  // Тени — только у видимых сущностей; пустой слот героя тени не отбрасывает.
+  const shadowEntities = useMemo(
+    () => sortedEntities.filter(e => e.shadow && (e.type !== 'HERO_ACTIVE' || activeParty?.[e.slotIndex])),
+    [sortedEntities, activeParty]
   );
 
   // ─── Диалоговая система: фундамент триггеров ──────────────────────────
@@ -612,13 +627,17 @@ export default function TavernHubScreen({
           );
         })}
 
-        {/* Ночная тонировка сцены: холодный полумрак поверх спрайтов, под UI.
-            pointer-events: none — клики по лестнице/двери проходят насквозь. */}
+        <TavernLighting />
+        <TavernShadows entities={shadowEntities} />
+
+        {/* Ночная тонировка окружения: холодный полумрак над фоном, под огнём
+            (камин светит сквозь ночь). Спрайты темнеют сами (tavernLight.js),
+            поэтому их метки остаются над тонировкой. */}
         {isNight && (
           <div
             className="absolute inset-0 pointer-events-none transition-opacity duration-1000"
             style={{
-              zIndex: 180,
+              zIndex: 4,
               background: 'linear-gradient(180deg, rgba(8,12,30,0.55) 0%, rgba(4,6,16,0.65) 100%)',
               mixBlendMode: 'multiply',
             }}

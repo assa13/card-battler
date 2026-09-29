@@ -1,0 +1,27 @@
+.enemy-difficulty-tooltip {
+  display: flex; flex-direction: column; gap: .3em;
+  position: absolute; left: 50%; bottom: calc(100% + 10px);
+  width: max-content; max-width: 340px; padding: 12px 16px;
+  transform: translateX(-50%); z-index: 90;
+  color: #fffdcc; background: #14141df5; border: 2px solid #877453;
+  box-shadow: 0 3px 0 #07090f, inset 0 0 0 2px #272c37;
+  font-family: 'Greybeard', sans-serif; font-size: 24px; font-weight: 500;
+  line-height: 1.25; text-align: left; text-shadow: 0 2px #000;
+  pointer-events: none; visibility: hidden; opacity: 0;
+  transition: opacity 100ms ease;
+}
+.enemy-difficulty-tooltip strong { font-size: 1.15em; }
+.enemy-hover-target { pointer-events: auto; }
+.enemy-difficulty-tooltip small { color: #a9adbb; font-size: .85em; }
+.enemy-difficulty-tooltip--left { left: 0; transform: none; }
+.enemy-difficulty-tooltip--right { left: auto; right: 0; transform: none; }
+.enemy-hover-target:hover .enemy-difficulty-tooltip,
+.enemy-hover-target:focus-visible .enemy-difficulty-tooltip { visibility: visible; opacity: 1; }
+.dungeon-enemy-target {
+  position: absolute; z-index: 25; padding: 0; border: 0;
+  background: transparent; cursor: pointer; pointer-events: auto;
+}
+.dungeon-enemy-target:hover, .dungeon-enemy-target:focus-visible { z-index: 35; }
+.dungeon-enemy-target:focus-visible { outline: 2px solid #e1bd75; outline-offset: -2px; }
+.battle-enemy-tip { position: absolute; left: 50%; top: 0; }
+.battle-enemy-tip .enemy-difficulty-tooltip { font-size: 30px; max-width: 480px; }

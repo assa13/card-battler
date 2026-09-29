@@ -1,3 +1,4 @@
+import SmallIconText from './ui/SmallIconText';
 import { useEffect, useRef, useState } from 'react';
 import EnemyDefenseCue from './EnemyDefenseCue';
 import VfxStrip from './vfx/VfxStrip';
@@ -144,9 +145,9 @@ export default function MashQte({
     fireRefs.current.forEach((node) => {
       node?.animate(
         [
-          { boxShadow: '0 0 35px rgba(249,115,22,0.65)' },
-          { boxShadow: '0 0 95px rgba(254,215,170,1)' },
-          { boxShadow: '0 0 45px rgba(239,68,68,0.8)' },
+          { opacity: 0.65 },
+          { opacity: 1 },
+          { opacity: 0.8 },
         ],
         { duration: 130, easing: 'ease-out' },
       );
@@ -215,9 +216,9 @@ export default function MashQte({
             top: target.y,
             transform: 'translate(-50%, -50%) scale(0.7)',
             background: 'radial-gradient(circle, rgba(254,240,138,0.88) 0%, rgba(249,115,22,0.62) 24%, rgba(220,38,38,0.34) 52%, transparent 73%)',
-            boxShadow: '0 0 35px rgba(249,115,22,0.65)',
+
             transition: 'opacity 90ms linear',
-            willChange: 'transform, filter, opacity',
+            willChange: 'transform, opacity',
           }}
         >
           <div className="absolute inset-0 flex items-center justify-center text-8xl">🔥</div>
@@ -238,7 +239,7 @@ export default function MashQte({
 
       <div className="fixed left-1/2 top-9 -translate-x-1/2 rounded-full border border-orange-300/50 bg-slate-950/90 px-8 py-3 text-center pointer-events-none">
         <div ref={instructionRef} className="text-2xl text-orange-100">
-          {card?.icon} ОГНЕННЫЙ ШАР ЛЕТИТ
+          <SmallIconText>{card?.icon}</SmallIconText> ОГНЕННЫЙ ШАР ЛЕТИТ
         </div>
         <div className="mt-1 flex items-center justify-center gap-8 text-xl">
           <span ref={counterRef} className="text-amber-300">0 УДАРОВ</span>

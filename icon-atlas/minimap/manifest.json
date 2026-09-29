@@ -1,0 +1,66 @@
+{
+  "cellSize": 96,
+  "frames": 3,
+  "fps": 3,
+  "sourceSize": {
+    "width": 1916,
+    "height": 821
+  },
+  "sourceRowCuts": [
+    0,
+    305,
+    559,
+    821
+  ],
+  "sprites": {
+    "hero": {
+      "url": "./assets/dev/dungeon/animations/hero.png",
+      "cols": 3,
+      "rows": 1,
+      "frameCount": 3,
+      "fps": 3
+    },
+    "wolf": {
+      "url": "./assets/dev/dungeon/animations/wolf.png",
+      "cols": 3,
+      "rows": 1,
+      "frameCount": 3,
+      "fps": 3
+    },
+    "zombie": {
+      "url": "./assets/dev/dungeon/animations/zombie.png",
+      "cols": 3,
+      "rows": 1,
+      "frameCount": 3,
+      "fps": 3
+    },
+    "dark_wized": {
+      "url": "./assets/dev/dungeon/animations/dark_wized.png",
+      "cols": 3,
+      "rows": 1,
+      "frameCount": 3,
+      "fps": 3
+    },
+    "boss_skeletal_golem": {
+      "url": "./assets/dev/dungeon/animations/boss_skeletal_golem.png",
+      "cols": 3,
+      "rows": 1,
+      "frameCount": 3,
+      "fps": 3
+    },
+    "boss_eye": {
+      "url": "./assets/dev/dungeon/animations/boss_eye.png",
+      "cols": 3,
+      "rows": 1,
+      "frameCount": 3,
+      "fps": 3
+    },
+    "boss_worm": {
+      "url": "./assets/dev/dungeon/animations/boss_worm.png",
+      "cols": 3,
+      "rows": 1,
+      "frameCount": 3,
+      "fps": 3
+    }
+  }
+}

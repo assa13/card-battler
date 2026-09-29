@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { createAlphaOutlineRenderer, hexToRgba01 } from './gpu/alphaOutlinePipeline';
 
 /**
@@ -32,6 +32,8 @@ import { createAlphaOutlineRenderer, hexToRgba01 } from './gpu/alphaOutlinePipel
  *               вертикальная полоса в центре (под пиксель-арт-персонажей).
  *  - onClick:   handler клика по хитбоксу.
  *  - hoverScale: scale-фактор на hover (вместо Tailwind hover:scale-).
+ *  - mode: 'auto' — штатный WebGPU/fallback; 'svg' — чёткий альфа-контур
+ *          без инициализации GPU, для статичных комнат карты.
  */
 const DEFAULT_HITBOX = { left: '30%', top: '10%', width: '40%', height: '85%' };
 
@@ -44,14 +46,19 @@ const ShaderOutlineWrapper = ({
   hitbox = DEFAULT_HITBOX,
   onClick,
   hoverScale = 1.04,
+  active,
+  interactive = true,
+  mode = 'auto',
 }) => {
-  const [hovered, setHovered] = useState(false);
+  const outlineId = `alpha-outline-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`;
+  const [localHovered, setHovered] = useState(false);
+  const hovered = active ?? localHovered;
   const [shaderReady, setShaderReady] = useState(false);
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
 
   useEffect(() => {
-    if (animated || !enabled) return undefined;
+    if (mode === 'svg' || animated || !enabled) return undefined;
     if (typeof navigator === 'undefined' || !navigator.gpu) return undefined;
     const container = containerRef.current;
     const canvas = canvasRef.current;
@@ -132,17 +139,18 @@ const ShaderOutlineWrapper = ({
       renderer?.destroy?.();
       setShaderReady(false);
     };
-  }, [animated, enabled, color, thickness]);
+  }, [animated, enabled, color, thickness, mode]);
 
   // Fallback drop-shadow для атласов/без WebGPU/пока шейдер не готов.
-  const useFallback = (!shaderReady) && enabled && hovered;
+  const useSvg = mode === 'svg' && enabled && hovered;
+  const useFallback = mode !== 'svg' && (!shaderReady) && enabled && hovered;
   const fallbackFilter = useFallback
     ? `drop-shadow(0 0 ${thickness}px ${color})
        drop-shadow(0 0 ${thickness * 2}px ${color})
        drop-shadow(0 0 ${thickness * 4}px rgba(251,191,36,0.45))`
     : 'none';
 
-  const showCanvas = shaderReady && enabled && hovered;
+  const showCanvas = mode !== 'svg' && shaderReady && enabled && hovered;
   const scale = enabled && hovered ? hoverScale : 1;
 
   return (
@@ -153,15 +161,28 @@ const ShaderOutlineWrapper = ({
         height: '100%',
         // pointer-events:none — клики/ховер ловит ТОЛЬКО hitbox-overlay ниже.
         pointerEvents: 'none',
-        filter: fallbackFilter,
+        filter: useSvg ? `url(#${outlineId})` : fallbackFilter,
         transform: `scale(${scale})`,
         transformOrigin: 'center center',
         transition: 'filter 120ms ease-out, transform 150ms ease-out',
         willChange: shaderReady ? 'transform' : 'filter, transform',
       }}
-      data-shader-outline-mode={shaderReady ? 'webgpu' : (animated ? 'css-animated' : 'css')}
-      data-shader-outline-active={(showCanvas || useFallback) ? 'true' : 'false'}
+      data-shader-outline-mode={mode === 'svg' ? 'svg' : shaderReady ? 'webgpu' : (animated ? 'css-animated' : 'css')}
+      data-shader-outline-active={(useSvg || showCanvas || useFallback) ? 'true' : 'false'}
     >
+      {mode === 'svg' && (
+        <svg width="0" height="0" className="absolute" aria-hidden="true" focusable="false">
+          <defs>
+            <filter id={outlineId} x="-10%" y="-10%" width="120%" height="120%" colorInterpolationFilters="sRGB">
+              <feMorphology in="SourceAlpha" operator="dilate" radius={thickness} result="expandedAlpha" />
+              <feComposite in="expandedAlpha" in2="SourceAlpha" operator="out" result="edge" />
+              <feFlood floodColor={color} result="edgeColor" />
+              <feComposite in="edgeColor" in2="edge" operator="in" result="outline" />
+              <feMerge><feMergeNode in="outline" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
+          </defs>
+        </svg>
+      )}
       {/* Canvas СНИЗУ под children — содержит outline-only композит. */}
       <canvas
         ref={canvasRef}
@@ -182,7 +203,7 @@ const ShaderOutlineWrapper = ({
       </div>
 
       {/* Hitbox: единственная кликабельная зона. % от bbox обёртки. */}
-      <div
+      {interactive && <div
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         onClick={onClick}
@@ -196,7 +217,7 @@ const ShaderOutlineWrapper = ({
           zIndex: 2,
         }}
         data-tavern-hitbox="true"
-      />
+      />}
     </div>
   );
 };

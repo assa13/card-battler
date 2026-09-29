@@ -1,0 +1,13 @@
+{
+  "cellSize": 64,
+  "cols": 3,
+  "rows": 2,
+  "sprites": [
+    "target-white",
+    "target-red",
+    "qte-ring",
+    "bed",
+    "crossed-swords",
+    "arrow-up"
+  ]
+}

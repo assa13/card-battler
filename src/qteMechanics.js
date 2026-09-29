@@ -20,7 +20,7 @@ export const QTE_MECHANICS = {
   // Требует 2+ живых целей; с одной целью деградирует в PRECISION/IMPORTANT.
   RHYTHM: { id: 'RHYTHM', name: 'Ритм-стрим' },
   // Табун призрачных лошадей пересекает арену по очереди. Каждая получает отдельное
-  // короткое окно активации в центре поля и при успехе врезается в ближайшую цель.
+  // окно активации: обычный удар всегда, успех добавляет часть общего бонуса 35%.
   HORSE_HERD: { id: 'HORSE_HERD', name: 'Призрачный табун' },
   // После автоматического попадания игрок 7 секунд раздувает огонь быстрыми ЛКМ.
   MASH: { id: 'MASH', name: 'Перегрузка' },
@@ -58,7 +58,10 @@ const defaultProfile = (card) => {
 export const resolveCardQte = (card, ctx) => {
   if (!card.cost) return null; // инвариант: 0 маны = без QTE, перекрывает всё
 
-  const profile = card.qte ?? defaultProfile(card);
+  // Existing deck instances may still carry the retired ricochet experiment.
+  const profile = card.qte?.mechanic === 'VOLLEY'
+    ? { mechanic: 'PRECISION', trigger: 'ALWAYS' }
+    : card.qte ?? defaultProfile(card);
   if (!profile || profile.mechanic === 'NONE') return null;
 
   const trigger = profile.trigger ?? 'IMPORTANT';

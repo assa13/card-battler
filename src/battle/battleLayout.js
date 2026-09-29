@@ -8,6 +8,8 @@
 // Внутри фрейма подложкой лежит скриншот старого боя (image 14) — он только
 // ориентир для разметки и в код не переносится.
 
+import { INVENTORY_CAPACITY } from '../inventoryCapacity.js';
+
 export const BATTLE_FIGMA = {
   fileKey: 'zG9zihyiBTJFjR5dVta74Z',
   nodeId: '130:3323',
@@ -29,7 +31,7 @@ export const BATTLE_LAYOUT = {
 // (Frame 5, node 177:2313) относительно левого верхнего угла окна.
 // Локаций будет несколько — здесь только их геометрия, выбор делает бой.
 export const FIELD_ART = {
-  fight: { url: './assets/battle/fight_bg.webp', x: 11, y: -775, size: 2048 },
+  fight: { url: './assets/battle/fight_bg.png', x: 8, y: -772, size: 2055 },
 };
 
 export const HERO_SLOTS = [
@@ -38,8 +40,8 @@ export const HERO_SLOTS = [
   { x: 1848, y: 1081, width: 422, height: 574 },
 ];
 
-// Девять слотов предметов внутри панели, шаг 106 при размере 96.
-export const ITEM_SLOTS = { x: 1103.5, y: 933, size: 96, step: 106, count: 9 };
+// Fourteen full-size slots, centered in the existing panel before the craft button.
+export const ITEM_SLOTS = { x: 835.5, y: 933, size: 96, step: 106, count: INVENTORY_CAPACITY };
 
 // Декор рисуется 360×360 при кадре 320×320 — растяжение по решению дизайна.
 // Горгулья одна, правая — её горизонтальное зеркало.
@@ -68,6 +70,20 @@ export const DECOR_SPRITES = {
 };
 
 export const getDecorSprite = (emotion) => DECOR_SPRITES[emotion] || DECOR_SPRITES.idle;
+
+// Огонёк в чаше кнопки слияния: три кадра 102×98 одним листом 3×1. Посадка снята
+// со скрытого слота внутри самой кнопки в макете — (54, −22) от её левого
+// верхнего угла, то есть пламя выступает над кромкой кнопки. Бокс кнопки поэтому
+// не должен обрезать содержимое.
+export const MERGE_FLAME = {
+  url: './assets/battle/merge_flame.webp',
+  x: 54,
+  y: -22,
+  width: 102,
+  height: 98,
+  frames: 3,
+  fps: 9,
+};
 
 // Стопки карт повёрнуты на ±2°, рисуются в родном размере региона. Координаты —
 // левый верхний угол неповёрнутой картинки: габарит 130×176 в макете это bbox
@@ -100,6 +116,13 @@ export const ENEMY_FORMATIONS = {
   1: [mirror(HERO_UNITS[0])],
   2: [mirror(HERO_UNITS[1]), mirror(HERO_UNITS[2])],
   3: [mirror(HERO_UNITS[1]), mirror(HERO_UNITS[0]), mirror(HERO_UNITS[2])],
+  // Four enemies need four distinct slots; a fallback to the trio stacked two sprites.
+  4: [
+    { x: 1860, y: 185, size: 380 },
+    { x: 2220, y: 215, size: 380 },
+    { x: 1815, y: 495, size: 380 },
+    { x: 2195, y: 525, size: 380 },
+  ],
 };
 
 // Босс крупнее рядового и от этого визуально проваливается вниз — тот же

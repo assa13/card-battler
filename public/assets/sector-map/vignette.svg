@@ -1,0 +1,12 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="5214" height="3295.69" viewBox="0 0 5214 3295.69" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="vingette" filter="url(#filter0_f_0_175)">
+<path d="M4800 2881.69H414V414H4800V2881.69ZM2607 911.844C1854.24 911.844 1244 1241.36 1244 1647.84C1244 2054.33 1854.24 2383.84 2607 2383.84C3359.76 2383.84 3970 2054.33 3970 1647.84C3970 1241.36 3359.76 911.844 2607 911.844Z" fill="black"/>
+</g>
+<defs>
+<filter id="filter0_f_0_175" x="0" y="0" width="5214" height="3295.69" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+<feGaussianBlur stdDeviation="207" result="effect1_foregroundBlur_0_175"/>
+</filter>
+</defs>
+</svg>

@@ -1,3 +1,5 @@
+import { SPRITE_LIGHT_FRAGMENT, spriteLightUniforms } from '../lighting/pixiSpriteLight';
+import { spriteRenderResolution, SPINE_RENDER_FPS } from '../lighting/renderBudget';
 import { useEffect, useRef, useState } from 'react';
 import { getSpineUnit } from './spineUnits';
 
@@ -39,6 +41,7 @@ const SpineUnit = ({
   loop = true,
   paused = false,
   retroFps,
+  light = null,
   movement,
   contentScale = 1,
   contentOffsetXRatio = 0,
@@ -52,6 +55,8 @@ const SpineUnit = ({
   onError,
 }) => {
   const hostRef = useRef(null);
+  const lightRef = useRef(light);
+  useEffect(() => { lightRef.current = light; }, [light]);
   const spineRef = useRef(null);
   const pausedRef = useRef(paused);
   const fpsRef = useRef(retroFps);
@@ -181,6 +186,9 @@ const SpineUnit = ({
     let resizeObserver;
     let accumulatedSeconds = 0;
     let app;
+    let lightingFilter;
+    let windowResize;
+    let resizeFrame;
     let movementBone;
     let attackTargetBone;
 
@@ -188,25 +196,28 @@ const SpineUnit = ({
       try {
         // Pixi и Spine нужны только боссам и админ-витрине. Динамический импорт
         // не утяжеляет начальный игровой бандл до появления такого юнита.
-        const [{ Application, Assets }, { Spine }] = await Promise.all([
+        const [{ Application, Assets, Filter }, { Spine }] = await Promise.all([
           import('pixi.js'),
           import('@pixi-spine/all-3.8'),
         ]);
         if (cancelled) return;
 
         app = new Application({
-          antialias: true,
+          antialias: false,
           autoDensity: true,
           backgroundAlpha: 0,
-          resolution: Math.min(window.devicePixelRatio || 1, 2),
+          resolution: spriteRenderResolution(host.clientWidth, host.getBoundingClientRect().width, window.devicePixelRatio || 1),
         });
         app.view.style.width = '100%';
         app.view.style.height = '100%';
         app.view.style.display = 'block';
         host.replaceChildren(app.view);
+        app.ticker.maxFPS = SPINE_RENDER_FPS;
 
         const resize = () => {
           if (!host.clientWidth || !host.clientHeight || cancelled) return;
+          app.renderer.resolution = spriteRenderResolution(host.clientWidth, host.getBoundingClientRect().width, window.devicePixelRatio || 1);
+          if (lightingFilter) lightingFilter.resolution = app.renderer.resolution;
           app.renderer.resize(host.clientWidth, host.clientHeight);
           if (spineRef.current) {
             fitSpineToRenderer(
@@ -220,6 +231,11 @@ const SpineUnit = ({
         };
         resizeObserver = new ResizeObserver(resize);
         resizeObserver.observe(host);
+        windowResize = () => {
+          cancelAnimationFrame(resizeFrame);
+          resizeFrame = requestAnimationFrame(resize);
+        };
+        window.addEventListener('resize', windowResize);
         resize();
 
         const resource = await Assets.load({
@@ -232,6 +248,9 @@ const SpineUnit = ({
         spine.autoUpdate = false;
         spineRef.current = spine;
         app.stage.addChild(spine);
+        lightingFilter = new Filter(undefined, SPRITE_LIGHT_FRAGMENT, spriteLightUniforms(lightRef.current));
+        lightingFilter.resolution = app.renderer.resolution;
+        if (lightRef.current) spine.filters = [lightingFilter];
 
         const animations = resource.spineData.animations.map((item) => item.name);
         callbacksRef.current.onAnimationsChange?.(animations);
@@ -294,6 +313,12 @@ const SpineUnit = ({
         );
 
         app.ticker.add(() => {
+          if (lightRef.current) {
+            if (!spine.filters?.includes(lightingFilter)) spine.filters = [...(spine.filters || []), lightingFilter];
+            Object.assign(lightingFilter.uniforms, spriteLightUniforms(lightRef.current, performance.now() / 1000));
+          } else if (spine.filters?.includes(lightingFilter)) {
+            spine.filters = spine.filters.filter(filter => filter !== lightingFilter);
+          }
           if (pausedRef.current || !spineRef.current) return;
           const elapsedMs = app.ticker.elapsedMS;
           accumulatedSeconds += elapsedMs / 1000;
@@ -472,8 +497,11 @@ const SpineUnit = ({
     return () => {
       cancelled = true;
       resizeObserver?.disconnect();
+      window.removeEventListener('resize', windowResize);
+      cancelAnimationFrame(resizeFrame);
       spineRef.current = null;
       app?.destroy(true, { children: true, texture: false, baseTexture: false });
+      lightingFilter?.destroy();
     };
   }, [animationMixMs, contentOffsetXRatio, contentOffsetYRatio, contentScale, unit]);
 

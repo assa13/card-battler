@@ -1,12 +1,36 @@
 import { TILE, SOURCE_TILE, ATLAS_COLUMNS, ATLAS_ROWS, SPRITES } from './dungeonTestMap.js';
-import { COLS, ROWS, ENTITY_FRAMES } from './dungeonGenerator.js';
-import { drawDungeonLighting, torchFlicker } from './dungeonLighting.js';
+import { COLS, ROWS } from './dungeonGenerator.js';
+import { ENTITY_ANIMATIONS, entityAnimationFrame, entityFrameRect } from './dungeonAnimations.js';
+import { CHARACTER_SHADOW, GROUND_SHADOW_STOPS, characterShadowBox } from '../lighting/groundShadow.js';
+import { drawDungeonLighting, torchFlicker, lightAt, lightPosition } from './dungeonLighting.js';
 
 export const WIDTH = COLS * TILE;
 export const HEIGHT = ROWS * TILE;
 export const RENDER_PADDING = 4;
 export const RENDER_WIDTH = COLS * SOURCE_TILE + RENDER_PADDING * 2;
 export const RENDER_HEIGHT = ROWS * SOURCE_TILE + RENDER_PADDING * 2;
+
+const tintedAtlases = new WeakMap();
+function getTintedAtlas(atlas, tint) {
+  if (!tint || !Number.isFinite(tint.hue) || !Number.isFinite(tint.sat)) return atlas;
+  let cache = tintedAtlases.get(atlas);
+  if (!cache) { cache = new Map(); tintedAtlases.set(atlas, cache); }
+  const key = `${tint.hue}:${tint.sat}`;
+  if (cache.has(key)) return cache.get(key);
+  const canvas = document.createElement('canvas');
+  canvas.width = atlas.naturalWidth;
+  canvas.height = atlas.naturalHeight;
+  const context = canvas.getContext('2d');
+  context.drawImage(atlas, 0, 0);
+  // Same hue/saturation as the battle background; retain tile luminance and alpha.
+  context.globalCompositeOperation = 'color';
+  context.fillStyle = `hsl(${tint.hue} ${tint.sat}% 50%)`;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.globalCompositeOperation = 'destination-in';
+  context.drawImage(atlas, 0, 0);
+  cache.set(key, canvas);
+  return canvas;
+}
 
 const outlines = new WeakMap();
 const spriteFrames = new WeakMap();
@@ -60,15 +84,16 @@ function createMapOutline(atlas, tiles) {
   return outline;
 }
 
-function getSpriteImage(image, sprite) {
-  const frame = ENTITY_FRAMES[sprite];
-  if (!frame) return image;
+function getSpriteImage(image, sprite, frameIndex = 0) {
+  if (!ENTITY_ANIMATIONS[sprite]) return image;
+  const frame = entityFrameRect(sprite, image.naturalWidth, image.naturalHeight, frameIndex);
+  const key = `${sprite}:${frameIndex}`;
   let cached = spriteFrames.get(image);
   if (!cached) {
     cached = new Map();
     spriteFrames.set(image, cached);
   }
-  if (cached.has(sprite)) return cached.get(sprite);
+  if (cached.has(key)) return cached.get(key);
   const canvas = document.createElement('canvas');
   canvas.width = frame.width;
   canvas.height = frame.height;
@@ -77,7 +102,7 @@ function getSpriteImage(image, sprite) {
     frame.x, frame.y, frame.width, frame.height,
     0, 0, frame.width, frame.height,
   );
-  cached.set(sprite, canvas);
+  cached.set(key, canvas);
   return canvas;
 }
 
@@ -104,11 +129,47 @@ function getOutline(image) {
   return outline;
 }
 
+function drawCharacterShadows(ctx, level, time) {
+  for (const entity of level.entities) {
+    if (entity.kind !== 'hero' && entity.kind !== 'enemy') continue;
+    const center = { x: entity.x + 0.5, y: entity.y + 0.5 };
+    let nearest = null, distance = Infinity;
+    for (const light of level.lights) {
+      const origin = lightPosition(light);
+      const d = Math.hypot(center.x - origin.x, center.y - origin.y);
+      if (d < distance) { nearest = origin; distance = d; }
+    }
+    const strength = lightAt(level, center, time);
+    const shadow = characterShadowBox({ x: entity.x * TILE, y: entity.y * TILE, size: TILE }, {
+      shadowShift: nearest ? Math.sign(center.x - nearest.x) * 0.06 * strength : 0,
+      shadowStretch: 1 + 0.4 * strength,
+    }, { ...CHARACTER_SHADOW, top: 92 / 96 });
+    ctx.save();
+    ctx.translate(shadow.x, shadow.y);
+    ctx.scale(shadow.width / 2, shadow.height / 2);
+    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, 1);
+    for (const [at, alpha] of GROUND_SHADOW_STOPS) gradient.addColorStop(at, `rgba(0,0,0,${alpha})`);
+    ctx.fillStyle = gradient;
+    ctx.fillRect(-1, -1, 2, 2);
+    ctx.restore();
+  }
+}
+
 export const createDungeonRenderer = (ctx, atlas, level, entityImages) => {
   if (atlas.naturalWidth !== ATLAS_COLUMNS * SOURCE_TILE || atlas.naturalHeight !== ATLAS_ROWS * SOURCE_TILE) {
     throw new Error('Unexpected Figma atlas dimensions');
   }
   const mapOutline = createMapOutline(atlas, level.tiles);
+  const tileAtlas = getTintedAtlas(atlas, level.locationTint);
+  // The foundation is static for this level. Reuse it while flames and actors
+  // animate instead of drawing all 108 atlas regions on every map frame.
+  const foundation = document.createElement('canvas');
+  foundation.width = RENDER_WIDTH;
+  foundation.height = RENDER_HEIGHT;
+  const foundationContext = foundation.getContext('2d');
+  const tileScale = SOURCE_TILE / TILE;
+  foundationContext.setTransform(tileScale, 0, 0, tileScale, RENDER_PADDING, RENDER_PADDING);
+  drawTileLayer(foundationContext, tileAtlas, level.tiles, TILE);
   return ({ showGrid = false, time = null, highlightedIds = new Set() } = {}) => {
     // Retain source-resolution detail; CSS controls the compact display size.
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -118,7 +179,8 @@ export const createDungeonRenderer = (ctx, atlas, level, entityImages) => {
     ctx.setTransform(sourceScale, 0, 0, sourceScale, RENDER_PADDING, RENDER_PADDING);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = 'high';
-    drawTileLayer(ctx, atlas, level.tiles, TILE);
+    ctx.drawImage(foundation, -RENDER_PADDING / sourceScale, -RENDER_PADDING / sourceScale,
+      RENDER_WIDTH / sourceScale, RENDER_HEIGHT / sourceScale);
     (level.coins || []).forEach(coin => {
       const image = entityImages.coin;
       const size = TILE * 0.58;
@@ -127,10 +189,11 @@ export const createDungeonRenderer = (ctx, atlas, level, entityImages) => {
         coin.y * TILE + (TILE - size) / 2,
         size, size);
     });
-    // Transparent author-supplied PNGs keep their proportions inside square cells.
+    drawCharacterShadows(ctx, level, time);
+    // Registered animation frames keep the same size and ground anchor.
     [...level.entities].sort((a, b) => a.y - b.y || a.x - b.x).forEach(entity => {
       if (level.lights.some(light => light.entityId === entity.id)) return;
-      const image = getSpriteImage(entityImages[entity.sprite], entity.sprite);
+      const image = getSpriteImage(entityImages[entity.sprite], entity.sprite, entityAnimationFrame(entity, time));
       const imageWidth = image.naturalWidth || image.width;
       const imageHeight = image.naturalHeight || image.height;
       const scale = TILE / Math.max(imageWidth, imageHeight);
@@ -148,7 +211,7 @@ export const createDungeonRenderer = (ctx, atlas, level, entityImages) => {
     drawDungeonLighting(ctx, level, TILE, time);
     // Outline the actual transparent silhouette, after lighting so yellow stays clear.
     level.entities.filter(entity => highlightedIds.has(entity.id)).forEach(entity => {
-      const image = getSpriteImage(entityImages[entity.sprite], entity.sprite);
+      const image = getSpriteImage(entityImages[entity.sprite], entity.sprite, entityAnimationFrame(entity, time));
       const imageWidth = image.naturalWidth || image.width;
       const imageHeight = image.naturalHeight || image.height;
       const scale = TILE / Math.max(imageWidth, imageHeight);

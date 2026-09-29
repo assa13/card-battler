@@ -1,3 +1,5 @@
+import { ENTITY_ANIMATIONS } from './dungeonAnimations.js';
+
 // Seeded topology and placements are independent of rendering and gameplay state.
 export const COLS = 18;
 export const ROWS = 7;
@@ -14,12 +16,7 @@ export const DECOR_SPRITES = ['vase_decor', 'stones_decor', 'bones_decor'];
 export const ENTITY_URLS = {
   ...Object.fromEntries(['hero', 'chest', 'torch_decor', 'candle', 'coin', 'boss_skeletal_golem', ...ENEMY_SPRITES, ...DECOR_SPRITES]
     .map(name => [name, `./assets/dev/dungeon/entities/${name}.png?v=sector-progression-20260916`])),
-  boss_eye: './chars/eye_atlas.webp',
-  boss_worm: './assets/units/worm/worm.png',
-};
-export const ENTITY_FRAMES = {
-  boss_eye: { x: 0, y: 0, width: 512, height: 512 },
-  boss_worm: { x: 0, y: 0, width: 500, height: 248 },
+  ...Object.fromEntries(Object.entries(ENTITY_ANIMATIONS).map(([name, animation]) => [name, animation.url])),
 };
 export const CHARACTERS_FIGMA_URL = 'https://www.figma.com/design/zG9zihyiBTJFjR5dVta74Z/card-crawler?node-id=379-5514';
 export const isFloor = tile => tile === 'floor' || Boolean(tile?.startsWith('floor_shadow_'));

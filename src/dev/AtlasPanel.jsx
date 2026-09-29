@@ -1,3 +1,4 @@
+import SmallIconText from '../ui/SmallIconText';
 import { useEffect, useState } from 'react';
 import NineSlice from '../ui/NineSlice';
 import UiSprite from '../ui/UiSprite';
@@ -137,20 +138,20 @@ export const AtlasViewer = ({ selected }) => {
       <div className="space-y-1 border-t border-slate-800 pt-4">
         <h1 className="text-sm font-black text-amber-300">{name}</h1>
         <p className="text-[11px] text-slate-500">
-          {element.label} · {isSlice ? '9-slice' : 'цельный спрайт'}
+          {element.label}<SmallIconText> · </SmallIconText>{isSlice ? '9-slice' : 'цельный спрайт'}
         </p>
       </div>
 
       <dl className="flex flex-wrap gap-x-8 gap-y-2">
-        <Field label="Регион">{region.x},{region.y} · {region.width}×{region.height}</Field>
+        <Field label="Регион">{region.x},{region.y}<SmallIconText> · </SmallIconText>{region.width}<SmallIconText>×</SmallIconText>{region.height}</Field>
         {isSlice && (
           <>
             <Field label="Границы">
               L{element.borders.left} R{element.borders.right} T{element.borders.top} B{element.borders.bottom}
             </Field>
-            <Field label="Центр">{center.width}×{center.height}</Field>
-            <Field label="Минимум">{min.width}×{min.height}</Field>
-            <Field label="Режимы">края {element.edgeMode} · центр {element.centerMode}</Field>
+            <Field label="Центр">{center.width}<SmallIconText>×</SmallIconText>{center.height}</Field>
+            <Field label="Минимум">{min.width}<SmallIconText>×</SmallIconText>{min.height}</Field>
+            <Field label="Режимы">края {element.edgeMode}<SmallIconText> · центр </SmallIconText>{element.centerMode}</Field>
           </>
         )}
       </dl>
@@ -177,8 +178,8 @@ export const AtlasViewer = ({ selected }) => {
         </section>
       )}
 
-      <p className="text-[11px] text-slate-600">
-        Координаты правятся руками в src/config/uiAtlas.json ·{' '}
+      <p className="text-[11px] text-slate-600"><SmallIconText>
+        Координаты правятся руками в src/config/uiAtlas.json ·</SmallIconText>{' '}
         <a className="underline hover:text-amber-400" href={figmaNodeUrl(UI_ATLAS.source.nodeId)} target="_blank" rel="noreferrer">
           атлас в Figma
         </a>
