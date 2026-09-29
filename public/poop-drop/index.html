@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Poop Drop</title>
+  <style>
+    html,body{margin:0;height:100%;overflow:hidden;background:#17120f;font-family:Arial,sans-serif}
+    body{touch-action:none;user-select:none}
+    #game{display:block;width:100vw;height:100vh;background:linear-gradient(#211915 0%,#17120f 70%,#100d0b 100%)}
+    #hud{position:fixed;left:18px;top:16px;color:#fff;font-weight:700;font-size:20px;text-shadow:0 2px 4px #000;z-index:2}
+    #hint{position:fixed;left:50%;top:18px;transform:translateX(-50%);color:#f5d6b0;font-size:15px;opacity:.9;z-index:2;text-align:center}
+    #floor{position:fixed;left:0;right:0;bottom:0;height:9vh;background:linear-gradient(#30241e,#1b1512);border-top:2px solid #4d382c;pointer-events:none}
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="hud">Убрано: <span id="score">0</span></div>
+  <div id="hint">Нажимай на упавшие какашки — они исчезают</div>
+  <div id="floor"></div>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+let W=innerWidth,H=innerHeight,DPR=Math.min(devicePixelRatio||1,2);
+let score=0,last=performance.now(),spawnAcc=0;
+const blobs=[];
+
+function resize(){
+  W=innerWidth; H=innerHeight; DPR=Math.min(devicePixelRatio||1,2);
+  canvas.width=W*DPR; canvas.height=H*DPR; canvas.style.width=W+'px'; canvas.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+addEventListener('resize',resize); resize();
+
+function rnd(a,b){return a+Math.random()*(b-a)}
+function spawn(){
+  const r=rnd(22,42);
+  blobs.push({
+    x:rnd(r,W-r), y:-r*2, vx:rnd(-25,25), vy:rnd(0,60),
+    r, rot:rnd(-.3,.3), vr:rnd(-1.2,1.2),
+    squash:1, resting:false, hue:rnd(22,32)
+  });
+}
+
+function floorY(){ return H-H*.09; }
+
+function update(dt){
+  spawnAcc+=dt;
+  if(spawnAcc>.72){spawnAcc=0;spawn();}
+  const fy=floorY();
+  for(const b of blobs){
+    if(!b.resting){
+      b.vy += 980*dt;
+      b.x += b.vx*dt; b.y += b.vy*dt; b.rot += b.vr*dt;
+      if(b.x-b.r<0){b.x=b.r;b.vx=Math.abs(b.vx)*.65}
+      if(b.x+b.r>W){b.x=W-b.r;b.vx=-Math.abs(b.vx)*.65}
+      if(b.y+b.r>=fy){
+        b.y=fy-b.r;
+        if(Math.abs(b.vy)>90){
+          b.vy*=-.28; b.vx*=.8; b.vr*=.6; b.squash=.72;
+        }else{
+          b.vy=0;b.vx*=.5;b.vr=0;b.resting=true;b.squash=.82;
+        }
+      }
+    }
+    b.squash += (1-b.squash)*Math.min(1,dt*8);
+  }
+}
+
+function poopPath(r){
+  ctx.beginPath();
+  ctx.moveTo(0,-r*.85);
+  ctx.bezierCurveTo(r*.55,-r*.75,r*.72,-r*.25,r*.46,-r*.03);
+  ctx.bezierCurveTo(r*.95,r*.08,r*.9,r*.72,r*.38,r*.78);
+  ctx.bezierCurveTo(r*.15,r*.96,-r*.48,r*.9,-r*.6,r*.56);
+  ctx.bezierCurveTo(-r*.92,r*.32,-r*.75,-r*.16,-r*.42,-r*.27);
+  ctx.bezierCurveTo(-r*.55,-r*.58,-r*.3,-r*.78,0,-r*.85);
+  ctx.closePath();
+}
+
+function drawPoop(b){
+  ctx.save();
+  ctx.translate(b.x,b.y); ctx.rotate(b.rot); ctx.scale(1,b.squash);
+  ctx.shadowColor='rgba(0,0,0,.45)';ctx.shadowBlur=12;ctx.shadowOffsetY=7;
+  const g=ctx.createRadialGradient(-b.r*.25,-b.r*.4,b.r*.1,0,0,b.r);
+  g.addColorStop(0,'hsl('+b.hue+',55%,42%)');
+  g.addColorStop(1,'hsl('+b.hue+',58%,22%)');
+  ctx.fillStyle=g; poopPath(b.r); ctx.fill();
+  ctx.shadowColor='transparent';
+  ctx.fillStyle='rgba(255,255,255,.10)';
+  ctx.beginPath();ctx.ellipse(-b.r*.22,-b.r*.42,b.r*.12,b.r*.2,-.5,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+}
+
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  const fy=floorY();
+  ctx.fillStyle='rgba(0,0,0,.18)';ctx.fillRect(0,fy,W,H-fy);
+  for(const b of blobs){
+    ctx.save();
+    ctx.globalAlpha=.18;
+    ctx.fillStyle='#000';
+    ctx.beginPath();ctx.ellipse(b.x,fy+4,b.r*.9,b.r*.22,0,0,Math.PI*2);ctx.fill();
+    ctx.restore();
+    drawPoop(b);
+  }
+}
+
+function hit(x,y){
+  for(let i=blobs.length-1;i>=0;i--){
+    const b=blobs[i];
+    const dx=x-b.x,dy=y-b.y;
+    if(dx*dx+dy*dy<(b.r*1.08)*(b.r*1.08)){
+      blobs.splice(i,1);score++;scoreEl.textContent=score;return;
+    }
+  }
+}
+canvas.addEventListener('pointerdown',e=>{
+  const r=canvas.getBoundingClientRect();
+  hit(e.clientX-r.left,e.clientY-r.top);
+});
+
+function loop(now){
+  const dt=Math.min(.033,(now-last)/1000);last=now;
+  update(dt);draw();requestAnimationFrame(loop);
+}
+for(let i=0;i<4;i++) spawn();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
