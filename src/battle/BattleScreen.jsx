@@ -929,7 +929,9 @@ const BattleScreen = ({ zIndex }) => {
               ? (
                 <SpineUnit
                   unitId={spineUnit.id}
-                  light={light}
+                  // Pixi filter can make Spine mesh fully disappear in production.
+                  // Keep scene/shadow lighting, but render the Spine boss unfiltered.
+                  light={null}
                   animation={spineAction?.animation || spineUnit.defaultAnimation}
                   animationKey={spineAction?.key}
                   animationSpeed={spineAction?.speed || 1}
